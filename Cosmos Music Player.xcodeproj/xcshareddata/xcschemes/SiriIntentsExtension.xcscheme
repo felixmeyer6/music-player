@@ -59,7 +59,7 @@
       launchAutomaticallySubstyle = "2">
       <RemoteRunnable
          runnableDebuggingMode = "0"
-         BundleIdentifier = "dev.clq.Cosmos-Music-Player"
+         BundleIdentifier = "dev.neofx.music-player"
          RemotePath = "/var/containers/Bundle/Application/8F68A45F-2855-4762-88F6-27F66ABB3B7F/Cosmos Music Player.app">
       </RemoteRunnable>
       <MacroExpansion>

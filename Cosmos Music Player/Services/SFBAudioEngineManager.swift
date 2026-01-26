@@ -473,7 +473,6 @@ class SFBAudioEngineManager: NSObject, ObservableObject, AudioPlayer.Delegate {
         } else if audioPlayer?.isPlaying == true {
             print("🔄 Stopping existing playback before starting new track")
             audioPlayer?.stop()
-            try await Task.sleep(nanoseconds: 100_000_000)
         }
 
         // Start playback with proper error handling

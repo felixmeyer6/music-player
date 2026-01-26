@@ -28,7 +28,7 @@
 
 /* General UI strings */
 "all_songs" = "All Songs";
-"liked_songs" = "Liked Songs";
+"liked_songs" = "Liked";
 "add_songs" = "Open Files";
 "import_music_files" = "Import music files";
 "ok" = "OK";
@@ -62,9 +62,6 @@
 "track_number" = "%d";
 "play" = "Play";
 "shuffle" = "Shuffle";
-"wrong_artist" = "Wrong artist?";
-"data_provided_by" = "Data provided by %@";
-"open_spotify" = "OPEN SPOTIFY";
 "loading_artist" = "Loading artist...";
 
 /* Player */
@@ -98,9 +95,9 @@
 "background_color" = "Background Color";
 "choose_color_theme" = "Choose the color theme for background effects across all screens.";
 
-/* Liked Songs Actions */
-"add_to_liked_songs" = "Add to Liked Songs";
-"remove_from_liked_songs" = "Remove from Liked Songs";
+/* Liked Actions */
+"add_to_liked_songs" = "Add to Liked";
+"remove_from_liked_songs" = "Remove from Liked";
 
 /* Search Categories */
 "all" = "All";

@@ -37,13 +37,6 @@ A premium audiophile music player for iOS supporting FLAC, WAV, M4A, MP3, Opus, 
 - **Metadata Extraction**: Reads artist, album, title, and other metadata from FLAC, MP3, and WAV files
 - **Offline First**: Works completely offline with local files, no internet required
 
-### 👤 Artist Information
-- **Dual API Integration**: Combines Discogs and Spotify APIs for comprehensive artist data
-- **Artist Profiles**: Rich artist biographies and information
-- **High-Quality Images**: Artist photos and album artwork
-- **Alternative Sources**: "Wrong artist?" feature to switch between data sources
-- **Smart Caching**: Efficient caching system for offline access
-
 ### 🎤 Siri Voice Control
 - **Full Voice Integration**: Control music playback with Siri voice commands
 - **Multi-Language Support**: Works in both English and French
@@ -89,11 +82,6 @@ A premium audiophile music player for iOS supporting FLAC, WAV, M4A, MP3, Opus, 
 - **DatabaseManager**: SQLite/GRDB-based local database with migrations
 - **StateManager**: iCloud state synchronization and local persistence
 - **LibraryIndexer**: Automatic music file discovery and indexing
-
-#### API Integration
-- **DiscogsAPI**: Rich artist information from Discogs database
-- **SpotifyAPI**: Alternative artist data with OAuth2 authentication
-- **HybridMusicAPI**: Intelligent fallback system between services
 
 #### Data Management
 - **CloudDownloadManager**: Handles iCloud Drive file operations
@@ -182,34 +170,12 @@ CREATE TABLE playlist_item (
    cd Cosmos\ Music\ Player
    ```
 
-2. **Configure Environment Variables**
-   - Copy `.env.template` to `.env`
-   - Add your API credentials:
-   ```bash
-   SPOTIFY_CLIENT_ID=your_spotify_client_id
-   SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-   DISCOGS_CONSUMER_KEY=your_discogs_consumer_key  
-   DISCOGS_CONSUMER_SECRET=your_discogs_consumer_secret
-   ```
-
-3. **API Key Setup**
-   
-   **Spotify API Keys:**
-   - Visit [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications)
-   - Create a new app
-   - Copy Client ID and Client Secret to your `.env` file
-   
-   **Discogs API Keys:**
-   - Visit [Discogs Developer Settings](https://www.discogs.com/settings/developers)
-   - Create a new application
-   - Copy Consumer Key and Consumer Secret to your `.env` file
-
-4. **Configure iCloud**
+2. **Configure iCloud**
    - Ensure your Apple Developer Account has iCloud capabilities
-   - The app uses container: `iCloud.dev.clq.Cosmos-Music-Player`
+   - The app uses container: `iCloud.dev.neofx.music-player`
    - Update the bundle identifier in project settings if needed
 
-5. **Build and Run**
+3. **Build and Run**
    - Open `Cosmos Music Player.xcodeproj` in Xcode
    - Select your development team
    - Build and run on device (required for iCloud functionality)
@@ -258,12 +224,6 @@ GraphicEQ format allows you to define frequency-specific gain adjustments for pr
 3. Add songs from your library
 4. Playlists sync automatically across devices
 
-### Using Artist Information
-1. Navigate to any artist in your library
-2. View rich artist information from Discogs/Spotify
-3. Tap "Wrong artist?" to switch data sources
-4. Artist data is cached for offline viewing
-
 ### Using Siri Voice Control
 1. **Enable Siri**: Ensure Siri is enabled in your device settings
 2. **Grant Permissions**: Allow Siri access to Cosmos Music Player when prompted
@@ -285,11 +245,6 @@ The app automatically uses your device's language setting. Currently supported:
 - **SwiftUI**: Modern UI framework
 - **Combine**: Reactive programming
 
-### API Services
-- **Spotify Web API**: Artist information and metadata
-- **Discogs API**: Comprehensive music database
-- **iCloud Drive API**: Cross-device synchronization
-
 ## File Structure 📂
 
 ```
@@ -301,9 +256,7 @@ Cosmos Music Player/
 │   ├── DatabaseManager.swift
 │   ├── StateManager.swift
 │   ├── LibraryIndexer.swift
-│   ├── SpotifyAPI.swift
-│   ├── DiscogsAPI.swift
-│   └── HybridMusicAPI.swift
+│   └── ArtworkManager.swift
 ├── Views/              # SwiftUI views
 │   ├── Library/
 │   ├── Artists/
@@ -319,7 +272,6 @@ Cosmos Music Player/
 │   └── SettingsModels.swift
 ├── Helpers/            # Utility classes
 │   ├── LocalizationHelper.swift
-│   └── EnvironmentLoader.swift
 └── Resources/          # Localization files
     ├── en.lproj/
     └── fr.lproj/
@@ -456,15 +408,6 @@ To add a new language:
 4. Update `LocalizationHelper.swift` if needed for locale-specific formatting
 5. Test the UI with your new language
 
-### API Integration
-To add new music APIs:
-
-1. Create a new service file in `Services/`
-2. Implement the required protocols
-3. Update `HybridMusicAPI.swift` to include the new service
-4. Add appropriate error handling and caching
-5. Update environment variable documentation
-
 ### Audio Processing
 To enhance audio features:
 
@@ -480,7 +423,6 @@ Thank you for contributing! 🚀
 
 - **Flexible Storage**: Music files stored either locally on device or in user's personal iCloud Drive
 - **User Choice**: Complete control over where music files are stored (local vs cloud)
-- **API Keys**: Securely loaded from environment variables
 - **No Tracking**: No user data collection or tracking
 - **Offline First**: Full functionality works without internet (especially with local storage)
 - **Encrypted Sync**: iCloud synchronization uses Apple's end-to-end encryption
@@ -496,11 +438,6 @@ Thank you for contributing! 🚀
 - Verify files are FLAC, MP3, or WAV format
 - Try manual sync from the app
 - Check both iCloud Drive and "On My iPhone" locations
-
-**Artist information missing:**
-- Check internet connection
-- Verify API keys are correctly configured
-- Try the "Wrong artist?" feature for alternative sources
 
 **Equalizer not working:**
 - Ensure the equalizer is enabled (toggle on)
@@ -524,39 +461,8 @@ Thank you for contributing! 🚀
 
 This project is licensed under [Your License] - see the LICENSE file for details.
 
-## Environment Variables 🔧
-
-To run this project, you will need to add the following environment variables to your `.env` file:
-
-```bash
-# Spotify API Keys (Required)
-SPOTIFY_CLIENT_ID=your_spotify_client_id
-SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-
-# Discogs API Keys (Required)
-DISCOGS_CONSUMER_KEY=your_discogs_consumer_key
-DISCOGS_CONSUMER_SECRET=your_discogs_consumer_secret
-```
-
-### Getting API Keys
-
-**Spotify API Keys:**
-- Visit [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications)
-- Create a new app
-- Copy Client ID and Client Secret to your `.env` file
-
-**Discogs API Keys:**
-- Visit [Discogs Developer Settings](https://www.discogs.com/settings/developers)
-- Create a new application
-- Copy Consumer Key and Consumer Secret to your `.env` file
-
-## Appendix 📋
-
-We use Spotify and Discogs to fetch artist details, and LRCLIB for synchronized lyrics. We are not related to any of these services in any financial way - we just want to offer you the best experience possible.
-
 ### Credits 🎨
 
-- **Lyrics Api**: Special thanks to the [LRCLIB](https://github.com/tranxuanthang/lrclib) project by tranxuanthang
 - **Logo Design**: Created by **Zerrotic** (zerrotic on Discord)
 - **App Store Screenshots**: Designed by **MrVedakkaN** (mrvedakkan on Discord)
 

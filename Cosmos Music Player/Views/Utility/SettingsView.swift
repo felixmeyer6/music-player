@@ -25,47 +25,6 @@ struct SettingsView: View {
                     Text(Localized.overrideSystemAppearance)
                         .font(.caption)
                         .foregroundColor(.secondary)
-                    
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(Localized.backgroundColor)
-                            .font(.headline)
-                        
-                        LazyVGrid(columns: [
-                            GridItem(.flexible()),
-                            GridItem(.flexible()),
-                            GridItem(.flexible()),
-                            GridItem(.flexible())
-                        ], spacing: 16) {
-                            ForEach(BackgroundColor.allCases, id: \.self) { color in
-                                Button(action: {
-                                    deleteSettings.backgroundColorChoice = color
-                                    deleteSettings.save()
-                                    NotificationCenter.default.post(name: NSNotification.Name("BackgroundColorChanged"), object: nil)
-                                }) {
-                                    ZStack {
-                                        Circle()
-                                            .fill(color.color)
-                                            .frame(width: 44, height: 44)
-                                            .overlay(
-                                                Circle()
-                                                    .stroke(deleteSettings.backgroundColorChoice == color ? Color.primary : Color.clear, lineWidth: 3)
-                                            )
-                                        
-                                        if deleteSettings.backgroundColorChoice == color {
-                                            Image(systemName: "checkmark")
-                                                .font(.system(size: 16, weight: .bold))
-                                                .foregroundColor(.white)
-                                        }
-                                    }
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
-                        }
-                    }
-                    
-                    Text(Localized.chooseColorTheme)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
                 
                 
@@ -109,42 +68,6 @@ struct SettingsView: View {
                     .padding(.vertical, 4)
                 }
 
-                Section(Localized.information) {
-                    HStack {
-                        Text(Localized.version)
-                        Spacer()
-                        Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown")
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    HStack {
-                        Text(Localized.appName)
-                        Spacer()
-                        Text(Localized.cosmosMusicPlayer)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Button(action: {
-                        print("🔗 GitHub repository button tapped")
-                        if let url = URL(string: "https://github.com/clquwu/Cosmos-Music-Player") {
-                            print("🔗 Opening URL: \(url)")
-                            UIApplication.shared.open(url)
-                        } else {
-                            print("❌ Invalid GitHub URL")
-                        }
-                    }) {
-                        HStack {
-                            Text(Localized.githubRepository)
-                                .foregroundColor(.primary)
-                            Spacer()
-                            Image(systemName: "arrow.up.right.square")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 16))
-                        }
-                        .contentShape(Rectangle()) // Make entire area tappable
-                    }
-                    .buttonStyle(PlainButtonStyle()) // Remove default button styling that might interfere
-                }
             }
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 100)

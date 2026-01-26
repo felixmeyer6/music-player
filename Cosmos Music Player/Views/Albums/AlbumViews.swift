@@ -237,10 +237,10 @@ struct AlbumDetailScreen: View {
                                     Text(Localized.play)
                                 }
                                 .font(.title3.weight(.semibold))
-                                .foregroundColor(.white)
+                                .foregroundColor(.black)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 56)
-                                .background(settings.backgroundColorChoice.color)
+                                .background(Color.white)
                                 .cornerRadius(28)
                             }
 
@@ -256,10 +256,10 @@ struct AlbumDetailScreen: View {
                                     Text(Localized.shuffle)
                                 }
                                 .font(.title3.weight(.semibold))
-                                .foregroundColor(settings.backgroundColorChoice.color)
+                                .foregroundColor(Color.white)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 56)
-                                .background(settings.backgroundColorChoice.color.opacity(0.1))
+                                .background(Color.white.opacity(0.1))
                                 .cornerRadius(28)
                             }
                         }
@@ -296,23 +296,22 @@ struct AlbumDetailScreen: View {
                                 }
 
                                 // Tracks for this disc
-                                ForEach(Array(disc.tracks.enumerated()), id: \.offset) { index, track in
-                                    AlbumTrackRowView(
+                                ForEach(disc.tracks, id: \.stableId) { track in
+                                    TrackRowView(
                                         track: track,
-                                        trackNumber: track.trackNo ?? (index + 1),
+                                        activeTrackId: playerEngine.currentTrack?.stableId,
+                                        isAudioPlaying: playerEngine.isPlaying,
                                         onTap: {
-                                            Task {
-                                                await playerEngine.playTrack(track, queue: filteredAlbumTracks)
-                                            }
-                                        }
+                                            Task { await playerEngine.playTrack(track, queue: filteredAlbumTracks) }
+                                        },
+                                        playlist: nil,
+                                        showDirectDeleteButton: false,
+                                        onEnterBulkMode: nil
                                     )
-
-                                    // Add divider between tracks (not after last track of last disc)
-                                    let isLastTrackOfDisc = index == disc.tracks.count - 1
-                                    let isLastDisc = disc.discNumber == groupedByDisc.last?.discNumber
-                                    if !isLastTrackOfDisc || !isLastDisc {
-                                        Divider().padding(.leading, 60)
-                                    }
+                                    .equatable()
+                                    .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial).opacity(0.7))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
                                 }
                             }
                         }
@@ -354,171 +353,6 @@ struct AlbumDetailScreen: View {
                 await MainActor.run {
                     artworkImage = image
                 }
-            }
-        }
-    }
-}
-
-struct AlbumTrackRowView: View {
-    let track: Track
-    let trackNumber: Int
-    let onTap: () -> Void
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    @State private var isFavorite = false
-    @State private var showPlaylistDialog = false
-    @State private var showDeleteConfirmation = false
-    @State private var deleteSettings = DeleteSettings.load()
-    
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 8) {
-                // Track number
-                Text("\(trackNumber)")
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .foregroundColor(.secondary)
-                    .frame(width: 22, alignment: .leading)
-                
-                // Track info
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(track.title)
-                        .font(.body)
-                        .fontWeight(.medium)
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.leading)
-                    
-                    // Artist name and duration with dot separator
-                    HStack(spacing: 0) {
-                        if let artistId = track.artistId,
-                           let artist = try? DatabaseManager.shared.read({ db in
-                               try Artist.fetchOne(db, key: artistId)
-                           }) {
-                            Text(artist.name)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            
-                            if track.durationMs != nil {
-                                Text(" • ")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        
-                        if let duration = track.durationMs {
-                            Text(formatDuration(duration))
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-                
-                Spacer()
-                
-                // Menu button - reduced spacing
-                Menu {
-                    Button(action: {
-                        do {
-                            try appCoordinator.toggleFavorite(trackStableId: track.stableId)
-                            isFavorite.toggle()
-                        } catch {
-                            print("Failed to toggle favorite: \(error)")
-                        }
-                    }) {
-                        HStack {
-                            Image(systemName: isFavorite ? "heart.slash" : "heart")
-                                .foregroundColor(isFavorite ? .red : .primary)
-                            Text(isFavorite ? Localized.removeFromLikedSongs : Localized.addToLikedSongs)
-                                .foregroundColor(.primary)
-                        }
-                    }
-                    
-                    if let artistId = track.artistId,
-                       let artist = try? DatabaseManager.shared.read({ db in
-                           try Artist.fetchOne(db, key: artistId)
-                       }),
-                       let allArtistTracks = try? DatabaseManager.shared.read({ db in
-                           try Track.filter(Column("artist_id") == artistId).fetchAll(db)
-                       }) {
-                        NavigationLink(destination: ArtistDetailScreenWrapper(artistName: artist.name, allTracks: allArtistTracks)) {
-                            Label(Localized.showArtistPage, systemImage: "person.circle")
-                        }
-                    }
-                    
-                    Button(action: {
-                        showPlaylistDialog = true
-                    }) {
-                        Label(Localized.addToPlaylistEllipsis, systemImage: "rectangle.stack.badge.plus")
-                    }
-                    
-                    Button(action: {
-                        showDeleteConfirmation = true
-                    }) {
-                        Label(Localized.deleteFile, systemImage: "trash")
-                    }
-                    .foregroundColor(.red)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundColor(.secondary)
-                        .frame(width: 24, height: 30)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(PlainButtonStyle())
-        .onAppear {
-            checkFavoriteStatus()
-        }
-        .sheet(isPresented: $showPlaylistDialog) {
-            PlaylistSelectionView(track: track)
-                .accentColor(deleteSettings.backgroundColorChoice.color)
-        }
-        .alert(Localized.deleteFile, isPresented: $showDeleteConfirmation) {
-            Button("Delete", role: .destructive) {
-                deleteFile()
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text(Localized.deleteFileConfirmation(track.title))
-        }
-    }
-    
-    private func checkFavoriteStatus() {
-        do {
-            isFavorite = try DatabaseManager.shared.isFavorite(trackStableId: track.stableId)
-        } catch {
-            print("Failed to check favorite status: \(error)")
-        }
-    }
-    
-    private func formatDuration(_ milliseconds: Int) -> String {
-        let seconds = milliseconds / 1000
-        let minutes = seconds / 60
-        let remainingSeconds = seconds % 60
-        return String(format: "%d:%02d", minutes, remainingSeconds)
-    }
-    
-    private func deleteFile() {
-        Task {
-            do {
-                let url = URL(fileURLWithPath: track.path)
-                
-                // Delete file from storage
-                try FileManager.default.removeItem(at: url)
-                print("🗑️ Deleted file from storage: \(track.title)")
-                
-                // Delete from database with cleanup of orphaned relations
-                try DatabaseManager.shared.deleteTrack(byStableId: track.stableId)
-                print("✅ Database deletion completed successfully")
-                
-                // Notify UI to refresh
-                NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
-                
-            } catch {
-                print("❌ Failed to delete file: \(error)")
             }
         }
     }

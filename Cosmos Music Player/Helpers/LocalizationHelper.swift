@@ -79,8 +79,6 @@ struct Localized {
     static let album = "album".localized
     static let play = "play".localized
     static let shuffle = "shuffle".localized
-    static let wrongArtist = "wrong_artist".localized
-    static let openSpotify = "open_spotify".localized
     static let loadingArtist = "loading_artist".localized
     
     // MARK: - Player
@@ -113,7 +111,7 @@ struct Localized {
     static let backgroundColor = "background_color".localized
     static let chooseColorTheme = "choose_color_theme".localized
     
-    // MARK: - Liked Songs Actions
+    // MARK: - Liked Actions
     static let addToLikedSongs = "add_to_liked_songs".localized
     static let removeFromLikedSongs = "remove_from_liked_songs".localized
     
@@ -195,10 +193,6 @@ struct Localized {
     
     static func andMore(_ count: Int) -> String {
         return "and_more".localized(with: count)
-    }
-    
-    static func dataProvidedBy(_ source: String) -> String {
-        return "data_provided_by".localized(with: source)
     }
     
     static func percentComplete(_ percent: Int) -> String {

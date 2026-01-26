@@ -30,7 +30,7 @@ struct InitializationView: View {
                                 Text(libraryIndexer.currentlyProcessing)
                                     .font(.caption)
                                     .fontWeight(.medium)
-                                    .foregroundColor(settings.backgroundColorChoice.color)
+                                    .foregroundColor(Color.white)
                                     .lineLimit(1)
                                     .frame(maxWidth: 250)
                             }
@@ -40,7 +40,7 @@ struct InitializationView: View {
                         HStack {
                             Text(Localized.percentComplete(Int(libraryIndexer.indexingProgress * 100)))
                                 .font(.caption)
-                                .foregroundColor(settings.backgroundColorChoice.color)
+                                .foregroundColor(Color.white)
                                 .frame(width: 35, alignment: .leading)
                             
                             ProgressView(value: libraryIndexer.indexingProgress)

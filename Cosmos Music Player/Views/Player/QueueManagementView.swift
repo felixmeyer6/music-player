@@ -53,7 +53,7 @@ struct QueueManagementView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
                         List {
-                            ForEach(Array(playerEngine.playbackQueue.enumerated()), id: \.offset) { index, track in
+                            ForEach(Array(playerEngine.playbackQueue.enumerated()), id: \.element.stableId) { index, track in
                                 QueueTrackRow(
                                     track: track,
                                     index: index,
@@ -66,6 +66,18 @@ struct QueueManagementView: View {
                                 .listRowBackground(Color.clear)
                                 .listRowSeparator(.hidden)
                                 .listRowInsets(EdgeInsets())
+                                .onLongPressGesture(
+                                    minimumDuration: 0.075,
+                                    maximumDistance: 10,
+                                    pressing: { isPressing in
+                                        if isPressing {
+                                            draggedTrack = track
+                                        } else if draggedTrack?.stableId == track.stableId {
+                                            draggedTrack = nil
+                                        }
+                                    },
+                                    perform: {}
+                                )
                             }
                             .onMove(perform: moveItems)
                         }
@@ -85,20 +97,19 @@ struct QueueManagementView: View {
     }
     
     private func moveItems(from source: IndexSet, to destination: Int) {
-        var newQueue = playerEngine.playbackQueue
-        var newCurrentIndex = playerEngine.currentIndex
-
         // Get the source index (should be only one item)
         guard let sourceIndex = source.first else { return }
 
         // Calculate the actual destination index
         let actualDestination = sourceIndex < destination ? destination - 1 : destination
 
-        // Move the item
+        // Create new queue with the move applied
+        var newQueue = playerEngine.playbackQueue
         let movedTrack = newQueue.remove(at: sourceIndex)
         newQueue.insert(movedTrack, at: actualDestination)
 
-        // Update current playing index
+        // Calculate new current index
+        var newCurrentIndex = playerEngine.currentIndex
         if sourceIndex == playerEngine.currentIndex {
             // The currently playing track was moved
             newCurrentIndex = actualDestination
@@ -110,9 +121,11 @@ struct QueueManagementView: View {
             newCurrentIndex += 1
         }
 
-        // Apply changes
-        playerEngine.playbackQueue = newQueue
-        playerEngine.currentIndex = newCurrentIndex
+        // Apply changes on main thread
+        DispatchQueue.main.async {
+            self.playerEngine.playbackQueue = newQueue
+            self.playerEngine.currentIndex = newCurrentIndex
+        }
     }
 
     private func jumpToTrack(at index: Int) {
@@ -168,13 +181,13 @@ struct QueueTrackRow: View {
                     Text(track.title)
                         .font(.headline)
                         .fontWeight(isCurrentTrack ? .bold : .medium)
-                        .foregroundColor(isCurrentTrack ? settings.backgroundColorChoice.color : .primary)
+                        .foregroundColor(isCurrentTrack ? Color.white : .primary)
                         .lineLimit(1)
                     
                     if isCurrentTrack {
                         Image(systemName: "speaker.wave.2.fill")
                             .font(.caption)
-                            .foregroundColor(settings.backgroundColorChoice.color)
+                            .foregroundColor(Color.white)
                     }
                 }
                 
@@ -200,11 +213,10 @@ struct QueueTrackRow: View {
         .padding(.horizontal, 12)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(isCurrentTrack ? settings.backgroundColorChoice.color.opacity(0.15) : Color.clear)
+                .fill(isCurrentTrack ? Color.white.opacity(0.15) : Color.clear)
         )
-        .opacity(isDragging ? 0.8 : 1.0)
-        .scaleEffect(isDragging ? 1.05 : 1.0)
-        .animation(.easeInOut(duration: 0.2), value: isDragging)
+        .opacity(isDragging ? 0.0 : 1.0)
+        .animation(.easeInOut(duration: 0.15), value: isDragging)
         .contentShape(Rectangle())
         .onTapGesture {
             onTap()
@@ -228,4 +240,3 @@ struct QueueTrackRow: View {
         }
     }
 }
-

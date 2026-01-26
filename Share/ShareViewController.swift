@@ -262,7 +262,7 @@ class ShareViewController: SLComposeServiceViewController {
             return
         }
 
-        guard let sharedContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.clq.Cosmos-Music-Player") else {
+        guard let sharedContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player") else {
             print("❌ Failed to get shared container URL")
             return
         }

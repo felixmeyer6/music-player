@@ -37,7 +37,7 @@ final class WidgetDataManager: @unchecked Sendable {
     
     private init() {
         // Use App Group to share data between app and widget
-        userDefaults = UserDefaults(suiteName: "group.dev.clq.Cosmos-Music-Player")
+        userDefaults = UserDefaults(suiteName: "group.dev.neofx.music-player")
     }
     
     // MARK: - Track Data (without artwork to avoid 4MB limit)
@@ -68,7 +68,7 @@ final class WidgetDataManager: @unchecked Sendable {
     
     func getCurrentTrack() -> WidgetTrackData? {
         print("📱 Widget: Attempting to retrieve track data...")
-        print("📱 Widget: Using suite: group.dev.clq.Cosmos-Music-Player")
+        print("📱 Widget: Using suite: group.dev.neofx.music-player")
         
         guard let userDefaults = userDefaults else {
             print("⚠️ Widget: Failed to access shared UserDefaults - userDefaults is nil")
@@ -105,7 +105,7 @@ final class WidgetDataManager: @unchecked Sendable {
     // MARK: - Artwork File Storage (avoids 4MB UserDefaults limit)
     
     private func getSharedContainerURL() -> URL? {
-        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.clq.Cosmos-Music-Player")
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player")
     }
     
     private func saveArtwork(_ data: Data) {
@@ -186,7 +186,7 @@ public final class PlaylistDataManager: @unchecked Sendable {
     private let playlistsKey = "widget.playlists"
 
     private init() {
-        userDefaults = UserDefaults(suiteName: "group.dev.clq.Cosmos-Music-Player")
+        userDefaults = UserDefaults(suiteName: "group.dev.neofx.music-player")
     }
 
     public func savePlaylists(_ playlists: [WidgetPlaylistData]) {

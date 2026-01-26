@@ -226,7 +226,7 @@ struct PlaylistCard: View {
 
     private func loadArtworkFromFile(_ filename: String) -> Data? {
         guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.dev.clq.Cosmos-Music-Player"
+            forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player"
         ) else {
             return nil
         }

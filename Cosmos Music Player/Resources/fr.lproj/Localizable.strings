@@ -62,9 +62,6 @@
 "track_number" = "%d";
 "play" = "Lecture";
 "shuffle" = "Aléatoire";
-"wrong_artist" = "Mauvais artiste ?";
-"data_provided_by" = "Données fournies par %@";
-"open_spotify" = "OUVRIR SPOTIFY";
 "loading_artist" = "Chargement de l'artiste...";
 
 /* Player */
@@ -98,7 +95,7 @@
 "background_color" = "Couleur d'arrière-plan";
 "choose_color_theme" = "Choisissez le thème de couleur pour les effets d'arrière-plan sur tous les écrans.";
 
-/* Liked Songs Actions */
+/* Liked Actions */
 "add_to_liked_songs" = "Ajouter aux favoris";
 "remove_from_liked_songs" = "Retirer des favoris";
 

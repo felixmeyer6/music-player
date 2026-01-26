@@ -812,7 +812,7 @@ class AppCoordinator: ObservableObject {
 
     private func updateWidgetPlaylists(playlists: [Playlist]) async {
         guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.dev.clq.Cosmos-Music-Player"
+            forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player"
         ) else {
             print("⚠️ Widget: Failed to get shared container URL")
             return

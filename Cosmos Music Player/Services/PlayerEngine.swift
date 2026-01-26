@@ -17,6 +17,7 @@ class PlayerEngine: NSObject, ObservableObject {
     static let shared = PlayerEngine()
     
     @Published var currentTrack: Track?
+    @Published var currentArtistName: String?
     @Published var isPlaying = false
     @Published var playbackTime: TimeInterval = 0
     @Published var duration: TimeInterval = 0
@@ -67,6 +68,10 @@ class PlayerEngine: NSObject, ObservableObject {
     // Artwork caching
     private var cachedArtwork: MPMediaItemArtwork?
     private var cachedArtworkTrackId: String?
+
+    // Artist name caching to avoid repeated database lookups
+    private var cachedArtistName: String?
+    private var cachedArtistTrackId: String?
     
     // Security-scoped resource tracking for external files
     private var currentSecurityScopedURL: URL?
@@ -624,9 +629,8 @@ class PlayerEngine: NSObject, ObservableObject {
                 artistName = Localized.unknownArtist
             }
             
-            // Get theme color
-            let settings = DeleteSettings.load()
-            let colorHex = settings.backgroundColorChoice.color.toHex()
+            // Get theme color (white)
+            let colorHex = "FFFFFF"
             
             let widgetData = WidgetTrackData(
                 trackId: track.stableId,
@@ -678,18 +682,9 @@ class PlayerEngine: NSObject, ObservableObject {
             info[MPNowPlayingInfoPropertyPlaybackQueueIndex] = currentIndex
         }
         
-        // Add metadata
-        do {
-            if let artistId = track.artistId,
-               let artist = try databaseManager.read({ db in
-                   try Artist.fetchOne(db, key: artistId)
-               }) {
-                info[MPMediaItemPropertyArtist] = artist.name
-            }
-            
-            // Don't add album title to Now Playing info
-        } catch {
-            print("Failed to fetch metadata: \(error)")
+        // Add artist name from cache (avoids repeated database lookups)
+        if let artistName = getCachedArtistName(for: track) {
+            info[MPMediaItemPropertyArtist] = artistName
         }
         
         // Add track number
@@ -729,7 +724,31 @@ class PlayerEngine: NSObject, ObservableObject {
             }
         }
     }
-    
+
+    /// Get cached artist name, loading from DB only if not cached for this track
+    private func getCachedArtistName(for track: Track) -> String? {
+        // Return cached value if it's for the current track
+        if cachedArtistTrackId == track.stableId, let name = cachedArtistName {
+            return name
+        }
+
+        // Load from database and cache
+        guard let artistId = track.artistId else { return nil }
+
+        do {
+            if let artist = try databaseManager.read({ db in
+                try Artist.fetchOne(db, key: artistId)
+            }) {
+                cachedArtistName = artist.name
+                cachedArtistTrackId = track.stableId
+                return artist.name
+            }
+        } catch {
+            print("Failed to fetch artist: \(error)")
+        }
+        return nil
+    }
+
     // MARK: - Audio Session Management
     
     private func setupAudioSessionCategory() throws {
@@ -806,16 +825,19 @@ class PlayerEngine: NSObject, ObservableObject {
         let url = URL(fileURLWithPath: track.path)
         let formatInfo = PlaybackRouter.getFormatInfo(for: url)
         print("📀 loadTrack called for: \(track.title) (format: \(formatInfo.format))")
-        
+
+        // Save previous engine state to detect switching between engines
+        let wasUsingSFBEngine = usingSFBEngine
+
         // Cancel any ongoing load operation
         currentLoadTask?.cancel()
-        
+
         // Prevent concurrent loading
         guard !isLoadingTrack else {
             print("⚠️ Already loading track, skipping: \(track.title)")
             return
         }
-        
+
         isLoadingTrack = true
         print("🔄 Starting load process for: \(track.title)")
         
@@ -835,8 +857,9 @@ class PlayerEngine: NSObject, ObservableObject {
         
         
         currentTrack = track
+        currentArtistName = getCachedArtistName(for: track)
         playbackState = .loading
-        
+
         // Volume control already set up in init
         
         do {
@@ -914,7 +937,7 @@ class PlayerEngine: NSObject, ObservableObject {
                         do {
                             // Try native AVAudioFile loading
                             audioFile = try await withCheckedThrowingContinuation { continuation in
-                                DispatchQueue.global(qos: .background).async {
+                                DispatchQueue.global(qos: .userInitiated).async {
                                     do {
                                         let file = try AVAudioFile(forReading: url)
                                         continuation.resume(returning: file)
@@ -936,47 +959,32 @@ class PlayerEngine: NSObject, ObservableObject {
             } else {
                 // Use your existing native implementation for FLAC, MP3, WAV, AAC
                 usingSFBEngine = false
-                
+
+                // Fast path: load directly without NSFileCoordinator since ensureLocal() already verified file readiness
                 audioFile = try await withCheckedThrowingContinuation { continuation in
-                    DispatchQueue.global(qos: .background).async {
-                        var error: NSError?
-                        let coordinator = NSFileCoordinator()
-                        
-                        coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &error) { (readingURL) in
-                            do {
-                                let freshURL = URL(fileURLWithPath: readingURL.path)
-                                print("🎵 Loading native audio file: \(freshURL.lastPathComponent)")
-                                
-                                // Check if this is a DSD file that was rejected by SFBAudioEngine
-                                let fileExtension = freshURL.pathExtension.lowercased()
-                                if fileExtension == "dsf" || fileExtension == "dff" {
-                                    print("⚠️ DSD file rejected by SFBAudioEngine - may be due to sample rate or format incompatibility")
-                                    
-                                    let dsdError = NSError(domain: "PlayerEngine", code: 3001, userInfo: [
-                                        NSLocalizedDescriptionKey: "DSD file not supported",
-                                        NSLocalizedFailureReasonErrorKey: "This DSD file has a sample rate that is too high for playback.",
-                                        NSLocalizedRecoverySuggestionErrorKey: "Try converting this DSD file to a lower sample rate (DSD64) or to a PCM format like FLAC."
-                                    ])
-                                    continuation.resume(throwing: dsdError)
-                                    return
-                                }
-                                
-                                guard FileManager.default.fileExists(atPath: freshURL.path) else {
-                                    continuation.resume(throwing: PlayerError.fileNotFound)
-                                    return
-                                }
-                                
-                                let audioFile = try AVAudioFile(forReading: freshURL)
-                                print("✅ Native AVAudioFile loaded successfully: \(freshURL.lastPathComponent)")
-                                continuation.resume(returning: audioFile)
-                            } catch {
-                                print("❌ Failed to load native AVAudioFile: \(error)")
-                                continuation.resume(throwing: error)
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        do {
+                            print("🎵 Loading native audio file: \(url.lastPathComponent)")
+
+                            // Check if this is a DSD file that was rejected by SFBAudioEngine
+                            let fileExtension = url.pathExtension.lowercased()
+                            if fileExtension == "dsf" || fileExtension == "dff" {
+                                print("⚠️ DSD file rejected by SFBAudioEngine - may be due to sample rate or format incompatibility")
+
+                                let dsdError = NSError(domain: "PlayerEngine", code: 3001, userInfo: [
+                                    NSLocalizedDescriptionKey: "DSD file not supported",
+                                    NSLocalizedFailureReasonErrorKey: "This DSD file has a sample rate that is too high for playback.",
+                                    NSLocalizedRecoverySuggestionErrorKey: "Try converting this DSD file to a lower sample rate (DSD64) or to a PCM format like FLAC."
+                                ])
+                                continuation.resume(throwing: dsdError)
+                                return
                             }
-                        }
-                        
-                        if let error = error {
-                            print("❌ NSFileCoordinator error in PlayerEngine: \(error)")
+
+                            let audioFile = try AVAudioFile(forReading: url)
+                            print("✅ Native AVAudioFile loaded successfully: \(url.lastPathComponent)")
+                            continuation.resume(returning: audioFile)
+                        } catch {
+                            print("❌ Failed to load native AVAudioFile: \(error)")
                             continuation.resume(throwing: error)
                         }
                     }
@@ -1004,14 +1012,16 @@ class PlayerEngine: NSObject, ObservableObject {
                 if !preservePlaybackTime {
                     playbackTime = 0
                 }
-                
-                // CRITICAL: Reset audio session if switching from SFBAudioEngine
-                // SFBAudioEngine configures for DoP/DSD which is incompatible with native AVAudioEngine
-                await resetAudioSessionForNative()
-                
-                // Also reset AVAudioEngine to ensure clean state
-                resetAudioEngineForNative()
-                
+
+                // Only reset audio session/engine when SWITCHING from SFBAudioEngine to native
+                // This avoids expensive teardown/rebuild when staying on native playback
+                if wasUsingSFBEngine {
+                    print("🔄 Switching from SFBAudioEngine to native - resetting audio session")
+                    await resetAudioSessionForNative()
+                    resetAudioEngineForNative()
+                    lastConfiguredNativeSampleRate = 0  // Force reconfiguration after reset
+                }
+
                 await configureAudioSession(for: audioFile!.processingFormat)
             }
             
@@ -1074,7 +1084,7 @@ class PlayerEngine: NSObject, ObservableObject {
                 }
                 
                 // After loading, try to play again
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                DispatchQueue.main.async {
                     self.play()
                 }
             }
@@ -1269,15 +1279,8 @@ class PlayerEngine: NSObject, ObservableObject {
         updateNowPlayingInfoEnhanced()
         updateWidgetData()
         
-        // Only start silent audio if paused from within the app, not from Control Center
-        // This prevents Control Center button state confusion
-        if !fromControlCenter {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-                if self?.playbackState == .paused {
-                    self?.startSilentPlaybackForPause()
-                }
-            }
-        }
+        // Ensure no silent playback is running while paused to keep Control Center state accurate
+        stopSilentPlaybackForPause()
         
         // Save state when pausing
         savePlayerState()
@@ -1353,9 +1356,6 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Keep audio engine running for next playback
         // Don't stop the engine here as it causes the error message
-        
-        // Give the audio engine a moment to clean up
-        try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
     }
     
     func seek(to time: TimeInterval) async {
@@ -1629,6 +1629,7 @@ class PlayerEngine: NSObject, ObservableObject {
         if playbackQueue.isEmpty {
             currentIndex = 0
             currentTrack = nil
+            currentArtistName = nil
             return
         }
         
@@ -1637,7 +1638,9 @@ class PlayerEngine: NSObject, ObservableObject {
             currentIndex = idx
         } else {
             currentIndex = max(0, min(currentIndex, playbackQueue.count - 1))
-            currentTrack = playbackQueue[currentIndex]
+            let track = playbackQueue[currentIndex]
+            currentTrack = track
+            currentArtistName = getCachedArtistName(for: track)
         }
     }
     
@@ -1654,7 +1657,8 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Explicitly set the current track to ensure UI synchronization
         currentTrack = track
-        
+        currentArtistName = getCachedArtistName(for: track)
+
         // Save original queue for shuffle functionality
         originalQueue = playbackQueue
         
@@ -1663,7 +1667,7 @@ class PlayerEngine: NSObject, ObservableObject {
         await loadTrack(track)
         
         // Auto-play immediately after loading completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        DispatchQueue.main.async { [weak self] in
             self?.play()
         }
     }
@@ -1872,20 +1876,24 @@ class PlayerEngine: NSObject, ObservableObject {
         }
     }
     
+    private var lastConfiguredNativeSampleRate: Double = 0
+
     private func configureAudioSession(for format: AVAudioFormat) async {
+        let targetSampleRate = Double(currentTrack?.sampleRate ?? Int(format.sampleRate))
+
+        // Skip reconfiguration if sample rate hasn't changed
+        if abs(lastConfiguredNativeSampleRate - targetSampleRate) < 1.0 {
+            print("🔄 Skipping audio session config - sample rate unchanged (\(targetSampleRate)Hz)")
+            return
+        }
+
         do {
             let session = AVAudioSession.sharedInstance()
-            
-            if let sampleRate = currentTrack?.sampleRate {
-                try session.setPreferredSampleRate(Double(sampleRate))
-                // CRITICAL: Must activate session for sample rate change to take effect
-                try session.setActive(true)
-            }
-            
-            print("Configured audio session preferences - Sample Rate: \(session.sampleRate)")
-            print("🎵 File format rate: \(format.sampleRate)")
-            print("🎧 Audio session ACTUAL sample rate: \(session.sampleRate)")
-            
+            try session.setPreferredSampleRate(targetSampleRate)
+            // CRITICAL: Must activate session for sample rate change to take effect
+            try session.setActive(true)
+            lastConfiguredNativeSampleRate = targetSampleRate
+            print("✅ Audio session configured - Sample Rate: \(session.sampleRate)")
         } catch {
             print("Failed to configure audio session: \(error)")
         }
@@ -2024,7 +2032,7 @@ class PlayerEngine: NSObject, ObservableObject {
 
             // Load artwork using NSFileCoordinator with proper async handling for other formats
             let artwork = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MPMediaItemArtwork?, Error>) in
-                DispatchQueue.global(qos: .background).async {
+                DispatchQueue.global(qos: .userInitiated).async {
                     var coordinatorError: NSError?
                     let coordinator = NSFileCoordinator()
                     

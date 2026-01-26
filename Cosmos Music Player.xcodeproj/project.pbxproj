@@ -578,7 +578,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Cosmos Music Player/Cosmos Music Player.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Cosmos Music Player/Info.plist";
@@ -588,14 +588,14 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "Cosmos Music Player/Cosmos-Music-Player-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Cosmos Music Player/Music-Player-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -609,7 +609,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Cosmos Music Player/Cosmos Music Player.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "Cosmos Music Player/Info.plist";
@@ -619,14 +619,14 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "Cosmos Music Player/Cosmos-Music-Player-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Cosmos Music Player/Music-Player-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -640,7 +640,7 @@
 				CODE_SIGN_ENTITLEMENTS = PlayerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PlayerWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = PlayerWidget;
@@ -652,7 +652,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player.PlayerWidget";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player.PlayerWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -672,7 +672,7 @@
 				CODE_SIGN_ENTITLEMENTS = PlayerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PlayerWidget/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = PlayerWidget;
@@ -684,7 +684,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player.PlayerWidget";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player.PlayerWidget";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -702,7 +702,7 @@
 				CODE_SIGN_ENTITLEMENTS = Share/Share.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Share/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Share;
@@ -713,7 +713,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player.Share";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player.Share";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -728,7 +728,7 @@
 				CODE_SIGN_ENTITLEMENTS = Share/Share.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Share/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Share;
@@ -739,7 +739,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player.Share";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player.Share";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -754,7 +754,7 @@
 				CODE_SIGN_ENTITLEMENTS = SiriIntentsExtension/SiriIntentsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SiriIntentsExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SiriIntentsExtension;
@@ -765,7 +765,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player.SiriIntentsExtension";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player.SiriIntentsExtension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -780,7 +780,7 @@
 				CODE_SIGN_ENTITLEMENTS = SiriIntentsExtension/SiriIntentsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
-				DEVELOPMENT_TEAM = PC237X7NGJ;
+				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = SiriIntentsExtension/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = SiriIntentsExtension;
@@ -791,7 +791,7 @@
 					"@executable_path/../../Frameworks",
 				);
 				MARKETING_VERSION = 1.1.7;
-				PRODUCT_BUNDLE_IDENTIFIER = "dev.clq.Cosmos-Music-Player.SiriIntentsExtension";
+				PRODUCT_BUNDLE_IDENTIFIER = "dev.neofx.music-player.SiriIntentsExtension";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;

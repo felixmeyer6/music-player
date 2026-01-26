@@ -17,7 +17,7 @@ struct ContentView: View {
         mainContent
             .background(.clear)
             .preferredColorScheme(settings.forceDarkMode ? .dark : nil)
-            .accentColor(settings.backgroundColorChoice.color)
+            .accentColor(.white)
             .modifier(LifecycleModifier(
                 appCoordinator: appCoordinator,
                 libraryIndexer: libraryIndexer,
@@ -183,23 +183,22 @@ struct SheetModifier: ViewModifier {
     @Binding var showTutorial: Bool
     @Binding var showPlaylistManagement: Bool
     @Binding var showSettings: Bool
-    @State private var settings = DeleteSettings.load()
-    
+
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: $showTutorial) {
                 TutorialView(onComplete: {
                     showTutorial = false
                 })
-                .accentColor(settings.backgroundColorChoice.color)
+                .accentColor(.white)
             }
             .sheet(isPresented: $showPlaylistManagement) {
                 PlaylistManagementView()
-                    .accentColor(settings.backgroundColorChoice.color)
+                    .accentColor(.white)
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView()
-                    .accentColor(settings.backgroundColorChoice.color)
+                    .accentColor(.white)
             }
             .alert(Localized.libraryOutOfSync, isPresented: .init(
                 get: { appCoordinator.showSyncAlert },
@@ -211,10 +210,6 @@ struct SheetModifier: ViewModifier {
                 } message: {
                     Text(Localized.librarySyncMessage)
                 }
-                .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-                    settings = DeleteSettings.load()
-                }
-        
     }
 }
 

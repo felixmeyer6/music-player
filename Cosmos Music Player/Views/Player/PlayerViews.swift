@@ -81,33 +81,61 @@ struct PlayerView: View {
     @StateObject private var cloudDownloadManager = CloudDownloadManager.shared
     @EnvironmentObject private var appCoordinator: AppCoordinator
     @State private var currentArtwork: UIImage?
-    @State private var nextArtwork: UIImage?
-    @State private var previousArtwork: UIImage?
     @State private var dragOffset: CGFloat = 0
     @State private var isAnimating = false
+    @State private var awaitingNewArtwork = false
+    @State private var isArtworkHidden = false
+    @State private var suppressDragAnimation = false
     @State private var allTracks: [Track] = []
     @State private var isFavorite = false
     @State private var showPlaylistDialog = false
     @State private var showQueueSheet = false
-    @State private var showLyricsSheet = false
-    @State private var currentLyrics: Lyrics? = nil
-    @State private var isLoadingLyrics = false
-    @State private var settings = DeleteSettings.load()
+    @State private var dominantColor: Color = .white
     
+    private var currentArtworkKey: String {
+        playerEngine.currentTrack?.stableId ?? "none"
+    }
+
     var body: some View {
         ZStack {
-            ScreenSpecificBackgroundView(screen: .player)
+            playerBackground
             mainContent
         }
     }
 
+    private var playerBackground: some View {
+        ZStack {
+            ScreenSpecificBackgroundView(screen: .player)
+            GeometryReader { proxy in
+                if let artwork = currentArtwork {
+                    Image(uiImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                        .scaleEffect(1.08)
+                        .rotationEffect(.degrees(2))
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                        .blur(radius: 30)
+                        .opacity(0.25)
+                        .transition(.opacity)
+                        .id(currentArtworkKey)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.easeInOut(duration: 0.25), value: currentArtworkKey)
+        .animation(.easeInOut(duration: 0.25), value: dominantColor)
+    }
+
     private var mainContent: some View {
         contentView
-            .padding(.horizontal, max(16, min(20, UIScreen.main.bounds.width * 0.05)))
             .padding(.vertical)
             .onChange(of: playerEngine.currentTrack) { _, newTrack in
+                currentArtwork = nil
                 Task {
                     await loadAllArtworks()
+                    checkFavoriteStatus()
                 }
             }
             .onAppear {
@@ -117,49 +145,28 @@ struct PlayerView: View {
                     checkFavoriteStatus()
                 }
             }
-            .onChange(of: playerEngine.currentTrack) { _, newTrack in
-                checkFavoriteStatus()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundColorChanged"))) { _ in
-                settings = DeleteSettings.load()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-                settings = DeleteSettings.load()
-            }
             .sheet(isPresented: $showPlaylistDialog) {
                 playlistSheet
             }
             .sheet(isPresented: $showQueueSheet) {
                 queueSheet
             }
-            .sheet(isPresented: $showLyricsSheet) {
-                lyricsSheet
-            }
-            .onChange(of: playerEngine.currentTrack) { oldValue, newValue in
-                // Clear current lyrics
-                currentLyrics = nil
-
-                // If lyrics sheet is open, load lyrics for new track
-                if showLyricsSheet {
-                    loadLyrics()
-                } else {
-                    isLoadingLyrics = false
-                }
-            }
     }
 
     private var contentView: some View {
         VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 16 : 20) {
             if let currentTrack = playerEngine.currentTrack {
-                VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 20 : 25) {
-                    artworkSection
-                    titleAndArtistSection(track: currentTrack)
-                }
+                artworkSection
 
-                progressBarSection
-                controlsSection
+                VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 20 : 25) {
+                    titleAndArtistSection(track: currentTrack)
+                    progressBarSection
+                    controlsSection
+                }
+                .padding(.horizontal, max(16, min(20, UIScreen.main.bounds.width * 0.05)))
             } else {
                 emptyStateView
+                    .padding(.horizontal, max(16, min(20, UIScreen.main.bounds.width * 0.05)))
             }
         }
     }
@@ -168,50 +175,41 @@ struct PlayerView: View {
         Group {
             if let currentTrack = playerEngine.currentTrack {
                 PlaylistSelectionView(track: currentTrack)
-                    .accentColor(settings.backgroundColorChoice.color)
+                    .accentColor(dominantColor)
             }
         }
     }
 
     private var queueSheet: some View {
         QueueManagementView()
-            .accentColor(settings.backgroundColorChoice.color)
-    }
-
-    private var lyricsSheet: some View {
-        LyricsView(lyrics: currentLyrics, currentTime: playerEngine.playbackTime, isLoading: isLoadingLyrics)
+            .accentColor(dominantColor)
     }
 
     // MARK: - Artwork Section
 
     private var artworkSection: some View {
         GeometryReader { geometry in
-            let maxWidth = min(geometry.size.width - 40, 360)
+            let maxWidth = min(geometry.size.width, 360)
             let artworkSize = min(maxWidth, geometry.size.height)
 
             ZStack {
                 currentArtworkView(size: artworkSize)
                     .offset(x: dragOffset)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: dragOffset)
+                    .animation(suppressDragAnimation ? nil : .spring(response: 0.35, dampingFraction: 0.85), value: dragOffset)
+                    .opacity(isArtworkHidden ? 0 : 1)
+                    .animation(.easeInOut(duration: 0.25), value: isArtworkHidden)
+                    .transition(.opacity)
+                    .id(currentArtworkKey)
+                    .animation(.easeInOut(duration: 0.25), value: currentArtworkKey)
                     .onTapGesture {
                         NotificationCenter.default.post(name: NSNotification.Name("MinimizePlayer"), object: nil)
                     }
-
-                if previousArtwork != nil {
-                    adjacentArtworkView(artwork: previousArtwork, size: artworkSize)
-                        .offset(x: dragOffset - geometry.size.width)
-                        .opacity(dragOffset > 0 ? 1 : 0)
-                }
-
-                if nextArtwork != nil {
-                    adjacentArtworkView(artwork: nextArtwork, size: artworkSize)
-                        .offset(x: dragOffset + geometry.size.width)
-                        .opacity(dragOffset < 0 ? 1 : 0)
-                }
             }
-            .frame(width: geometry.size.width, height: artworkSize)
+            .frame(width: artworkSize, height: artworkSize)
+            .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
         }
         .frame(height: min(360, UIScreen.main.bounds.width - 80))
+        .frame(maxWidth: .infinity)
         .clipped()
         .shadow(radius: 8)
         .gesture(artworkDragGesture)
@@ -219,37 +217,22 @@ struct PlayerView: View {
 
     private func currentArtworkView(size: CGFloat) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.1))
-                .frame(width: size, height: size)
-
             if let artwork = currentArtwork {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+                    .frame(width: size, height: size)
                 Image(uiImage: artwork)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
-            } else {
-                Image(systemName: "music.note")
-                    .font(.system(size: min(80, size * 0.2)))
-                    .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    private func adjacentArtworkView(artwork: UIImage?, size: CGFloat) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.1))
-                .frame(width: size, height: size)
-
-            if let artwork = artwork {
-                Image(uiImage: artwork)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+            } else if awaitingNewArtwork {
+                Color.clear
                     .frame(width: size, height: size)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+                    .frame(width: size, height: size)
                 Image(systemName: "music.note")
                     .font(.system(size: min(80, size * 0.2)))
                     .foregroundColor(.secondary)
@@ -281,39 +264,67 @@ struct PlayerView: View {
     }
 
     private func handleSwipeRight() {
+        let currentTrackId = playerEngine.currentTrack?.stableId
         isAnimating = true
+        awaitingNewArtwork = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             dragOffset = UIScreen.main.bounds.width
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            isArtworkHidden = true
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             Task {
                 await playerEngine.previousTrack()
             }
-            withAnimation(.spring(response: 0.25, dampingFraction: 1)) {
-                dragOffset = 0
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isAnimating = false
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            if awaitingNewArtwork && playerEngine.currentTrack?.stableId == currentTrackId {
+                withAnimation(.none) {
+                    dragOffset = 0
+                }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isArtworkHidden = false
+                }
+                awaitingNewArtwork = false
             }
         }
     }
 
     private func handleSwipeLeft() {
+        let currentTrackId = playerEngine.currentTrack?.stableId
         isAnimating = true
+        awaitingNewArtwork = true
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             dragOffset = -UIScreen.main.bounds.width
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            isArtworkHidden = true
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             Task {
                 await playerEngine.nextTrack()
             }
-            withAnimation(.spring(response: 0.25, dampingFraction: 1)) {
-                dragOffset = 0
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isAnimating = false
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            if awaitingNewArtwork && playerEngine.currentTrack?.stableId == currentTrackId {
+                withAnimation(.none) {
+                    dragOffset = 0
+                }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isArtworkHidden = false
+                }
+                awaitingNewArtwork = false
             }
         }
     }
@@ -339,13 +350,21 @@ struct PlayerView: View {
 
     private func titleButton(track: Track) -> some View {
         Group {
-            if let albumId = track.albumId,
-               let album = try? DatabaseManager.shared.read({ db in
-                   try Album.fetchOne(db, key: albumId)
-               }) {
+            if track.albumId != nil {
                 Button(action: {
-                    let userInfo = ["album": album, "allTracks": allTracks] as [String : Any]
-                    NotificationCenter.default.post(name: NSNotification.Name("NavigateToAlbumFromPlayer"), object: nil, userInfo: userInfo)
+                    let tracksSnapshot = allTracks
+                    Task {
+                        // Load album for navigation only when tapped, off the main actor.
+                        guard let albumId = track.albumId else { return }
+                        let album = try? await Task.detached(priority: .userInitiated) {
+                            try DatabaseManager.shared.read { db in
+                                try Album.fetchOne(db, key: albumId)
+                            }
+                        }.value
+                        guard let album else { return }
+                        let userInfo = ["album": album, "allTracks": tracksSnapshot] as [String : Any]
+                        NotificationCenter.default.post(name: NSNotification.Name("NavigateToAlbumFromPlayer"), object: nil, userInfo: userInfo)
+                    }
                 }) {
                     Text(track.title)
                         .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title3 : .title2)
@@ -367,15 +386,23 @@ struct PlayerView: View {
 
     private func artistButton(track: Track) -> some View {
         Group {
-            if let artistId = track.artistId,
-               let artist = try? DatabaseManager.shared.read({ db in
-                   try Artist.fetchOne(db, key: artistId)
-               }) {
+            if let artistName = playerEngine.currentArtistName {
                 Button(action: {
-                    let userInfo = ["artist": artist, "allTracks": allTracks] as [String : Any]
-                    NotificationCenter.default.post(name: NSNotification.Name("NavigateToArtistFromPlayer"), object: nil, userInfo: userInfo)
+                    let tracksSnapshot = allTracks
+                    Task {
+                        // Load artist for navigation only when tapped, off the main actor.
+                        guard let artistId = track.artistId else { return }
+                        let artist = try? await Task.detached(priority: .userInitiated) {
+                            try DatabaseManager.shared.read { db in
+                                try Artist.fetchOne(db, key: artistId)
+                            }
+                        }.value
+                        guard let artist else { return }
+                        let userInfo = ["artist": artist, "allTracks": tracksSnapshot] as [String : Any]
+                        NotificationCenter.default.post(name: NSNotification.Name("NavigateToArtistFromPlayer"), object: nil, userInfo: userInfo)
+                    }
                 }) {
-                    Text(artist.name)
+                    Text(artistName)
                         .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .caption : .subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -391,7 +418,7 @@ struct PlayerView: View {
         }) {
             Image(systemName: isFavorite ? "heart.fill" : "heart")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title3 : .title2)
-                .foregroundColor(isFavorite ? .red : .primary)
+                .foregroundColor(isFavorite ? dominantColor : .primary)
         }
     }
 
@@ -417,7 +444,7 @@ struct PlayerView: View {
                         await playerEngine.seek(to: newTime)
                     }
                 },
-                accentColor: settings.backgroundColorChoice.color
+                accentColor: dominantColor
             )
             .frame(height: 1)
 
@@ -493,6 +520,7 @@ struct PlayerView: View {
         }) {
             Image(systemName: playerEngine.isPlaying ? "pause.fill" : "play.fill")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title : .largeTitle)
+                .animation(nil, value: playerEngine.isPlaying)
         }
     }
 
@@ -514,10 +542,10 @@ struct PlayerView: View {
             Group {
                 if playerEngine.isLoopingSong {
                     Image(systemName: "repeat.1.circle.fill")
-                        .foregroundColor(settings.backgroundColorChoice.color)
+                        .foregroundColor(dominantColor)
                 } else if playerEngine.isRepeating {
                     Image(systemName: "repeat.circle.fill")
-                        .foregroundColor(settings.backgroundColorChoice.color)
+                        .foregroundColor(dominantColor)
                 } else {
                     Image(systemName: "repeat.circle")
                         .foregroundColor(.primary)
@@ -530,7 +558,6 @@ struct PlayerView: View {
     private var additionalControlsView: some View {
         HStack(spacing: 12) {
             queueButton
-            lyricsButton
             airPlayButton
         }
         .padding(.horizontal, 5)
@@ -585,110 +612,58 @@ struct PlayerView: View {
     }
 
     // MARK: - Helper Functions
-
-    private var lyricsButton: some View {
-        Button(action: {
-            showLyricsSheet = true
-            if currentLyrics == nil && !isLoadingLyrics {
-                loadLyrics()
-            }
-        }) {
-            ZStack {
-                Image(systemName: "quote.bubble")
-                    .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
-                    .foregroundColor(.primary)
-
-                if isLoadingLyrics {
-                    ProgressView()
-                        .scaleEffect(0.7)
-                        .offset(x: 15, y: -10)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 30)
-            .padding(.vertical, 16)
-        }
-        .frame(maxWidth: .infinity)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-        )
-    }
-
-    private func loadLyrics() {
-        guard let currentTrack = playerEngine.currentTrack else { return }
-
-        isLoadingLyrics = true
-
-        Task {
-            let lyrics = await LyricsManager.shared.getLyrics(for: currentTrack)
-
-            await MainActor.run {
-                currentLyrics = lyrics
-                isLoadingLyrics = false
-            }
-        }
-    }
     
     private func loadAllArtworks() async {
         await loadCurrentArtwork()
-        await loadNextArtwork()
-        await loadPreviousArtwork()
     }
     
     private func loadCurrentArtwork() async {
         if let track = playerEngine.currentTrack {
-            currentArtwork = await artworkManager.getArtwork(for: track)
+            let artwork = await artworkManager.getArtwork(for: track)
+            if let artwork = artwork {
+                let color = await artwork.dominantColorAsync()
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        currentArtwork = artwork
+                        dominantColor = color
+                    }
+                    finalizeArtworkPresentation()
+                }
+            } else {
+                await MainActor.run {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        currentArtwork = nil
+                        dominantColor = .white
+                    }
+                    finalizeArtworkPresentation()
+                }
+            }
         } else {
-            currentArtwork = nil
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    currentArtwork = nil
+                    dominantColor = .white
+                }
+                awaitingNewArtwork = false
+                isArtworkHidden = false
+            }
         }
     }
-    
-    private func loadNextArtwork() async {
-        let nextTrack = getNextTrack()
-        if let track = nextTrack {
-            nextArtwork = await artworkManager.getArtwork(for: track)
+
+    @MainActor
+    private func finalizeArtworkPresentation() {
+        if awaitingNewArtwork {
+            suppressDragAnimation = true
+            dragOffset = 0
+            withAnimation(.easeInOut(duration: 0.25)) {
+                isArtworkHidden = false
+            }
+            awaitingNewArtwork = false
+            DispatchQueue.main.async {
+                suppressDragAnimation = false
+            }
         } else {
-            nextArtwork = nil
-        }
-    }
-    
-    private func loadPreviousArtwork() async {
-        let prevTrack = getPreviousTrack()
-        if let track = prevTrack {
-            previousArtwork = await artworkManager.getArtwork(for: track)
-        } else {
-            previousArtwork = nil
-        }
-    }
-    
-    private func getNextTrack() -> Track? {
-        let queue = playerEngine.playbackQueue
-        let currentIndex = playerEngine.currentIndex
-        
-        guard !queue.isEmpty else { return nil }
-        
-        if currentIndex < queue.count - 1 {
-            // Normal next track
-            return queue[currentIndex + 1]
-        } else {
-            // Wraparound to first track
-            return queue[0]
-        }
-    }
-    
-    private func getPreviousTrack() -> Track? {
-        let queue = playerEngine.playbackQueue
-        let currentIndex = playerEngine.currentIndex
-        
-        guard !queue.isEmpty else { return nil }
-        
-        if currentIndex > 0 {
-            // Normal previous track
-            return queue[currentIndex - 1]
-        } else {
-            // Wraparound to last track
-            return queue[queue.count - 1]
+            isArtworkHidden = false
         }
     }
     
@@ -805,7 +780,7 @@ struct MiniPlayerView: View {
     @State private var isExpanded = false
     @State private var currentArtwork: UIImage?
     @State private var dragOffset: CGFloat = 0
-    @State private var settings = DeleteSettings.load()
+    @State private var dominantColor: Color = .white
     
     var body: some View {
         Group {
@@ -836,16 +811,14 @@ struct MiniPlayerView: View {
                         // Track info
                         VStack(alignment: .leading, spacing: 4) {
                             Text(playerEngine.currentTrack?.title ?? "")
-                                .font(.headline)
-                                .foregroundColor(.primary)
+                                .font(.body)
+                                .fontWeight(.medium)
+                                .foregroundColor(.white)
                                 .lineLimit(1)
                             
-                            if let artistId = playerEngine.currentTrack?.artistId,
-                               let artist = try? DatabaseManager.shared.read({ db in
-                                   try Artist.fetchOne(db, key: artistId)
-                               }) {
-                                Text(artist.name)
-                                    .font(.caption)
+                            if let artistName = playerEngine.currentArtistName {
+                                Text(artistName)
+                                    .font(.body)
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
@@ -864,40 +837,28 @@ struct MiniPlayerView: View {
                             Image(systemName: playerEngine.isPlaying ? "pause.circle" : "play.circle")
                                 .font(.title)
                                 .foregroundColor(.primary)
+                                .animation(nil, value: playerEngine.isPlaying)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 80)
                     .background(
-                        // Very strong glassy background
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(.regularMaterial)
-                            .opacity(0.98)
-                    )
-                    .overlay(
-                        // Progress bar integrated into the mini player background
-                        VStack(spacing: 0) {
-                            Spacer()
-                            
+                        GeometryReader { geometry in
+                            let progress = playerEngine.duration > 0 ? playerEngine.playbackTime / playerEngine.duration : 0
                             ZStack(alignment: .leading) {
-                                // Background track
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color(.systemGray5))
                                 Rectangle()
-                                    .fill(Color.secondary.opacity(0.2))
-                                    .frame(height: 2)
-                                
-                                // Progress fill with selected accent color
-                                GeometryReader { geometry in
-                                    Rectangle()
-                                        .fill(settings.backgroundColorChoice.color)
-                                        .frame(width: geometry.size.width * (playerEngine.duration > 0 ? playerEngine.playbackTime / playerEngine.duration : 0), height: 2)
-                                }
+                                    .fill(dominantColor.opacity(0.5))
+                                    .frame(width: geometry.size.width * progress)
                             }
-                            .frame(height: 2)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
                         }
                     )
-                    .cornerRadius(16)
-                    .shadow(color: settings.backgroundColorChoice.color.opacity(0.3), radius: 8, x: 0, y: 4)
-                    .padding(.horizontal, 12)
+                    .cornerRadius(12)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         isExpanded = true
@@ -909,13 +870,29 @@ struct MiniPlayerView: View {
                         .presentationDetents([.large])
                         .presentationDragIndicator(.visible)
                         .interactiveDismissDisabled(false)
-                        .accentColor(settings.backgroundColorChoice.color)
+                        .accentColor(dominantColor)
                 }
                 .task(id: playerEngine.currentTrack?.stableId) {
                     if let track = playerEngine.currentTrack {
-                        currentArtwork = await artworkManager.getArtwork(for: track)
+                        let artwork = await artworkManager.getArtwork(for: track)
+                        await MainActor.run {
+                            currentArtwork = artwork
+                        }
+                        if let artwork = artwork {
+                            let color = await artwork.dominantColorAsync()
+                            await MainActor.run {
+                                dominantColor = color
+                            }
+                        } else {
+                            await MainActor.run {
+                                dominantColor = .white
+                            }
+                        }
                     } else {
-                        currentArtwork = nil
+                        await MainActor.run {
+                            currentArtwork = nil
+                            dominantColor = .white
+                        }
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToArtistFromPlayer"))) { _ in
@@ -938,9 +915,6 @@ struct MiniPlayerView: View {
                         isExpanded = false
                         dragOffset = 0
                     }
-                }
-                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundColorChanged"))) { _ in
-                    settings = DeleteSettings.load()
                 }
             }
         }
@@ -967,7 +941,8 @@ struct TrackRowView: View, @MainActor Equatable {
     @State private var showPlaylistDialog = false
     @State private var artworkImage: UIImage?
     @State private var showDeleteConfirmation = false
-    @State private var deleteSettings = DeleteSettings.load()
+
+    private let accentColor: Color = .white
     
     // 2. Computed property is now based on passed params
     private var isCurrentlyPlaying: Bool {
@@ -1007,16 +982,16 @@ struct TrackRowView: View, @MainActor Equatable {
                     
                     if isCurrentlyPlaying {
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(deleteSettings.backgroundColorChoice.color, lineWidth: 2)
+                            .stroke(accentColor, lineWidth: 2)
                             .frame(width: 60, height: 60)
                     }
                 }
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(track.title)
-                        .font(.title3)
+                        .font(.body)
                         .fontWeight(.medium)
-                        .foregroundColor(isCurrentlyPlaying ? deleteSettings.backgroundColorChoice.color : .primary)
+                        .foregroundColor(.white)
                         .lineLimit(1)
                     
                     if let artistId = track.artistId,
@@ -1025,7 +1000,7 @@ struct TrackRowView: View, @MainActor Equatable {
                        }) {
                         Text(artist.name)
                             .font(.body)
-                            .foregroundColor(isCurrentlyPlaying ? deleteSettings.backgroundColorChoice.color.opacity(0.8) : .secondary)
+                            .foregroundColor(isCurrentlyPlaying ? accentColor.opacity(0.8) : .secondary)
                             .lineLimit(1)
                     }
                 }
@@ -1037,7 +1012,7 @@ struct TrackRowView: View, @MainActor Equatable {
                     let eqKey = "\(isAudioPlaying && isCurrentlyPlaying)-\(activeTrackId ?? "")"
                     
                     EqualizerBarsExact(
-                        color: deleteSettings.backgroundColorChoice.color,
+                        color: accentColor,
                         isActive: isAudioPlaying && isCurrentlyPlaying,
                         isLarge: true,
                         trackId: activeTrackId
@@ -1115,13 +1090,13 @@ struct TrackRowView: View, @MainActor Equatable {
         .padding(.horizontal, 12)
         .background(
             RoundedRectangle(cornerRadius: 8)
-                .fill(deleteSettings.backgroundColorChoice.color.opacity(0.12))
+                .fill(accentColor.opacity(0.12))
                 .scaleEffect(isPressed ? 1.0 : 0.01)
                 .opacity(isPressed ? 1.0 : 0.0)
         )
         .sheet(isPresented: $showPlaylistDialog) {
             PlaylistSelectionView(track: track)
-                .accentColor(deleteSettings.backgroundColorChoice.color)
+                .accentColor(accentColor)
         }
         .alert(Localized.deleteFile, isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) { deleteFile() }

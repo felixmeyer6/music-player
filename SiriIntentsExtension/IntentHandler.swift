@@ -66,7 +66,7 @@ class ExtensionDatabaseAccess {
     }
 
     private func setupDatabase() {
-        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.clq.Cosmos-Music-Player") else {
+        guard let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player") else {
             print("❌ Unable to get app group container")
             return
         }

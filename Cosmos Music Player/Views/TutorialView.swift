@@ -20,12 +20,12 @@ struct TutorialView: View {
                 HStack {
                     ForEach(0..<3, id: \.self) { index in
                         Circle()
-                            .fill(index <= viewModel.currentStep ? settings.backgroundColorChoice.color : Color.gray.opacity(0.3))
+                            .fill(index <= viewModel.currentStep ? Color.white : Color.gray.opacity(0.3))
                             .frame(width: 10, height: 10)
                         
                         if index < 2 {
                             Rectangle()
-                                .fill(index < viewModel.currentStep ? settings.backgroundColorChoice.color : Color.gray.opacity(0.3))
+                                .fill(index < viewModel.currentStep ? Color.white : Color.gray.opacity(0.3))
                                 .frame(height: 2)
                         }
                     }
@@ -94,7 +94,7 @@ struct AppleIDStepView: View {
             
             Image(systemName: "person.circle.fill")
                 .font(.system(size: 80))
-                .foregroundColor(settings.backgroundColorChoice.color)
+                .foregroundColor(Color.white)
             
             VStack(spacing: 16) {
                 Text(Localized.signInToAppleId)
@@ -216,7 +216,7 @@ struct iCloudDriveStepView: View {
             
             Image(systemName: "icloud.fill")
                 .font(.system(size: 80))
-                .foregroundColor(settings.backgroundColorChoice.color)
+                .foregroundColor(Color.white)
             
             VStack(spacing: 16) {
                 Text(Localized.enableIcloudDrive)
@@ -281,7 +281,7 @@ struct iCloudDriveStepView: View {
                     viewModel.previousStep()
                 }
                 .font(.body)
-                .foregroundColor(settings.backgroundColorChoice.color)
+                .foregroundColor(Color.white)
                 
                 Spacer()
                 
@@ -317,7 +317,7 @@ struct MusicFilesStepView: View {
                 
                 Image(systemName: "music.note")
                     .font(.system(size: 70))
-                    .foregroundColor(settings.backgroundColorChoice.color)
+                    .foregroundColor(Color.white)
                 
                 VStack(spacing: 12) {
                     Text(Localized.addYourMusic)
@@ -376,7 +376,7 @@ struct MusicFilesStepView: View {
                         viewModel.previousStep()
                     }
                     .font(.body)
-                    .foregroundColor(settings.backgroundColorChoice.color)
+                    .foregroundColor(Color.white)
                     
                     Spacer()
                     
@@ -411,7 +411,7 @@ struct InstructionRow: View {
                 .fontWeight(.semibold)
                 .foregroundColor(.white)
                 .frame(width: 28, height: 28)
-                .background(Circle().fill(settings.backgroundColorChoice.color))
+                .background(Circle().fill(Color.white))
             
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
