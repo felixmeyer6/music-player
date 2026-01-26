@@ -68,11 +68,8 @@ struct Localized {
     static let browse = "browse".localized
     static let songs = "songs".localized
     static let processing = "processing".localized
-    static let waiting = "waiting".localized
     
     // MARK: - Artist/Album/Track Info
-    static let noArtistsFound = "no_artists_found".localized
-    static let artistsWillAppear = "artists_will_appear".localized
     static let noAlbumsFound = "no_albums_found".localized
     static let albumsWillAppear = "albums_will_appear".localized
     static let artist = "artist".localized
@@ -99,17 +96,10 @@ struct Localized {
     
     // MARK: - Settings
     static let appearance = "appearance".localized
-    static let information = "information".localized
     static let minimalistLibraryIcons = "minimalist_library_icons".localized
     static let forceDarkMode = "force_dark_mode".localized
-    static let version = "version".localized
-    static let appName = "app_name".localized
-    static let cosmosMusicPlayer = "cosmos_music_player".localized
-    static let githubRepository = "github_repository".localized
     static let useSimpleIcons = "use_simple_icons".localized
     static let overrideSystemAppearance = "override_system_appearance".localized
-    static let backgroundColor = "background_color".localized
-    static let chooseColorTheme = "choose_color_theme".localized
     
     // MARK: - Liked Actions
     static let addToLikedSongs = "add_to_liked_songs".localized
@@ -219,7 +209,6 @@ struct Localized {
     static let adjustBandsAfterCreation = "adjust_bands_after_creation".localized
     static let frequencyBands = "frequency_bands".localized
     static let editEqualizer = "edit_equalizer".localized
-    static let resetToFlat = "reset_to_flat".localized
 
     // Imported GraphicEQ Presets
     static let importedPresets = "imported_presets".localized
@@ -239,7 +228,6 @@ struct Localized {
     static let eqDelete = "delete".localized
     static let eqEdit = "edit".localized
     static let eqCancel = "cancel".localized
-    static let eqDone = "done".localized
     static let eqSave = "save".localized
     static let eqCreate = "create".localized
     static let presetInfo = "preset_info".localized
@@ -279,17 +267,6 @@ struct Localized {
     static let failedToDelete = "failed_to_delete".localized
 
     // EQ Band Information
-    static func bandCountInfo(used: Int, original: Int) -> String {
-        return "band_count_info".localized(with: used, original)
-    }
-
-    static func bandsReducedDescription(original: Int, reduced: Int) -> String {
-        return "bands_reduced_description".localized(with: original, reduced)
-    }
-
-    static func bandsLimitedWarning(original: Int, limited: Int) -> String {
-        return "bands_limited_warning".localized(with: original, limited)
-    }
 
     // MARK: - Audio Settings
     static let audioSettings = "audio_settings".localized
@@ -317,19 +294,11 @@ struct Localized {
     // MARK: - Bulk Selection
     static let select = "select".localized
     static let selectAll = "select_all".localized
-    static let bulkActions = "bulk_actions".localized
     static let addToLiked = "add_to_liked".localized
     static let removeFromLiked = "remove_from_liked".localized
     static let deleteFiles = "delete_files".localized
     static let deleteFilesConfirmation = "delete_files_confirmation".localized
 
-    static func selectedCount(_ count: Int) -> String {
-        if count == 1 {
-            return "selected_count_singular".localized(with: count)
-        } else {
-            return "selected_count_plural".localized(with: count)
-        }
-    }
 
     static func deleteFilesConfirmationMessage(_ count: Int) -> String {
         return "delete_files_confirmation_message".localized(with: count)
