@@ -1,32 +1,15 @@
-# Cosmos Music Player 🎵
-
-[![Download on the App Store](https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg)](https://apps.apple.com/fr/app/cosmos-offline-music-player/id6751984723?l=en-GB)
-
-*Available now on the App Store*
+# Music 🎵
 
 ---
 
-Cosmos Music Player is a high-quality music player that supports both iCloud Drive synchronization and local storage, giving users flexibility in how they manage their music. The app is built and designed for the iOS and Apple ecosystem with full CarPlay integration.
-
-A premium audiophile music player for iOS supporting FLAC, WAV, M4A, MP3, Opus, OGG, DSD, and DSF formats with advanced features including Apple CarPlay, DSD playback (DoP & PCM conversion), dual storage options (iCloud/local), playlist management, artist information integration, graphic equalizer, and multi-language support.
+Music is a high-quality music player supporting iCloud and local storage based on Cosmos, an open source music player by [@clquwu](https://github.com/clquwu).
 
 ## Features ✨
-
-### 🚗 Apple CarPlay Integration
-- **Full CarPlay Support**: Native CarPlay interface for safe in-car music control
-- **Tab-Based Navigation**: Quick access to All Songs, Favorites, Playlists, and Browse sections
-- **Album Artwork Display**: High-quality artwork with aspect-fill cropping and placeholders
-- **Now Playing Interface**: Full player controls with play/pause, skip, and seek functionality
-- **Seamless Synchronization**: Real-time playback state sync between phone and CarPlay
-- **Multi-Language Support**: CarPlay interface fully localized in English and French
 
 ### 🎧 Audio Playback
 - **High-Quality Lossless Support**: Native support for lossless FLAC and WAV audio files, plus MP3
 - **Graphic Equalizer**: Text-based GraphicEQ support for precise audio customization
 - **Custom EQ Settings**: Configure and save different GraphicEQ settings
-- **Siri Integration**: Voice control for music playback in English and French
-- **ReplayGain Support**: Automatic volume normalization for consistent listening experience
-- **Embedded Artwork**: Displays album art from FLAC, MP3, and WAV metadata
 - **Advanced Audio Engine**: Built with AVFoundation for optimal audio quality
 
 ### 📚 Music Library Management
@@ -36,27 +19,6 @@ A premium audiophile music player for iOS supporting FLAC, WAV, M4A, MP3, Opus, 
 - **Smart Library Indexing**: Automatic detection and indexing of music files from both storage locations
 - **Metadata Extraction**: Reads artist, album, title, and other metadata from FLAC, MP3, and WAV files
 - **Offline First**: Works completely offline with local files, no internet required
-
-### 🎤 Siri Voice Control
-- **Full Voice Integration**: Control music playback with Siri voice commands
-- **Multi-Language Support**: Works in both English and French
-- **Smart Recognition**: Fuzzy matching for playlist and song names with pronunciation variations
-- **Complete Control**: Play favorites, playlists, specific songs, or all music via voice
-- **Seamless Experience**: Proper queue management and playback state synchronization
-
-#### Supported Siri Commands
-
-**English Commands:**
-- "Hey Siri, play my music on Cosmos"
-- "Hey Siri, play my favorites on Cosmos"
-- "Hey Siri, play [playlist name] on Cosmos"
-- "Hey Siri, play [song name] on Cosmos"
-
-**French Commands:**
-- "Dis Siri, joue ma musique sur Cosmos"
-- "Dis Siri, joue mes favoris sur Cosmos"
-- "Dis Siri, joue la playlist [nom] sur Cosmos"
-- "Dis Siri, joue [nom de chanson] sur Cosmos"
 
 ### 🌍 Internationalization
 - **Multi-Language Support**: English and French translations
@@ -167,7 +129,7 @@ CREATE TABLE playlist_item (
 1. **Clone the Repository**
    ```bash
    git clone <repository-url>
-   cd Cosmos\ Music\ Player
+   cd music-player
    ```
 
 2. **Configure iCloud**
@@ -176,7 +138,7 @@ CREATE TABLE playlist_item (
    - Update the bundle identifier in project settings if needed
 
 3. **Build and Run**
-   - Open `Cosmos Music Player.xcodeproj` in Xcode
+   - Open `Music.xcodeproj` in Xcode
    - Select your development team
    - Build and run on device (required for iCloud functionality)
 
@@ -184,8 +146,8 @@ CREATE TABLE playlist_item (
 
 1. **iCloud Sign-in** (Optional): Sign into iCloud only if you want cross-device sync
 2. **Add Music**: Choose your preferred storage method:
-   - **iCloud Drive**: Place music files in "iCloud Drive → Cosmos Music Player" folder
-   - **Local Storage**: Place music files in "On My iPhone → Cosmos Music Player" folder
+   - **iCloud Drive**: Place music files in "iCloud Drive → Music" folder
+   - **Local Storage**: Place music files in "On My iPhone → Music" folder
 3. **Library Sync**: The app will automatically detect and index your music from both locations
 4. **Enjoy**: Start creating playlists and exploring your music!
 
@@ -197,13 +159,13 @@ You have two storage options:
 
 #### Option 1: iCloud Drive (Syncs Across Devices)
 1. Open Files app on your iOS device
-2. Navigate to "iCloud Drive" → "Cosmos Music Player"
+2. Navigate to "iCloud Drive" → "Music"
 3. Add your FLAC, MP3, or WAV music files to this folder
 4. Files will sync to all your devices signed into the same iCloud account
 
 #### Option 2: Local Storage (This Device Only)
 1. Open Files app on your iOS device
-2. Navigate to "On My iPhone" → "Cosmos Music Player"
+2. Navigate to "On My iPhone" → "Music"
 3. Add your FLAC, MP3, or WAV music files to this folder
 4. Files remain on this device only (no iCloud required)
 
@@ -224,13 +186,6 @@ GraphicEQ format allows you to define frequency-specific gain adjustments for pr
 3. Add songs from your library
 4. Playlists sync automatically across devices
 
-### Using Siri Voice Control
-1. **Enable Siri**: Ensure Siri is enabled in your device settings
-2. **Grant Permissions**: Allow Siri access to Cosmos Music Player when prompted
-3. **Voice Commands**: Use any of the supported commands listed above
-4. **Language Support**: Works with both English and French Siri
-5. **Smart Matching**: Don't worry about exact pronunciation - the app uses fuzzy matching for names
-
 ### Language Settings
 The app automatically uses your device's language setting. Currently supported:
 - English (en)
@@ -245,196 +200,13 @@ The app automatically uses your device's language setting. Currently supported:
 - **SwiftUI**: Modern UI framework
 - **Combine**: Reactive programming
 
-## File Structure 📂
-
-```
-Cosmos Music Player/
-├── Services/           # Core business logic services
-│   ├── AppCoordinator.swift
-│   ├── PlayerEngine.swift
-│   ├── EqualizerManager.swift
-│   ├── DatabaseManager.swift
-│   ├── StateManager.swift
-│   ├── LibraryIndexer.swift
-│   └── ArtworkManager.swift
-├── Views/              # SwiftUI views
-│   ├── Library/
-│   ├── Artists/
-│   ├── Albums/
-│   ├── Playlists/
-│   ├── Player/
-│   ├── Equalizer/
-│   └── Utility/
-├── Models/             # Data models
-│   ├── DatabaseModels.swift
-│   ├── StateModels.swift
-│   ├── EqualizerModels.swift
-│   └── SettingsModels.swift
-├── Helpers/            # Utility classes
-│   ├── LocalizationHelper.swift
-└── Resources/          # Localization files
-    ├── en.lproj/
-    └── fr.lproj/
-```
-
-# Contributing 🤝
-
-We welcome contributions to this project! Please follow these guidelines to help us maintain a high-quality codebase.
-
-## Prerequisites
-
-- **Xcode**: Latest stable version (Xcode 15+ recommended)
-- **Swift**: 6+
-- **iOS Deployment Target**: iOS 18.5+
-- **Git**: For version control
-- **Device**: Physical iOS device (required for iCloud functionality testing)
-
-## Development Workflow
-
-1. **Create a feature branch** from `main`:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-2. **Make your changes** following our coding standards
-
-3. **Commit your changes**:
-   ```bash
-   git add .
-   git commit -m "feat: add new feature description"
-   ```
-
-4. **Push to your fork** and create a Pull Request
-
-## Coding Standards
-
-### Swift Style Guide
-- Follow [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/)
-- Use SwiftLint for consistent formatting (run `swiftlint` before committing)
-- Prefer `let` over `var` when possible
-- Use meaningful variable and function names
-- Add documentation comments for public APIs
-
-### Code Organization
-- Group related functionality using `// MARK: -` comments
-- Keep files under 300 lines when possible
-- Use extensions to organize code by functionality
-- Follow MVC/MVVM architecture patterns
-
-### Example:
-```swift
-// MARK: - View Lifecycle
-override func viewDidLoad() {
-    super.viewDidLoad()
-    setupUI()
-    configureBindings()
-}
-
-// MARK: - Private Methods
-private func setupUI() {
-    // Implementation
-}
-```
-
-## Pull Request Guidelines
-
-### Before Submitting
-- [ ] Code is properly documented
-- [ ] Screenshots/GIFs included for UI changes
-- [ ] Tested on physical device with iCloud functionality
-- [ ] Environment variables properly configured
-
-### PR Description Template
-```markdown
-## Description
-Brief description of changes
-
-## Type of Change
-- [ ] Bug fix
-- [ ] New feature
-- [ ] Breaking change
-- [ ] Documentation update
-
-## Testing
-- [ ] Tested on iOS device
-- [ ] iCloud sync functionality verified
-- [ ] API integrations working
-
-## Screenshots
-(If applicable)
-```
-
-## Commit Message Format
-
-Use conventional commits format:
-```
-type(scope): description
-
-feat(auth): add biometric login support
-fix(network): resolve timeout issues
-docs(readme): update installation instructions
-```
-
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
-
-## Issue Reporting
-
-When reporting issues, please include:
-- iOS version and device model
-- Xcode version
-- Swift version
-- Steps to reproduce
-- Expected vs actual behavior
-- Crash logs or error messages
-- Screenshots if applicable
-- iCloud account status
-
-## Code Review Process
-
-1. All PRs require at least one review
-2. Address review feedback promptly
-3. Keep PRs focused and reasonably sized
-4. Respond to comments and update code as needed
-5. Ensure all tests pass and functionality works on device
-
-## Special Contributing Areas
-
-### Internationalization
-To add a new language:
-
-1. Create a new `.lproj` folder in `Resources/`
-2. Copy `en.lproj/Localizable.strings` as a template
-3. Translate all strings to your target language
-4. Update `LocalizationHelper.swift` if needed for locale-specific formatting
-5. Test the UI with your new language
-
-### Audio Processing
-To enhance audio features:
-
-1. Extend `PlayerEngine.swift` for core audio functionality
-2. Update `EqualizerManager.swift` for EQ-related features
-3. Ensure real-time processing maintains audio quality
-4. Test with various audio formats and sample rates
-5. Document any new audio processing capabilities
-
-Thank you for contributing! 🚀
-
-## Security & Privacy 🔒
-
-- **Flexible Storage**: Music files stored either locally on device or in user's personal iCloud Drive
-- **User Choice**: Complete control over where music files are stored (local vs cloud)
-- **No Tracking**: No user data collection or tracking
-- **Offline First**: Full functionality works without internet (especially with local storage)
-- **Encrypted Sync**: iCloud synchronization uses Apple's end-to-end encryption
-- **No External Servers**: Music files never leave your device/iCloud account
-
 ## Troubleshooting 🔧
 
 ### Common Issues
 
 **Music not appearing:**
 - For iCloud files: Check iCloud Drive is enabled and signed in
-- For local files: Ensure files are in the local "Cosmos Music Player" folder
+- For local files: Ensure files are in the local "Music" folder
 - Verify files are FLAC, MP3, or WAV format
 - Try manual sync from the app
 - Check both iCloud Drive and "On My iPhone" locations
@@ -450,44 +222,6 @@ Thank you for contributing! 🚀
 - Check device is connected to internet
 - Try signing out and back into iCloud
 
-**Siri not working:**
-- Ensure Siri is enabled in Settings → Siri & Search
-- Grant Siri access to Cosmos Music Player when prompted
-- Try saying "Cosmos" or "Cosmos Musique" (French) to help Siri recognize the app
-- Restart the app to refresh Siri vocabulary
-- Make sure you're connected to the internet for initial Siri setup
-
-## License 📄
-
-This project is licensed under [Your License] - see the LICENSE file for details.
-
-### Credits 🎨
-
-- **Logo Design**: Created by **Zerrotic** (zerrotic on Discord)
-- **App Store Screenshots**: Designed by **MrVedakkaN** (mrvedakkan on Discord)
-
-## Authors 👥
-
-- [@clquwu](https://github.com/clquwu) - Main Developer
-
-## Contact 📧
-
-To contact me:
-- **Email**: raphaelboullaylefur@proton.me
-- **Discord**: clarityhs
-
-## Support 💬
-
-For issues, questions, or feature requests:
-- Create an issue in the repository
-- Check the troubleshooting section above
-- Ensure you have the latest version installed
-- Contact via email or Discord for direct support
-
 ## License 📄
 
 This project is licensed under GNU - see the LICENSE file for details.
-
----
-
-**Enjoy your high-quality music experience with Cosmos Music Player!** 🎵✨

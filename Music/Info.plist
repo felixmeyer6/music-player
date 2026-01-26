@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Cosmos</string>
+	<string>Music</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -35,21 +35,21 @@
 	<array>
 		<dict>
 			<key>INAlternativeAppName</key>
-			<string>Cosmos Music Player</string>
+			<string>Music</string>
 			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>cosmos music player</string>
+			<string>music</string>
 		</dict>
 		<dict>
 			<key>INAlternativeAppName</key>
-			<string>Cosmos</string>
+			<string>Music Player</string>
 			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>cosmos</string>
+			<string>music player</string>
 		</dict>
 		<dict>
 			<key>INAlternativeAppName</key>
-			<string>Cosmos Musique</string>
+			<string>Musique</string>
 			<key>INAlternativeAppNamePronunciationHint</key>
-			<string>cosmos musique</string>
+			<string>musique</string>
 		</dict>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
@@ -63,7 +63,7 @@
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
 			<key>NSUbiquitousContainerName</key>
-			<string>Cosmos Music Player</string>
+			<string>Music</string>
 			<key>NSUbiquitousContainerSupportedFolderLevels</key>
 			<string>Any</string>
 		</dict>

@@ -51,7 +51,7 @@ struct PlayerWidgetProvider: TimelineProvider {
                 trackData: WidgetTrackData(
                     trackId: "none",
                     title: "No Music Playing",
-                    artist: "Open Cosmos to start",
+                    artist: "Open Music to start",
                     isPlaying: false,
                     backgroundColorHex: "FF6B9D"
                 )
@@ -75,7 +75,7 @@ struct PlayerWidgetProvider: TimelineProvider {
                 trackData: WidgetTrackData(
                     trackId: "none",
                     title: "No Music Playing",
-                    artist: "Open Cosmos to start",
+                    artist: "Open Music to start",
                     isPlaying: false,
                     backgroundColorHex: "FF6B9D"
                 )

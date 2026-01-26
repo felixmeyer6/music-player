@@ -627,7 +627,6 @@ struct LibrarySectionRowView: View {
                 .opacity(0.8)
         )
         .cornerRadius(12)
-        .shadow(color: Color.white.opacity(0.15), radius: 4, x: 0, y: 2)
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             settings = DeleteSettings.load()
         }

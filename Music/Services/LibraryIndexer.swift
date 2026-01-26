@@ -88,7 +88,7 @@ class LibraryIndexer: NSObject, ObservableObject {
             if FileManager.default.fileExists(atPath: musicFolderURL.path) {
                 do {
                     let contents = try FileManager.default.contentsOfDirectory(at: musicFolderURL, includingPropertiesForKeys: nil)
-                    print("Found \(contents.count) items in Cosmos Player folder:")
+                    print("Found \(contents.count) items in Music folder:")
                     for item in contents {
                         print("  - \(item.lastPathComponent)")
                     }
@@ -96,7 +96,7 @@ class LibraryIndexer: NSObject, ObservableObject {
                     print("Error listing folder contents: \(error)")
                 }
             } else {
-                print("Cosmos Player folder doesn't exist yet")
+                print("Music folder doesn't exist yet")
             }
         } else {
             print("No music folder URL available")

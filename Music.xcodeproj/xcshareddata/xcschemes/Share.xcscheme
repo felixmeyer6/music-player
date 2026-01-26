@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "2600"
-   wasCreatedForAppExtension = "YES"
    version = "2.0">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -16,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "23C312D92E78015500342F7C"
-               BuildableName = "SiriIntentsExtension.appex"
-               BlueprintName = "SiriIntentsExtension"
-               ReferencedContainer = "container:Cosmos Music Player.xcodeproj">
+               BlueprintIdentifier = "23AF81342E71E15D0005527C"
+               BuildableName = "Share.appex"
+               BlueprintName = "Share"
+               ReferencedContainer = "container:Music.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
          <BuildActionEntry
@@ -31,9 +30,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "2312D60B2E6090E2007F756D"
-               BuildableName = "Cosmos Music Player.app"
-               BlueprintName = "Cosmos Music Player"
-               ReferencedContainer = "container:Cosmos Music Player.xcodeproj">
+               BuildableName = "Music.app"
+               BlueprintName = "Music"
+               ReferencedContainer = "container:Music.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -57,20 +56,16 @@
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES"
       launchAutomaticallySubstyle = "2">
-      <RemoteRunnable
-         runnableDebuggingMode = "0"
-         BundleIdentifier = "dev.neofx.music-player"
-         RemotePath = "/var/containers/Bundle/Application/8F68A45F-2855-4762-88F6-27F66ABB3B7F/Cosmos Music Player.app">
-      </RemoteRunnable>
-      <MacroExpansion>
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2312D60B2E6090E2007F756D"
-            BuildableName = "Cosmos Music Player.app"
-            BlueprintName = "Cosmos Music Player"
-            ReferencedContainer = "container:Cosmos Music Player.xcodeproj">
+            BuildableName = "Music.app"
+            BlueprintName = "Music"
+            ReferencedContainer = "container:Music.xcodeproj">
          </BuildableReference>
-      </MacroExpansion>
+      </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -85,9 +80,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2312D60B2E6090E2007F756D"
-            BuildableName = "Cosmos Music Player.app"
-            BlueprintName = "Cosmos Music Player"
-            ReferencedContainer = "container:Cosmos Music Player.xcodeproj">
+            BuildableName = "Music.app"
+            BlueprintName = "Music"
+            ReferencedContainer = "container:Music.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

@@ -1,6 +1,6 @@
 //
-//  Cosmos_Music_PlayerApp.swift
-//  Cosmos Music Player
+//  MusicApp.swift
+//  Music
 //
 //  Created by CLQ on 28/08/2025.
 //
@@ -68,7 +68,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 }
 
 @main
-struct Cosmos_Music_PlayerApp: App {
+struct MusicApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var appCoordinator = AppCoordinator.shared
     
@@ -238,7 +238,7 @@ struct Cosmos_Music_PlayerApp: App {
             
             // Create placeholder file if it doesn't exist
             if !FileManager.default.fileExists(atPath: placeholderURL.path) {
-                let placeholderText = "This folder contains music files for Cosmos Music Player.\nPlace your FLAC files here to add them to your library."
+                let placeholderText = "This folder contains music files for Music.\nPlace your FLAC files here to add them to your library."
                 try placeholderText.write(to: placeholderURL, atomically: true, encoding: .utf8)
                 print("✅ Created iCloud Drive placeholder file to ensure folder visibility")
             }

@@ -23,11 +23,11 @@
 "songs_count_plural" = "%d songs";
 "created_date" = "Created %@";
 "no_songs_found" = "No songs found";
-"your_music_will_appear_here" = "To add your music:\n\n1. Open the Files app (or tap 'Add Songs')\n2. Choose either:\n   • iCloud Drive → Cosmos Music Player folder\n   • On My iPhone → Cosmos Music Player\n3. Drag your music files into either location";
+"your_music_will_appear_here" = "To add your music:\n\n1. Open the Files app (or tap 'Add Songs')\n2. Choose either:\n   • iCloud Drive → Music folder\n   • On My iPhone → Music\n3. Drag your music files into either location";
 "create_first_playlist" = "Create your first playlist to get started";
 
 /* General UI strings */
-"all_songs" = "All Songs";
+"all_songs" = "Tracks";
 "liked_songs" = "Liked";
 "add_songs" = "Open Files";
 "import_music_files" = "Import music files";
@@ -88,7 +88,7 @@
 "force_dark_mode" = "Force Dark Mode";
 "version" = "Version";
 "app_name" = "App Name";
-"cosmos_music_player" = "Cosmos Music Player";
+"cosmos_music_player" = "Music";
 "github_repository" = "GitHub Repository";
 "use_simple_icons" = "Use simple icons without colored backgrounds in the library sections.";
 "override_system_appearance" = "Override system appearance and force the app to use dark mode.";
@@ -110,7 +110,7 @@
 "icloud_connection_required" = "iCloud Connection Required";
 
 /* Tutorial/Onboarding */
-"welcome_to_cosmos" = "Welcome to Cosmos";
+"welcome_to_cosmos" = "Welcome to Music";
 "sign_in_to_apple_id" = "Sign in to Apple ID";
 "sign_in_message" = "To sync your music and favorites across devices, please make sure you're signed in to your Apple ID.";
 "if_signed_in_continue" = "If you're signed in, you can continue";
@@ -121,7 +121,7 @@
 "how_to_add_music" = "You can add music files to either iCloud Drive (syncs across devices) or locally (this device only):";
 "open_files_app" = "Open Files App";
 "navigate_to_icloud_drive" = "Navigate to iCloud Drive";
-"find_cosmos_player_folder" = "Find Cosmos Player Folder";
+"find_cosmos_player_folder" = "Find Music Folder";
 "add_your_music_instruction" = "Add Your Music";
 
 /* Tutorial Status Messages */
@@ -135,7 +135,7 @@
 /* Tutorial Instructions */
 "find_open_files_app" = "Find and open the Files app on your device";
 "tap_icloud_drive_sidebar" = "Choose 'iCloud Drive' or 'On My iPhone' in the sidebar";
-"look_for_cosmos_folder" = "Find the 'Cosmos Music Player' folder and open it";
+"look_for_cosmos_folder" = "Find the 'Music' folder and open it";
 "copy_music_files" = "Copy your FLAC or MP3 files into this folder";
 
 /* Library Processing */

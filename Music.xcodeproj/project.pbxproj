@@ -59,7 +59,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		2312D60C2E6090E2007F756D /* Cosmos Music Player.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Cosmos Music Player.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2312D60C2E6090E2007F756D /* Music.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Music.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		239B247B2EE59BEC009F83F1 /* PlayerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PlayerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		239B247C2EE59BEC009F83F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		239B247E2EE59BEC009F83F1 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
@@ -70,14 +70,14 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		2312D6502E6090E2007F756D /* Exceptions for "Cosmos Music Player" folder in "Cosmos Music Player" target */ = {
+		2312D6502E6090E2007F756D /* Exceptions for "Music" folder in "Music" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = 2312D60B2E6090E2007F756D /* Cosmos Music Player */;
+			target = 2312D60B2E6090E2007F756D /* Music */;
 		};
-		239B24A22EE5F806009F83F1 /* Exceptions for "Cosmos Music Player" folder in "PlayerWidgetExtension" target */ = {
+		239B24A22EE5F806009F83F1 /* Exceptions for "Music" folder in "PlayerWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Models/WidgetData.swift,
@@ -108,13 +108,13 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		2312D60E2E6090E2007F756D /* Cosmos Music Player */ = {
+		2312D60E2E6090E2007F756D /* Music */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				2312D6502E6090E2007F756D /* Exceptions for "Cosmos Music Player" folder in "Cosmos Music Player" target */,
-				239B24A22EE5F806009F83F1 /* Exceptions for "Cosmos Music Player" folder in "PlayerWidgetExtension" target */,
+				2312D6502E6090E2007F756D /* Exceptions for "Music" folder in "Music" target */,
+				239B24A22EE5F806009F83F1 /* Exceptions for "Music" folder in "PlayerWidgetExtension" target */,
 			);
-			path = "Cosmos Music Player";
+			path = "Music";
 			sourceTree = "<group>";
 		};
 		239B24802EE59BEC009F83F1 /* PlayerWidget */ = {
@@ -185,7 +185,7 @@
 			isa = PBXGroup;
 			children = (
 				239B249A2EE5A20E009F83F1 /* PlayerWidgetExtension.entitlements */,
-				2312D60E2E6090E2007F756D /* Cosmos Music Player */,
+				2312D60E2E6090E2007F756D /* Music */,
 				23AF81362E71E15D0005527C /* Share */,
 				23C312DE2E78015500342F7C /* SiriIntentsExtension */,
 				239B24802EE59BEC009F83F1 /* PlayerWidget */,
@@ -197,7 +197,7 @@
 		2312D60D2E6090E2007F756D /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				2312D60C2E6090E2007F756D /* Cosmos Music Player.app */,
+				2312D60C2E6090E2007F756D /* Music.app */,
 				23AF81352E71E15D0005527C /* Share.appex */,
 				23C312DA2E78015500342F7C /* SiriIntentsExtension.appex */,
 				239B247B2EE59BEC009F83F1 /* PlayerWidgetExtension.appex */,
@@ -218,9 +218,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		2312D60B2E6090E2007F756D /* Cosmos Music Player */ = {
+		2312D60B2E6090E2007F756D /* Music */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 2312D6172E6090E3007F756D /* Build configuration list for PBXNativeTarget "Cosmos Music Player" */;
+			buildConfigurationList = 2312D6172E6090E3007F756D /* Build configuration list for PBXNativeTarget "Music" */;
 			buildPhases = (
 				2312D6082E6090E2007F756D /* Sources */,
 				2312D6092E6090E2007F756D /* Frameworks */,
@@ -235,15 +235,15 @@
 				239B248F2EE59BED009F83F1 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				2312D60E2E6090E2007F756D /* Cosmos Music Player */,
+				2312D60E2E6090E2007F756D /* Music */,
 			);
-			name = "Cosmos Music Player";
+			name = "Music";
 			packageProductDependencies = (
 				2312D6192E6090E4007F756D /* GRDB */,
 				230D66362E894889007C642A /* SFBAudioEngine */,
 			);
-			productName = "Cosmos Music Player";
-			productReference = 2312D60C2E6090E2007F756D /* Cosmos Music Player.app */;
+			productName = "Music";
+			productReference = 2312D60C2E6090E2007F756D /* Music.app */;
 			productType = "com.apple.product-type.application";
 		};
 		239B247A2EE59BEC009F83F1 /* PlayerWidgetExtension */ = {
@@ -337,7 +337,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 2312D6072E6090E2007F756D /* Build configuration list for PBXProject "Cosmos Music Player" */;
+			buildConfigurationList = 2312D6072E6090E2007F756D /* Build configuration list for PBXProject "Music" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -356,7 +356,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				2312D60B2E6090E2007F756D /* Cosmos Music Player */,
+				2312D60B2E6090E2007F756D /* Music */,
 				23AF81342E71E15D0005527C /* Share */,
 				23C312D92E78015500342F7C /* SiriIntentsExtension */,
 				239B247A2EE59BEC009F83F1 /* PlayerWidgetExtension */,
@@ -575,14 +575,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "Cosmos Music Player/Cosmos Music Player.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Music/Music.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Cosmos Music Player/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Cosmos;
+				INFOPLIST_FILE = "Music/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Music;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -595,7 +595,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "Cosmos Music Player/Music-Player-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Music/Music-Player-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -606,14 +606,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "Cosmos Music Player/Cosmos Music Player.entitlements";
+				CODE_SIGN_ENTITLEMENTS = "Music/Music.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = ZA2JVK6R83;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Cosmos Music Player/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Cosmos;
+				INFOPLIST_FILE = "Music/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Music;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -626,7 +626,7 @@
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "Cosmos Music Player/Music-Player-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "Music/Music-Player-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -803,7 +803,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		2312D6072E6090E2007F756D /* Build configuration list for PBXProject "Cosmos Music Player" */ = {
+		2312D6072E6090E2007F756D /* Build configuration list for PBXProject "Music" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2312D6152E6090E3007F756D /* Debug */,
@@ -812,7 +812,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		2312D6172E6090E3007F756D /* Build configuration list for PBXNativeTarget "Cosmos Music Player" */ = {
+		2312D6172E6090E3007F756D /* Build configuration list for PBXNativeTarget "Music" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				2312D6182E6090E3007F756D /* Debug */,

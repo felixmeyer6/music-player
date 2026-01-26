@@ -207,7 +207,7 @@ class AppCoordinator: ObservableObject {
         
         // Try to create the app folder
         do {
-            let appFolderURL = containerURL.appendingPathComponent("Cosmos Player", isDirectory: true)
+            let appFolderURL = containerURL.appendingPathComponent("Music", isDirectory: true)
             
             if !FileManager.default.fileExists(atPath: appFolderURL.path) {
                 try FileManager.default.createDirectory(at: appFolderURL, 
@@ -395,8 +395,8 @@ class AppCoordinator: ObservableObject {
                 let tempFile = folderURL.appendingPathComponent(".cosmos-placeholder")
                 let testFile = folderURL.appendingPathComponent("Welcome.txt")
                 
-                let tempContent = "Cosmos Music Player folder - you can delete this file"
-                let welcomeContent = "Welcome to Cosmos Music Player!\n\nYou can add your FLAC music files directly to this folder in the Files app.\n\nThe app will automatically detect and index any music files you add here.\n\nEnjoy your music!"
+                let tempContent = "Music folder - you can delete this file"
+                let welcomeContent = "Welcome to Music!\n\nYou can add your FLAC music files directly to this folder in the Files app.\n\nThe app will automatically detect and index any music files you add here.\n\nEnjoy your music!"
                 
                 try tempContent.write(to: tempFile, atomically: true, encoding: .utf8)
                 try welcomeContent.write(to: testFile, atomically: true, encoding: .utf8)
