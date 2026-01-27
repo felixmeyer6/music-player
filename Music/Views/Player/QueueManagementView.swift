@@ -58,6 +58,7 @@ struct QueueManagementView: View {
                                     track: track,
                                     index: index,
                                     isCurrentTrack: index == playerEngine.currentIndex,
+                                    isAudioPlaying: playerEngine.isPlaying,
                                     isDragging: draggedTrack?.stableId == track.stableId,
                                     onTap: {
                                         jumpToTrack(at: index)
@@ -148,6 +149,7 @@ struct QueueTrackRow: View {
     let track: Track
     let index: Int
     let isCurrentTrack: Bool
+    let isAudioPlaying: Bool
     let isDragging: Bool
     let onTap: () -> Void
 
@@ -185,9 +187,15 @@ struct QueueTrackRow: View {
                         .lineLimit(1)
                     
                     if isCurrentTrack {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.caption)
-                            .foregroundColor(Color.white)
+                        let eqKey = "\(isAudioPlaying && isCurrentTrack)-\(track.stableId)"
+                        EqualizerBarsExact(
+                            color: .white,
+                            isActive: isAudioPlaying && isCurrentTrack,
+                            isLarge: true,
+                            trackId: track.stableId
+                        )
+                        .id(eqKey)
+                        .padding(.leading, 4)
                     }
                 }
                 

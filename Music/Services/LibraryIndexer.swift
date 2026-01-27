@@ -703,6 +703,7 @@ class LibraryIndexer: NSObject, ObservableObject {
             albumId: album.id,
             artistId: artist.id,
             genre: cleanedGenre,
+            rating: metadata.rating,
             title: metadata.title ?? url.deletingPathExtension().lastPathComponent,
             trackNo: metadata.trackNumber,
             discNo: metadata.discNumber,
@@ -1311,6 +1312,8 @@ struct AudioMetadata {
     let trackNumber: Int?
     let discNumber: Int?
     let year: Int?
+    /// User rating on a 1–5 scale (derived from POPM for MP3s).
+    let rating: Int?
     let durationMs: Int?
     let sampleRate: Int?
     let bitDepth: Int?
@@ -1510,6 +1513,7 @@ class AudioMetadataParser {
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            rating: nil,
             durationMs: durationMs,
             sampleRate: sampleRate,
             bitDepth: bitDepth,
@@ -1561,6 +1565,74 @@ class AudioMetadataParser {
         let cleaned = gainString.replacingOccurrences(of: " dB", with: "")
         return Double(cleaned)
     }
+
+    // MARK: - Rating (POPM / Popularimeter)
+
+    /// Maps a standard 1–5 star rating to the POPM byte (0–255).
+    private static func starsToPopmByte(_ stars: Int) -> UInt8? {
+        switch stars {
+        case 1: return 1
+        case 2: return 64
+        case 3: return 128
+        case 4: return 196
+        case 5: return 255
+        default: return nil
+        }
+    }
+
+    /// Maps a POPM byte (0–255) to the nearest 1–5 star rating.
+    private static func popmByteToStars(_ byte: UInt8) -> Int? {
+        // POPM 0 typically means "no rating".
+        guard byte > 0 else { return nil }
+
+        var bestStars: Int?
+        var bestDistance = Int.max
+
+        for stars in 1...5 {
+            guard let popm = starsToPopmByte(stars) else { continue }
+            let distance = abs(Int(byte) - Int(popm))
+            if distance < bestDistance {
+                bestDistance = distance
+                bestStars = stars
+            }
+        }
+
+        return bestStars
+    }
+
+    /// Extracts a POPM rating and converts it to a 1–5 star rating.
+    private static func extractPopmRating(from item: AVMetadataItem) async -> Int? {
+        if let data = try? await item.load(.dataValue), !data.isEmpty {
+            // POPM payload layout: <email>\0<rating byte><4-byte counter>
+            if let nulIndex = data.firstIndex(of: 0), nulIndex < data.index(before: data.endIndex) {
+                let ratingIndex = data.index(after: nulIndex)
+                let popmByte = data[ratingIndex]
+                return popmByteToStars(popmByte)
+            }
+
+            // Heuristics for unexpected payload layouts.
+            if data.count == 1 {
+                return popmByteToStars(data[data.startIndex])
+            }
+            if data.count > 4 {
+                // Prefer the byte right before the 4-byte counter.
+                let ratingIndex = data.index(data.endIndex, offsetBy: -5)
+                return popmByteToStars(data[ratingIndex])
+            }
+
+            return popmByteToStars(data[data.startIndex])
+        }
+
+        if let number = try? await item.load(.numberValue) {
+            return popmByteToStars(UInt8(clamping: number.intValue))
+        }
+
+        if let string = try? await item.load(.stringValue), let intValue = Int(string) {
+            return popmByteToStars(UInt8(clamping: intValue))
+        }
+
+        return nil
+    }
     
     private static func parseMp3MetadataSync(from url: URL) async throws -> AudioMetadata {
         print("📖 Reading MP3 metadata for: \(url.lastPathComponent)")
@@ -1602,6 +1674,7 @@ class AudioMetadataParser {
         var trackNumber: Int?
         var discNumber: Int?
         var year: Int?
+        var rating: Int?
         var hasEmbeddedArt = false
         
         // Parse ID3 metadata using async API
@@ -1680,6 +1753,14 @@ class AudioMetadataParser {
                         // Album fallback
                         if album == nil {
                             album = try? await metadata.load(.stringValue)
+                        }
+                    case "id3/POPM":
+                        // Popularimeter (rating) frame: map POPM byte (0–255) to 1–5 stars.
+                        if rating == nil {
+                            rating = await extractPopmRating(from: metadata)
+                            if let rating {
+                                print("⭐️ Found POPM rating: \(rating)")
+                            }
                         }
                     default:
                         // Fallback: check for non-ID3 genre identifiers (e.g., QuickTime/iTunes).
@@ -1764,6 +1845,7 @@ class AudioMetadataParser {
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            rating: rating,
             durationMs: durationMs,
             sampleRate: sampleRate,
             bitDepth: nil, // MP3 is lossy, bit depth doesn't apply
@@ -1880,6 +1962,7 @@ class AudioMetadataParser {
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
+            rating: nil,
             durationMs: durationMs,
             sampleRate: sampleRate,
             bitDepth: bitDepth,

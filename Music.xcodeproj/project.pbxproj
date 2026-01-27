@@ -51,7 +51,7 @@
 		239B247B2EE59BEC009F83F1 /* PlayerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PlayerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		239B247C2EE59BEC009F83F1 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		239B247E2EE59BEC009F83F1 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		239B249A2EE5A20E009F83F1 /* PlayerWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PlayerWidgetExtension.entitlements; sourceTree = "<group>"; };
+		239B249A2EE5A20E009F83F1 /* PlayerWidget/PlayerWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PlayerWidget/PlayerWidgetExtension.entitlements; sourceTree = "<group>"; };
 		23AF81352E71E15D0005527C /* Share.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Share.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -145,7 +145,7 @@
 		2312D6032E6090E2007F756D = {
 			isa = PBXGroup;
 			children = (
-				239B249A2EE5A20E009F83F1 /* PlayerWidgetExtension.entitlements */,
+				239B249A2EE5A20E009F83F1 /* PlayerWidget/PlayerWidgetExtension.entitlements */,
 				2312D60E2E6090E2007F756D /* Music */,
 				23AF81362E71E15D0005527C /* Share */,
 				239B24802EE59BEC009F83F1 /* PlayerWidget */,
@@ -546,7 +546,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
-				CODE_SIGN_ENTITLEMENTS = PlayerWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = PlayerWidget/PlayerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = ZA2JVK6R83;
@@ -578,7 +578,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
-				CODE_SIGN_ENTITLEMENTS = PlayerWidgetExtension.entitlements;
+				CODE_SIGN_ENTITLEMENTS = PlayerWidget/PlayerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 50;
 				DEVELOPMENT_TEAM = ZA2JVK6R83;

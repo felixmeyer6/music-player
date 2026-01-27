@@ -118,6 +118,8 @@ struct PlayerView: View {
     @State private var showPlaylistDialog = false
     @State private var showQueueSheet = false
     @State private var dominantColor: Color = .white
+    @State private var isScrubbing = false
+    @State private var scrubProgress: Double?
     
     private var currentArtworkKey: String {
         playerEngine.currentTrack?.stableId ?? "none"
@@ -462,15 +464,22 @@ struct PlayerView: View {
     // MARK: - Progress Bar Section
 
     private var progressBarSection: some View {
+        let engineProgress: Double = {
+            guard playerEngine.duration > 0 else { return 0 }
+            return playerEngine.playbackTime / playerEngine.duration
+        }()
+
         let progressBinding = Binding<Double>(
             get: {
-                guard playerEngine.duration > 0 else { return 0 }
-                return playerEngine.playbackTime / playerEngine.duration
+                if isScrubbing, let scrubProgress {
+                    return scrubProgress
+                }
+                return engineProgress
             },
             set: { newProgress in
-                guard playerEngine.duration > 0 else { return }
-                let newTime = newProgress * playerEngine.duration
-                Task { await playerEngine.seek(to: newTime) }
+                guard !playerEngine.isCrossfading else { return }
+                isScrubbing = true
+                scrubProgress = newProgress
             }
         )
 
@@ -478,11 +487,39 @@ struct PlayerView: View {
             WaveformScrubber(
                 progress: progressBinding,
                 accentColor: dominantColor,
-                track: playerEngine.currentTrack
+                track: playerEngine.currentTrack,
+                onScrubEnd: { finalProgress in
+                    guard !playerEngine.isCrossfading else {
+                        isScrubbing = false
+                        scrubProgress = nil
+                        return
+                    }
+                    guard playerEngine.duration > 0 else {
+                        isScrubbing = false
+                        scrubProgress = nil
+                        return
+                    }
+
+                    let newTime = finalProgress * playerEngine.duration
+                    Task {
+                        await playerEngine.seek(to: newTime)
+                        await MainActor.run {
+                            isScrubbing = false
+                            scrubProgress = nil
+                        }
+                    }
+                }
             )
+            .allowsHitTesting(!playerEngine.isCrossfading)
             .frame(height: 36)
             .padding(.vertical, 12)
             .padding(.top, 4)
+            .onChange(of: playerEngine.isCrossfading) { _, isCrossfading in
+                if isCrossfading {
+                    isScrubbing = false
+                    scrubProgress = nil
+                }
+            }
 
             HStack {
                 Text(formatTime(playerEngine.playbackTime))
@@ -764,6 +801,7 @@ struct WaveformScrubber: View {
     @Binding var progress: Double
     let accentColor: Color
     let track: Track?
+    let onScrubEnd: (Double) -> Void
 
     var barWidth: CGFloat = 2
     var barSpacing: CGFloat = 1
@@ -815,6 +853,7 @@ struct WaveformScrubber: View {
                     }
                     .onEnded { _ in
                         isDragging = false
+                        onScrubEnd(progress)
                     }
             )
         }
@@ -1218,7 +1257,7 @@ struct TrackRowView: View, @MainActor Equatable {
     @State private var artworkImage: UIImage?
     @State private var showDeleteConfirmation = false
 
-    private let accentColor: Color = .white
+    @State private var accentColor: Color = .white
     
     // 2. Computed property is now based on passed params
     private var isCurrentlyPlaying: Bool {
@@ -1365,10 +1404,12 @@ struct TrackRowView: View, @MainActor Equatable {
         .frame(height: 80)
         .padding(.horizontal, 12)
         .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(accentColor.opacity(0.12))
-                .scaleEffect(isPressed ? 1.0 : 0.01)
-                .opacity(isPressed ? 1.0 : 0.0)
+            Group {
+                let backgroundOpacity: Double = isPressed ? 0.12 : (isCurrentlyPlaying ? 0.07 : 0.0)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(accentColor.opacity(backgroundOpacity))
+                    .opacity(backgroundOpacity > 0 ? 1.0 : 0.0)
+            }
         )
         .sheet(isPresented: $showPlaylistDialog) {
             PlaylistSelectionView(track: track)
@@ -1388,7 +1429,15 @@ struct TrackRowView: View, @MainActor Equatable {
     
     private func loadArtwork() {
         Task {
-            artworkImage = await ArtworkManager.shared.getArtwork(for: track)
+            let image = await ArtworkManager.shared.getArtwork(for: track)
+            await MainActor.run {
+                artworkImage = image
+                if let image {
+                    accentColor = image.dominantColor()
+                } else {
+                    accentColor = .white
+                }
+            }
         }
     }
     

@@ -90,6 +90,31 @@ struct SettingsView: View {
                     }
                 }
 
+                Section(Localized.crossfade) {
+                    Toggle(Localized.crossfadeEnabled, isOn: $deleteSettings.crossfadeEnabled)
+                        .onChange(of: deleteSettings.crossfadeEnabled) { _, _ in
+                            deleteSettings.save()
+                        }
+
+                    if deleteSettings.crossfadeEnabled {
+                        HStack {
+                            Text(Localized.crossfadeDuration)
+                            Spacer()
+                            Text("\(deleteSettings.crossfadeDuration, specifier: "%.1f")\(Localized.secondsShort)")
+                                .foregroundColor(.secondary)
+                        }
+
+                        Slider(
+                            value: $deleteSettings.crossfadeDuration,
+                            in: 0.1...12.0,
+                            step: 0.1
+                        )
+                        .onChange(of: deleteSettings.crossfadeDuration) { _, _ in
+                            deleteSettings.save()
+                        }
+                    }
+                }
+
             }
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: 100)

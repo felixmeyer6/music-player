@@ -240,6 +240,10 @@
 
 /* Audio Settings */
 "audio_settings" = "Audio";
+"crossfade" = "Fondu enchaîné";
+"crossfade_enabled" = "Activer le fondu";
+"crossfade_duration" = "Durée du fondu";
+"seconds_short" = "s";
 
 /* Sort Options */
 "sort_date_newest" = "Date d'ajout (Plus récent)";

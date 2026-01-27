@@ -139,6 +139,7 @@ class DatabaseManager: @unchecked Sendable {
                     album_id INTEGER REFERENCES album(id) ON DELETE SET NULL,
                     artist_id INTEGER REFERENCES artist(id) ON DELETE SET NULL,
                     genre TEXT COLLATE NOCASE,
+                    rating INTEGER CHECK (rating BETWEEN 1 AND 5),
                     title TEXT NOT NULL COLLATE NOCASE,
                     track_no INTEGER,
                     disc_no INTEGER,
@@ -305,6 +306,15 @@ class DatabaseManager: @unchecked Sendable {
             } catch {
                 // Column may already exist, which is fine
                 print("ℹ️ Database migration: genre column already exists or migration failed: \(error)")
+            }
+
+            // Migration: Add rating column to track table
+            do {
+                try db.execute(sql: "ALTER TABLE track ADD COLUMN rating INTEGER CHECK (rating BETWEEN 1 AND 5)")
+                print("✅ Database: Added rating column to track table")
+            } catch {
+                // Column may already exist, which is fine
+                print("ℹ️ Database migration: rating column already exists or migration failed: \(error)")
             }
 
             // Migration: Add genre index after ensuring column exists

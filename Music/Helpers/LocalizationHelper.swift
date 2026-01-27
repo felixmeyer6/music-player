@@ -276,6 +276,10 @@ struct Localized {
 
     // MARK: - Audio Settings
     static let audioSettings = "audio_settings".localized
+    static let crossfade = "crossfade".localized
+    static let crossfadeEnabled = "crossfade_enabled".localized
+    static let crossfadeDuration = "crossfade_duration".localized
+    static let secondsShort = "seconds_short".localized
 
     // MARK: - Sort Options
     static let sortDateNewest = "sort_date_newest".localized

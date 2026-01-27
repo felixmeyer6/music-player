@@ -240,6 +240,10 @@
 
 /* Audio Settings */
 "audio_settings" = "Audio";
+"crossfade" = "Crossfade";
+"crossfade_enabled" = "Enable Crossfade";
+"crossfade_duration" = "Crossfade Time";
+"seconds_short" = "s";
 
 /* Sort Options */
 "sort_date_newest" = "Date Added (Newest)";

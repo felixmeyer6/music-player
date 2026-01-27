@@ -38,14 +38,31 @@ struct ContentView: View {
     }
     
     private var mainContent: some View {
-        LibraryView(
-            tracks: tracks, 
-            showTutorial: $showTutorial, 
-            showPlaylistManagement: $showPlaylistManagement, 
-            showSettings: $showSettings,
-            onRefresh: performRefresh,
-            onManualSync: performManualSync
-        )
+        ZStack(alignment: .bottom) {
+            LibraryView(
+                tracks: tracks, 
+                showTutorial: $showTutorial, 
+                showPlaylistManagement: $showPlaylistManagement, 
+                showSettings: $showSettings,
+                onRefresh: performRefresh,
+                onManualSync: performManualSync
+            )
+            
+            // Fade the content toward black at the device bottom.
+            if playerEngine.currentTrack != nil {
+                LinearGradient(
+                    colors: [
+                        Color.clear,
+                        Color.black.opacity(0.7)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(height: 180)
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(false)
+            }
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 0) {
                 MiniPlayerView()

@@ -20,6 +20,8 @@ struct DeleteSettings: Codable {
     var backgroundColorChoice: BackgroundColor = .white
     var forceDarkMode: Bool = false
     var lastLibraryScanDate: Date? = nil
+    var crossfadeEnabled: Bool = false
+    var crossfadeDuration: Double = 2.0
 
     static func load() -> DeleteSettings {
         guard let data = UserDefaults.standard.data(forKey: "DeleteSettings"),

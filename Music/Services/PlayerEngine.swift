@@ -26,6 +26,7 @@ class PlayerEngine: NSObject, ObservableObject {
     @Published var isRepeating = false
     @Published var isShuffled = false
     @Published var isLoopingSong = false
+    @Published private(set) var isCrossfading = false
     
     private var originalQueue: [Track] = []
     
@@ -37,6 +38,8 @@ class PlayerEngine: NSObject, ObservableObject {
     
     private lazy var audioEngine = AVAudioEngine()
     private lazy var playerNode = AVAudioPlayerNode()
+    private lazy var secondaryPlayerNode = AVAudioPlayerNode()
+    private lazy var crossfadeMixerNode = AVAudioMixerNode()
     private var audioFile: AVAudioFile?
     private var playbackTimer: Timer?
 
@@ -68,7 +71,8 @@ class PlayerEngine: NSObject, ObservableObject {
     private var cachedArtistTrackId: String?
     
     // Security-scoped resource tracking for external files
-    private var currentSecurityScopedURL: URL?
+    private var activeSecurityScopedURLs: [URL] = []
+    private var currentTrackURL: URL?
     
     private let databaseManager = DatabaseManager.shared
     private let cloudDownloadManager = CloudDownloadManager.shared
@@ -83,6 +87,15 @@ class PlayerEngine: NSObject, ObservableObject {
     private var isUserChangingVolume = false
     private var lastVolumeChangeTime: Date = Date()
     private var rapidChangeDetected = false
+
+    // Tiny fades to avoid clicks/pops on start/stop/seek/skip.
+    private let clickFadeDuration: TimeInterval = 0.02
+    private let clickFadeSteps: Int = 6
+    private var fadeGeneration: UInt64 = 0
+
+    // Crossfade state
+    private var isPrimaryActive = true
+    private var crossfadeGeneration: UInt64 = 0
     
     enum PlaybackState {
         case stopped
@@ -146,8 +159,16 @@ class PlayerEngine: NSObject, ObservableObject {
         // Disconnect all nodes to rebuild the graph
         audioEngine.disconnectNodeInput(audioEngine.mainMixerNode)
         audioEngine.disconnectNodeInput(playerNode)
+        audioEngine.disconnectNodeInput(secondaryPlayerNode)
+        audioEngine.disconnectNodeInput(crossfadeMixerNode)
+        audioEngine.disconnectNodeOutput(playerNode)
+        audioEngine.disconnectNodeOutput(secondaryPlayerNode)
+        audioEngine.disconnectNodeOutput(crossfadeMixerNode)
+        // Reconnect players into a shared mixer, then EQ into the main mixer.
+        audioEngine.connect(playerNode, to: crossfadeMixerNode, format: format)
+        audioEngine.connect(secondaryPlayerNode, to: crossfadeMixerNode, format: format)
         // Reconnect with EQ: playerNode -> EQ -> mainMixerNode
-        eqManager.insertEQIntoAudioGraph(between: playerNode, and: audioEngine.mainMixerNode, format: format)
+        eqManager.insertEQIntoAudioGraph(between: crossfadeMixerNode, and: audioEngine.mainMixerNode, format: format)
         audioEngine.prepare()
         print("✅ Audio engine reconfigured with EQ for sample rate: \(format.sampleRate)Hz")
         // Restart engine if it was running
@@ -163,10 +184,14 @@ class PlayerEngine: NSObject, ObservableObject {
     
     private func setupAudioEngine(with format: AVAudioFormat? = nil) {
         audioEngine.attach(playerNode)
+        audioEngine.attach(secondaryPlayerNode)
+        audioEngine.attach(crossfadeMixerNode)
         // Set up EQ manager with the audio engine
         eqManager.setAudioEngine(audioEngine)
-        // Connect audio graph: playerNode -> EQ -> mainMixerNode -> outputNode
-        eqManager.insertEQIntoAudioGraph(between: playerNode, and: audioEngine.mainMixerNode, format: format)
+        // Connect both players into a shared mixer, then EQ into the main mixer.
+        audioEngine.connect(playerNode, to: crossfadeMixerNode, format: format)
+        audioEngine.connect(secondaryPlayerNode, to: crossfadeMixerNode, format: format)
+        eqManager.insertEQIntoAudioGraph(between: crossfadeMixerNode, and: audioEngine.mainMixerNode, format: format)
         audioEngine.connect(audioEngine.mainMixerNode,
                             to: audioEngine.outputNode,
                             format: audioEngine.mainMixerNode.outputFormat(forBus: 0))
@@ -354,6 +379,7 @@ class PlayerEngine: NSObject, ObservableObject {
             
             // Force garbage collection of any retained buffers
             playerNode.stop()
+            secondaryPlayerNode.stop()
             
             print("🧹 Cleaned up audio resources due to memory warning")
         }
@@ -512,6 +538,109 @@ class PlayerEngine: NSObject, ObservableObject {
         audioEngine.mainMixerNode.outputVolume = volume
         print("🔊 Audio engine volume updated to: \(Int(volume * 100))%")
     }
+
+    private func currentSystemVolume() -> Float {
+        AVAudioSession.sharedInstance().outputVolume
+    }
+
+    private func fadeMainMixer(
+        to targetVolume: Float,
+        duration: TimeInterval,
+        steps: Int = 6,
+        completion: (() -> Void)? = nil
+    ) {
+        let clampedSteps = max(1, steps)
+        let startVolume = audioEngine.mainMixerNode.outputVolume
+
+        guard duration > 0, clampedSteps > 1 else {
+            audioEngine.mainMixerNode.outputVolume = targetVolume
+            completion?()
+            return
+        }
+
+        fadeGeneration &+= 1
+        let generation = fadeGeneration
+
+        for step in 1...clampedSteps {
+            let progress = Float(step) / Float(clampedSteps)
+            let delay = duration * Double(step) / Double(clampedSteps)
+            let volume = startVolume + (targetVolume - startVolume) * progress
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.fadeGeneration == generation else { return }
+                self.audioEngine.mainMixerNode.outputVolume = volume
+                if step == clampedSteps {
+                    completion?()
+                }
+            }
+        }
+    }
+
+    private func fadeOutForClickAvoidance() async {
+        await withCheckedContinuation { continuation in
+            fadeMainMixer(
+                to: 0,
+                duration: clickFadeDuration,
+                steps: clickFadeSteps
+            ) {
+                continuation.resume()
+            }
+        }
+    }
+
+    private func restoreMixerVolumeAfterFade() {
+        updateAudioEngineVolume(to: currentSystemVolume())
+    }
+
+    private var activePlayerNode: AVAudioPlayerNode {
+        isPrimaryActive ? playerNode : secondaryPlayerNode
+    }
+
+    private var inactivePlayerNode: AVAudioPlayerNode {
+        isPrimaryActive ? secondaryPlayerNode : playerNode
+    }
+
+    private func swapActivePlayerNode() {
+        isPrimaryActive.toggle()
+    }
+
+    private func crossfadeConfiguration() -> (enabled: Bool, duration: TimeInterval) {
+        let settings = DeleteSettings.load()
+        let duration = min(max(settings.crossfadeDuration, 0.1), 12.0)
+        return (settings.crossfadeEnabled, duration)
+    }
+
+    private func fadePlayerNode(
+        _ node: AVAudioPlayerNode,
+        to targetVolume: Float,
+        duration: TimeInterval,
+        steps: Int,
+        generation: UInt64,
+        completion: (() -> Void)? = nil
+    ) {
+        let clampedSteps = max(1, steps)
+        let startVolume = node.volume
+
+        guard duration > 0, clampedSteps > 1 else {
+            node.volume = targetVolume
+            completion?()
+            return
+        }
+
+        for step in 1...clampedSteps {
+            let progress = Float(step) / Float(clampedSteps)
+            let delay = duration * Double(step) / Double(clampedSteps)
+            let volume = startVolume + (targetVolume - startVolume) * progress
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.crossfadeGeneration == generation else { return }
+                node.volume = volume
+                if step == clampedSteps {
+                    completion?()
+                }
+            }
+        }
+    }
     
     private func ensureRemoteCommandsSetup() {
         guard !hasSetupRemoteCommands else { return }
@@ -652,8 +781,8 @@ class PlayerEngine: NSObject, ObservableObject {
         var currentTime = playbackTime
         if let audioFile = audioFile,
            hasSetupAudioEngine && audioEngine.isRunning,
-           let nodeTime = playerNode.lastRenderTime,
-           let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
+           let nodeTime = activePlayerNode.lastRenderTime,
+           let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
             let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
             currentTime = seekTimeOffset + nodePlaybackTime
         }
@@ -699,7 +828,9 @@ class PlayerEngine: NSObject, ObservableObject {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
             
             // Trigger CarPlay Now Playing button update
+            #if os(iOS) && !targetEnvironment(macCatalyst)
             MPNowPlayingInfoCenter.default().playbackState = self.isPlaying ? .playing : .paused
+            #endif
             
             // Notify CarPlay delegate of state change
             NotificationCenter.default.post(name: NSNotification.Name("PlayerStateChanged"), object: nil)
@@ -779,13 +910,17 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Stop all audio activity
         playerNode.stop()
+        secondaryPlayerNode.stop()
         audioEngine.stop()
         
         // Remove all connections
         audioEngine.detach(playerNode)
+        audioEngine.detach(secondaryPlayerNode)
+        audioEngine.detach(crossfadeMixerNode)
         
         // Clear any scheduled buffers
         playerNode.reset()
+        secondaryPlayerNode.reset()
         
         print("✅ Audio engine cleanup complete")
     }
@@ -795,21 +930,90 @@ class PlayerEngine: NSObject, ObservableObject {
         // Create fresh instances
         audioEngine = AVAudioEngine()
         playerNode = AVAudioPlayerNode()
+        secondaryPlayerNode = AVAudioPlayerNode()
+        crossfadeMixerNode = AVAudioMixerNode()
         // Set up the graph again with EQ
         audioEngine.attach(playerNode)
+        audioEngine.attach(secondaryPlayerNode)
+        audioEngine.attach(crossfadeMixerNode)
         eqManager.setAudioEngine(audioEngine)
-        eqManager.insertEQIntoAudioGraph(between: playerNode, and: audioEngine.mainMixerNode, format: nil)
+        audioEngine.connect(playerNode, to: crossfadeMixerNode, format: nil)
+        audioEngine.connect(secondaryPlayerNode, to: crossfadeMixerNode, format: nil)
+        eqManager.insertEQIntoAudioGraph(between: crossfadeMixerNode, and: audioEngine.mainMixerNode, format: nil)
         // Reset flags
         hasSetupAudioEngine = false
         hasSetupAudioSession = false
         hasSetupRemoteCommands = false
         hasSetupAudioSessionNotifications = false
+        isPrimaryActive = true
+        isCrossfading = false
         print("✅ Audio engine recreated successfully with EQ")
     }
     
     
     
     // MARK: - Playback Control
+
+    private func stopAccessingSecurityScopedResources(except keepURL: URL? = nil) {
+        activeSecurityScopedURLs = activeSecurityScopedURLs.filter { url in
+            if let keepURL, url == keepURL {
+                return true
+            }
+            url.stopAccessingSecurityScopedResource()
+            return false
+        }
+    }
+
+    private func resolveTrackURL(_ track: Track, stopPreviousScopes: Bool) async throws -> URL {
+        if stopPreviousScopes {
+            stopAccessingSecurityScopedResources()
+            currentTrackURL = nil
+        }
+
+        if let resolvedURL = await LibraryIndexer.shared.resolveBookmarkForTrack(track) {
+            print("📍 Using resolved bookmark location: \(resolvedURL.path)")
+            guard resolvedURL.startAccessingSecurityScopedResource() else {
+                print("❌ Failed to start accessing security-scoped resource")
+                throw PlayerError.fileNotFound
+            }
+            if !activeSecurityScopedURLs.contains(resolvedURL) {
+                activeSecurityScopedURLs.append(resolvedURL)
+            }
+            return resolvedURL
+        }
+
+        return URL(fileURLWithPath: track.path)
+    }
+
+    private func loadAudioFile(for track: Track, stopPreviousScopes: Bool) async throws -> (file: AVAudioFile, url: URL) {
+        let url = try await resolveTrackURL(track, stopPreviousScopes: stopPreviousScopes)
+
+        try await cloudDownloadManager.ensureLocal(url)
+
+        // Remove file protection to prevent background stalls
+        try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.none],
+                                               ofItemAtPath: url.path)
+
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw PlayerError.fileNotFound
+        }
+
+        let file = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    print("🎵 Loading audio file: \(url.lastPathComponent)")
+                    let audioFile = try AVAudioFile(forReading: url)
+                    print("✅ AVAudioFile loaded successfully: \(url.lastPathComponent)")
+                    continuation.resume(returning: audioFile)
+                } catch {
+                    print("❌ Failed to load AVAudioFile: \(error)")
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        return (file, url)
+    }
 
     func loadTrack(_ track: Track, preservePlaybackTime: Bool = false) async {
         // Determine actual format from file extension
@@ -851,59 +1055,9 @@ class PlayerEngine: NSObject, ObservableObject {
         // Volume control already set up in init
 
         do {
-            // Stop accessing previous security-scoped resource if any
-            if let previousURL = currentSecurityScopedURL {
-                previousURL.stopAccessingSecurityScopedResource()
-                currentSecurityScopedURL = nil
-                print("🔓 Stopped accessing previous security-scoped resource")
-            }
-
-            // Check if this is an external file with a bookmark (file may have moved)
-            var url: URL
-
-            if let resolvedURL = await LibraryIndexer.shared.resolveBookmarkForTrack(track) {
-                // Bookmark found and resolved - use the current location
-                print("📍 Using resolved bookmark location: \(resolvedURL.path)")
-                url = resolvedURL
-
-                // Start accessing security-scoped resource for external files
-                guard url.startAccessingSecurityScopedResource() else {
-                    print("❌ Failed to start accessing security-scoped resource")
-                    throw PlayerError.fileNotFound
-                }
-
-                // Store URL to stop access later
-                currentSecurityScopedURL = url
-                print("🔐 Started accessing security-scoped resource for external file")
-            } else {
-                // No bookmark - use path from database
-                url = URL(fileURLWithPath: track.path)
-            }
-
-            try await cloudDownloadManager.ensureLocal(url)
-
-            // Remove file protection to prevent background stalls
-            try? FileManager.default.setAttributes([.protectionKey: FileProtectionType.none],
-                                                   ofItemAtPath: url.path)
-
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw PlayerError.fileNotFound
-            }
-
-            // Use native AVAudioEngine for all supported formats
-            audioFile = try await withCheckedThrowingContinuation { continuation in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    do {
-                        print("🎵 Loading audio file: \(url.lastPathComponent)")
-                        let audioFile = try AVAudioFile(forReading: url)
-                        print("✅ AVAudioFile loaded successfully: \(url.lastPathComponent)")
-                        continuation.resume(returning: audioFile)
-                    } catch {
-                        print("❌ Failed to load AVAudioFile: \(error)")
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
+            let loaded = try await loadAudioFile(for: track, stopPreviousScopes: true)
+            audioFile = loaded.file
+            currentTrackURL = loaded.url
 
             guard let audioFile = audioFile else {
                 throw PlayerError.invalidAudioFile
@@ -997,7 +1151,12 @@ class PlayerEngine: NSObject, ObservableObject {
             // When resuming from pause, we need to re-schedule audio from the correct position
             // instead of just continuing the engine, because the timing may have drifted
             cancelPendingCompletions()
-            playerNode.stop()
+            activePlayerNode.stop()
+            inactivePlayerNode.stop()
+            activePlayerNode.volume = 1.0
+            inactivePlayerNode.volume = 0.0
+            crossfadeGeneration &+= 1
+            isCrossfading = false
             
             // Re-schedule from the stored pause position
             // Note: audioFile is already unwrapped from the guard statement above
@@ -1019,9 +1178,13 @@ class PlayerEngine: NSObject, ObservableObject {
                 return
             }
             
-            scheduleSegment(from: framePosition, file: audioFile)
-            
-            playerNode.play()
+            scheduleSegment(on: activePlayerNode, from: framePosition, file: audioFile)
+
+            // Tiny fade-in to avoid a click on resume.
+            let targetVolume = currentSystemVolume()
+            audioEngine.mainMixerNode.outputVolume = 0
+            activePlayerNode.play()
+            fadeMainMixer(to: targetVolume, duration: clickFadeDuration, steps: clickFadeSteps)
             isPlaying = true
             playbackState = .playing
             startPlaybackTimer()
@@ -1040,7 +1203,12 @@ class PlayerEngine: NSObject, ObservableObject {
         }
         
         cancelPendingCompletions()
-        playerNode.stop()
+        activePlayerNode.stop()
+        inactivePlayerNode.stop()
+        activePlayerNode.volume = 1.0
+        inactivePlayerNode.volume = 0.0
+        crossfadeGeneration &+= 1
+        isCrossfading = false
         
         print("🔊 Audio format - Sample Rate: \(audioFile.processingFormat.sampleRate), Channels: \(audioFile.processingFormat.channelCount)")
         print("🔊 Audio file length: \(audioFile.length) frames")
@@ -1070,7 +1238,7 @@ class PlayerEngine: NSObject, ObservableObject {
         if startFrame > 0 && startFrame < audioFile.length {
             // Continue from current position
             seekTimeOffset = currentPosition
-            scheduleSegment(from: startFrame, file: audioFile)
+            scheduleSegment(on: activePlayerNode, from: startFrame, file: audioFile)
             print("✅ Resuming playback from \(currentPosition)s (frame: \(startFrame))")
         } else {
             // Start from beginning - but only reset if we're actually at the beginning
@@ -1078,13 +1246,13 @@ class PlayerEngine: NSObject, ObservableObject {
                 // We're not actually at the beginning, so preserve current position
                 let startFrame2 = AVAudioFramePosition(playbackTime * audioFile.processingFormat.sampleRate)
                 seekTimeOffset = playbackTime
-                scheduleSegment(from: startFrame2, file: audioFile)
+                scheduleSegment(on: activePlayerNode, from: startFrame2, file: audioFile)
                 print("✅ Resuming playback from current position: \(playbackTime)s")
             } else {
                 // Actually starting from beginning
                 seekTimeOffset = 0
                 playbackTime = 0
-                scheduleSegment(from: 0, file: audioFile)
+                scheduleSegment(on: activePlayerNode, from: 0, file: audioFile)
                 print("✅ Starting playback from beginning")
             }
         }
@@ -1101,8 +1269,12 @@ class PlayerEngine: NSObject, ObservableObject {
         if volumeCheckTimer == nil {
             setupBasicVolumeControl()
         }
-        
-        playerNode.play()
+
+        // Tiny fade-in to avoid a click on start.
+        let targetVolume = currentSystemVolume()
+        audioEngine.mainMixerNode.outputVolume = 0
+        activePlayerNode.play()
+        fadeMainMixer(to: targetVolume, duration: clickFadeDuration, steps: clickFadeSteps)
         isPlaying = true
         playbackState = .playing
         startPlaybackTimer()
@@ -1119,8 +1291,8 @@ class PlayerEngine: NSObject, ObservableObject {
 
         // Capture current playback position before pausing
         if let audioFile = audioFile,
-           let nodeTime = playerNode.lastRenderTime,
-           let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
+           let nodeTime = activePlayerNode.lastRenderTime,
+           let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
             let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
             let currentPosition = seekTimeOffset + nodePlaybackTime
             
@@ -1131,8 +1303,17 @@ class PlayerEngine: NSObject, ObservableObject {
             seekTimeOffset = currentPosition
         }
         
-        // Use AVAudioEngine.pause() instead of playerNode.pause()
-        audioEngine.pause()
+        // Use a tiny fade-out before pausing to avoid clicks/pops.
+        fadeMainMixer(to: 0, duration: clickFadeDuration, steps: clickFadeSteps) { [weak self] in
+            guard let self else { return }
+            self.audioEngine.pause()
+            self.inactivePlayerNode.stop()
+            self.inactivePlayerNode.volume = 0.0
+            self.activePlayerNode.volume = 1.0
+            self.crossfadeGeneration &+= 1
+            self.isCrossfading = false
+            self.restoreMixerVolumeAfterFade()
+        }
         
         // Update state
         isPlaying = false
@@ -1159,17 +1340,25 @@ class PlayerEngine: NSObject, ObservableObject {
     
     func stop() {
         cancelPendingCompletions()
-        playerNode.stop()
+        fadeMainMixer(to: 0, duration: clickFadeDuration, steps: clickFadeSteps) { [weak self] in
+            guard let self else { return }
+            self.playerNode.stop()
+            self.secondaryPlayerNode.stop()
+            self.playerNode.volume = 1.0
+            self.secondaryPlayerNode.volume = 0.0
+            self.isPrimaryActive = true
+            self.crossfadeGeneration &+= 1
+            self.isCrossfading = false
+            self.restoreMixerVolumeAfterFade()
+        }
         isPlaying = false
         playbackState = .stopped
         playbackTime = 0
         
-        // Stop accessing security-scoped resource if any
-        if let securedURL = currentSecurityScopedURL {
-            securedURL.stopAccessingSecurityScopedResource()
-            currentSecurityScopedURL = nil
-            print("🔓 Stopped accessing security-scoped resource on stop")
-        }
+        // Stop accessing any security-scoped resources.
+        stopAccessingSecurityScopedResources()
+        currentTrackURL = nil
+        print("🔓 Stopped accessing security-scoped resources on stop")
         stopPlaybackTimer()
         
         // Stop all background monitoring and silent playback
@@ -1195,18 +1384,30 @@ class PlayerEngine: NSObject, ObservableObject {
     private func cleanupCurrentPlayback(resetTime: Bool = false) async {
         print("🧹 Cleaning up current playback")
 
-        // Stop accessing security-scoped resource if any
-        if let securedURL = currentSecurityScopedURL {
-            securedURL.stopAccessingSecurityScopedResource()
-            currentSecurityScopedURL = nil
-            print("🔓 Stopped accessing security-scoped resource during cleanup")
+        // Stop accessing security-scoped resources unless we are mid-crossfade.
+        if !isCrossfading {
+            stopAccessingSecurityScopedResources()
+            currentTrackURL = nil
+            print("🔓 Stopped accessing security-scoped resources during cleanup")
         }
 
         // Stop timer first
         stopPlaybackTimer()
 
-        // Stop player node
+        // Tiny fade-out before stopping to avoid clicks on track transitions.
+        if !isCrossfading && (isPlaying || activePlayerNode.isPlaying || inactivePlayerNode.isPlaying) {
+            await fadeOutForClickAvoidance()
+        }
+
+        // Stop both player nodes and reset their volumes.
         playerNode.stop()
+        secondaryPlayerNode.stop()
+        playerNode.volume = 1.0
+        secondaryPlayerNode.volume = 0.0
+        isPrimaryActive = true
+        crossfadeGeneration &+= 1
+        isCrossfading = false
+        restoreMixerVolumeAfterFade()
 
         // NEVER deactivate session during cleanup - this causes 30-second suspension on iOS 18
 
@@ -1256,18 +1457,30 @@ class PlayerEngine: NSObject, ObservableObject {
                 return
             }
         }
-        
+
+        if wasPlaying && (isPlaying || activePlayerNode.isPlaying || inactivePlayerNode.isPlaying) {
+            await fadeOutForClickAvoidance()
+        }
+
         cancelPendingCompletions()
-        playerNode.stop()
+        activePlayerNode.stop()
+        inactivePlayerNode.stop()
+        activePlayerNode.volume = 1.0
+        inactivePlayerNode.volume = 0.0
+        crossfadeGeneration &+= 1
+        isCrossfading = false
         
-        scheduleSegment(from: framePosition, file: audioFile)
+        scheduleSegment(on: activePlayerNode, from: framePosition, file: audioFile)
         
         // Update seek offset and playback time
         seekTimeOffset = time
         playbackTime = time
         
         if wasPlaying {
-            playerNode.play()
+            let targetVolume = currentSystemVolume()
+            audioEngine.mainMixerNode.outputVolume = 0
+            activePlayerNode.play()
+            fadeMainMixer(to: targetVolume, duration: clickFadeDuration, steps: clickFadeSteps)
             isPlaying = true
             playbackState = .playing
             startPlaybackTimer()
@@ -1322,7 +1535,7 @@ class PlayerEngine: NSObject, ObservableObject {
     
     // MARK: - Audio Scheduling Helper
     
-    private func scheduleSegment(from startFrame: AVAudioFramePosition, file: AVAudioFile) {
+    private func scheduleSegment(on node: AVAudioPlayerNode, from startFrame: AVAudioFramePosition, file: AVAudioFile) {
         // Safety check: Ensure audio engine is running
         guard audioEngine.isRunning else {
             print("❌ Cannot schedule segment: audio engine is not running")
@@ -1350,7 +1563,7 @@ class PlayerEngine: NSObject, ObservableObject {
         // Schedule segment with error handling
         do {
             // Schedule WITHOUT any completion handler
-            playerNode.scheduleSegment(
+            node.scheduleSegment(
                 file,
                 startingFrame: startFrame,
                 frameCount: AVAudioFrameCount(remaining),
@@ -1438,9 +1651,10 @@ class PlayerEngine: NSObject, ObservableObject {
     private func checkIfTrackEnded() async {
         // Check if audio has finished playing
         guard isPlaying else { return }
+        guard !isCrossfading else { return }
 
         // Check if player node has stopped naturally (reached end)
-        if !playerNode.isPlaying && audioFile != nil {
+        if !activePlayerNode.isPlaying && audioFile != nil {
             // Track has ended
             await handleTrackEnd()
             return
@@ -1448,8 +1662,8 @@ class PlayerEngine: NSObject, ObservableObject {
 
         // Alternative check: position-based
         if let audioFile = audioFile {
-            if let nodeTime = playerNode.lastRenderTime,
-               let playerTime = playerNode.playerTime(forNodeTime: nodeTime) {
+            if let nodeTime = activePlayerNode.lastRenderTime,
+               let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
                 let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
                 let currentTime = seekTimeOffset + nodePlaybackTime
 
@@ -1487,19 +1701,40 @@ class PlayerEngine: NSObject, ObservableObject {
     
     func playTrack(_ track: Track, queue: [Track] = []) async {
         print("🎵 Playing track: \(track.title)")
-        
-        // Restore player state on first interaction if not already done
-        await ensurePlayerStateRestored()
-        
+        // An explicit play request should not trigger state restoration, which can
+        // race and overwrite the intended track/queue.
+        hasRestoredState = true
+
+        let previousTrack = currentTrack
+
         playbackQueue = queue.isEmpty ? [track] : queue
-        currentIndex = playbackQueue.firstIndex(where: { $0.stableId == track.stableId }) ?? 0
+
+        // Defensive: ensure the requested track exists in the queue. If it doesn't,
+        // we anchor it at the front so normalization can't silently fall back to index 0.
+        if playbackQueue.firstIndex(where: { $0.stableId == track.stableId }) == nil {
+            print("⚠️ Requested track not found in queue, inserting at front: \(track.title)")
+            playbackQueue.insert(track, at: 0)
+        }
+
+        // Save original queue for shuffle functionality
+        originalQueue = playbackQueue
+
+        let targetIndex = playbackQueue.firstIndex(where: { $0.stableId == track.stableId }) ?? 0
+
+        // If we're already playing something else, try to crossfade instead of hard switching.
+        if isPlaying, audioFile != nil, previousTrack?.stableId != track.stableId {
+            let config = crossfadeConfiguration()
+            if config.enabled {
+                let didCrossfade = await crossfadeToTrack(at: targetIndex, duration: config.duration, reason: "play track")
+                if didCrossfade { return }
+            }
+        }
+
+        currentIndex = targetIndex
         
         // Explicitly set the current track to ensure UI synchronization
         currentTrack = track
         currentArtistName = getCachedArtistName(for: track)
-
-        // Save original queue for shuffle functionality
-        originalQueue = playbackQueue
         
         normalizeIndexAndTrack()
         
@@ -1515,11 +1750,21 @@ class PlayerEngine: NSObject, ObservableObject {
         guard !playbackQueue.isEmpty, !isLoadingTrack else { return }
         normalizeIndexAndTrack()
         let shouldAutoplay = autoplay ?? isPlaying
-        
-        currentIndex = (currentIndex + 1) % playbackQueue.count
+
+        let nextIndex = (currentIndex + 1) % playbackQueue.count
+
+        if shouldAutoplay, audioFile != nil {
+            let config = crossfadeConfiguration()
+            if config.enabled {
+                let didCrossfade = await crossfadeToTrack(at: nextIndex, duration: config.duration, reason: "skip next")
+                if didCrossfade { return }
+            }
+        }
+
+        currentIndex = nextIndex
         let next = playbackQueue[currentIndex]
         await loadTrack(next, preservePlaybackTime: false)
-        
+
         if shouldAutoplay {
             DispatchQueue.main.async { [weak self] in
                 self?.play()
@@ -1529,6 +1774,11 @@ class PlayerEngine: NSObject, ObservableObject {
                 guard let self else { return }
                 self.cancelPendingCompletions()
                 self.playerNode.stop()
+                self.secondaryPlayerNode.stop()
+                self.playerNode.volume = 1.0
+                self.secondaryPlayerNode.volume = 0.0
+                self.isPrimaryActive = true
+                self.isCrossfading = false
                 self.isPlaying = false
                 self.playbackState = .paused
                 self.seekTimeOffset = 0
@@ -1544,11 +1794,21 @@ class PlayerEngine: NSObject, ObservableObject {
         normalizeIndexAndTrack()
         
         let wasPlaying = autoplay ?? isPlaying
-        
-        currentIndex = currentIndex > 0 ? currentIndex - 1 : playbackQueue.count - 1
+
+        let prevIndex = currentIndex > 0 ? currentIndex - 1 : playbackQueue.count - 1
+
+        if wasPlaying, audioFile != nil {
+            let config = crossfadeConfiguration()
+            if config.enabled {
+                let didCrossfade = await crossfadeToTrack(at: prevIndex, duration: config.duration, reason: "skip previous")
+                if didCrossfade { return }
+            }
+        }
+
+        currentIndex = prevIndex
         let prev = playbackQueue[currentIndex]
         await loadTrack(prev, preservePlaybackTime: false)
-        
+
         if wasPlaying {
             await MainActor.run {
                 play()
@@ -1557,6 +1817,11 @@ class PlayerEngine: NSObject, ObservableObject {
             await MainActor.run {
                 cancelPendingCompletions()
                 playerNode.stop()
+                secondaryPlayerNode.stop()
+                playerNode.volume = 1.0
+                secondaryPlayerNode.volume = 0.0
+                isPrimaryActive = true
+                isCrossfading = false
                 isPlaying = false
                 playbackState = .paused
                 seekTimeOffset = 0
@@ -1653,13 +1918,34 @@ class PlayerEngine: NSObject, ObservableObject {
 
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setPreferredSampleRate(targetSampleRate)
-            // CRITICAL: Must activate session for sample rate change to take effect
-            try session.setActive(true)
-            lastConfiguredNativeSampleRate = targetSampleRate
-            print("✅ Audio session configured - Sample Rate: \(session.sampleRate)")
+            
+            // Ensure the session is in a sane, active state before applying preferences.
+            try setupAudioSessionCategory()
+            try session.setActive(true, options: [])
+            
+            // If we're already effectively at this rate, avoid poking SessionCore again.
+            if abs(session.sampleRate - targetSampleRate) < 1.0 {
+                lastConfiguredNativeSampleRate = session.sampleRate
+                print("✅ Audio session already at desired sample rate: \(session.sampleRate)Hz")
+                return
+            }
+            
+            do {
+                try session.setPreferredSampleRate(targetSampleRate)
+                // Re-activate to encourage the system to apply the new preference promptly.
+                try session.setActive(true, options: [])
+                lastConfiguredNativeSampleRate = targetSampleRate
+                print("✅ Audio session configured - Preferred: \(targetSampleRate)Hz, Actual: \(session.sampleRate)Hz")
+            } catch {
+                let nsError = error as NSError
+                // Common CoreAudio paramErr (-50) can surface here on unsupported routes/rates.
+                print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code)) - keeping \(session.sampleRate)Hz")
+                // Avoid retry spam on the same unsupported rate.
+                lastConfiguredNativeSampleRate = session.sampleRate
+            }
         } catch {
-            print("Failed to configure audio session: \(error)")
+            let nsError = error as NSError
+            print("❌ Failed to configure audio session (domain: \(nsError.domain), code: \(nsError.code)): \(error)")
         }
     }
     
@@ -1675,13 +1961,142 @@ class PlayerEngine: NSObject, ObservableObject {
             }
         }
     }
+
+    private func nextIndexForAutoAdvance() -> Int? {
+        guard !playbackQueue.isEmpty else { return nil }
+        if isLoopingSong { return nil }
+        if currentIndex < playbackQueue.count - 1 {
+            return currentIndex + 1
+        }
+        if isRepeating {
+            return 0
+        }
+        return nil
+    }
+
+    private func crossfadeSteps(for duration: TimeInterval) -> Int {
+        let base = max(6, Int(duration / 0.03))
+        return min(base, 60)
+    }
+
+    private func crossfadeToTrack(at index: Int, duration requestedDuration: TimeInterval, reason: String) async -> Bool {
+        guard !isCrossfading, !isLoadingTrack else { return false }
+        guard playbackQueue.indices.contains(index) else { return false }
+        guard let currentFile = audioFile else { return false }
+
+        let config = crossfadeConfiguration()
+        guard config.enabled else { return false }
+
+        let remainingTime = max(0.0, duration - playbackTime)
+        let effectiveDuration = min(requestedDuration, config.duration, max(0.05, remainingTime))
+
+        guard effectiveDuration >= 0.05 else { return false }
+
+        let nextTrack = playbackQueue[index]
+        let oldURL = currentTrackURL
+        let oldTrack = currentTrack
+        let oldArtistName = currentArtistName
+        let oldIndex = currentIndex
+
+        do {
+            let loaded = try await loadAudioFile(for: nextTrack, stopPreviousScopes: false)
+            let nextFile = loaded.file
+            let nextURL = loaded.url
+
+            let currentRate = currentFile.processingFormat.sampleRate
+            let nextRate = nextFile.processingFormat.sampleRate
+            if abs(currentRate - nextRate) > 1.0 {
+                print("⚠️ Skipping crossfade due to sample-rate mismatch: \(currentRate)Hz → \(nextRate)Hz")
+                stopAccessingSecurityScopedResources(except: oldURL)
+                return false
+            }
+
+            ensureAudioEngineSetup(with: nextFile.processingFormat)
+            ensureAudioSessionSetup()
+            try? activateAudioSession()
+
+            if !audioEngine.isRunning {
+                try audioEngine.start()
+            }
+
+            crossfadeGeneration &+= 1
+            let generation = crossfadeGeneration
+            isCrossfading = true
+
+            let fromNode = activePlayerNode
+            let toNode = inactivePlayerNode
+
+            // Update UI/metadata first, then perform the audio crossfade.
+            currentTrack = nextTrack
+            currentArtistName = getCachedArtistName(for: nextTrack)
+            currentIndex = index
+            lastControlCenterUpdate = 0
+            // Reset time-related UI state immediately so the scrub bar starts at 0
+            // while the audio crossfade completes on the old active node.
+            seekTimeOffset = 0
+            playbackTime = 0
+            duration = Double(nextFile.length) / nextFile.processingFormat.sampleRate
+            updateNowPlayingInfoEnhanced()
+            updateWidgetData()
+
+            toNode.stop()
+            toNode.reset()
+            toNode.volume = 0.0
+            fromNode.volume = 1.0
+
+            scheduleSegment(on: toNode, from: 0, file: nextFile)
+            toNode.play()
+
+            let steps = crossfadeSteps(for: effectiveDuration)
+            print("🔀 Crossfading (\(reason)) over \(String(format: "%.2f", effectiveDuration))s to: \(nextTrack.title)")
+
+            fadePlayerNode(fromNode, to: 0.0, duration: effectiveDuration, steps: steps, generation: generation)
+            fadePlayerNode(toNode, to: 1.0, duration: effectiveDuration, steps: steps, generation: generation) { [weak self] in
+                guard let self, self.crossfadeGeneration == generation else { return }
+
+                fromNode.stop()
+                fromNode.volume = 0.0
+
+                self.swapActivePlayerNode()
+                self.audioFile = nextFile
+                self.seekTimeOffset = 0
+                self.playbackTime = 0
+                self.duration = Double(nextFile.length) / nextFile.processingFormat.sampleRate
+                self.currentTrackURL = nextURL
+                self.isPlaying = true
+                self.playbackState = .playing
+                self.isCrossfading = false
+
+                self.stopAccessingSecurityScopedResources(except: nextURL)
+
+                self.updateNowPlayingInfoEnhanced()
+                self.updateWidgetData()
+            }
+
+            return true
+        } catch {
+            print("❌ Crossfade failed: \(error)")
+            stopAccessingSecurityScopedResources(except: oldURL)
+            currentTrack = oldTrack
+            currentArtistName = oldArtistName
+            currentIndex = oldIndex
+            updateNowPlayingInfoEnhanced()
+            updateWidgetData()
+            isCrossfading = false
+            return false
+        }
+    }
     
     private var lastControlCenterUpdate: TimeInterval = 0
     
     private func updatePlaybackTime() async {
+        // During crossfade the active node/audioFile still belong to the old track.
+        // Avoid updating playbackTime from the old node so the new track's scrub bar
+        // does not "resume" from the previous position.
+        if isCrossfading { return }
         guard let audioFile = audioFile,
-              let nodeTime = playerNode.lastRenderTime,
-              let playerTime = playerNode.playerTime(forNodeTime: nodeTime) else {
+              let nodeTime = activePlayerNode.lastRenderTime,
+              let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) else {
             return
         }
         
@@ -1689,10 +2104,20 @@ class PlayerEngine: NSObject, ObservableObject {
         // playerTime.sampleTime is in the file's sample rate, so use file rate for calculation
         let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
         let calculatedTime = seekTimeOffset + nodePlaybackTime
+        let remainingTime = max(0.0, duration - calculatedTime)
         
         // Only update playback time if we're actually playing (prevents drift during pause/resume)
         if isPlaying {
             playbackTime = calculatedTime
+        }
+
+        // Trigger crossfade slightly before the end of the track.
+        if isPlaying, !isCrossfading, let nextIndex = nextIndexForAutoAdvance() {
+            let config = crossfadeConfiguration()
+            if config.enabled, remainingTime <= config.duration + 0.05, remainingTime > 0.05 {
+                let requested = min(config.duration, remainingTime)
+                _ = await crossfadeToTrack(at: nextIndex, duration: requested, reason: "track end")
+            }
         }
         
         // Remove this duplicate detection - it's handled by checkIfTrackEnded()
@@ -1713,6 +2138,7 @@ class PlayerEngine: NSObject, ObservableObject {
     
     private func handleTrackEnd() async {
         guard !isLoadingTrack else { return }
+        guard !isCrossfading else { return }
         
         if isLoopingSong, let t = currentTrack {
             await loadTrack(t)
@@ -1720,18 +2146,16 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
         
-        if currentIndex < playbackQueue.count - 1 {
-            currentIndex = (currentIndex + 1) % playbackQueue.count
+        if let nextIndex = nextIndexForAutoAdvance() {
+            let config = crossfadeConfiguration()
+            if config.enabled, isPlaying {
+                let didCrossfade = await crossfadeToTrack(at: nextIndex, duration: config.duration, reason: "track end fallback")
+                if didCrossfade { return }
+            }
+
+            currentIndex = nextIndex
             let next = playbackQueue[currentIndex]
             await loadTrack(next, preservePlaybackTime: false)
-            play()
-            return
-        }
-        
-        if isRepeating, !playbackQueue.isEmpty {
-            currentIndex = 0
-            currentTrack = playbackQueue[0]
-            await loadTrack(playbackQueue[0])
             play()
             return
         }

@@ -164,36 +164,8 @@ struct GenreDetailScreen: View {
     }
 
     private var sortedTracks: [Track] {
-        switch sortOption {
-        case .playlistOrder:
-            return tracks
-        case .dateNewest:
-            return tracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
-        case .dateOldest:
-            return tracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
-        case .nameAZ:
-            return tracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
-        case .nameZA:
-            return tracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
-        case .artistAZ:
-            let artistCache = buildArtistCache(for: tracks)
-            return tracks.sorted { track1, track2 in
-                let artist1 = artistCache[track1.artistId ?? -1] ?? ""
-                let artist2 = artistCache[track2.artistId ?? -1] ?? ""
-                return artist1.lowercased() < artist2.lowercased()
-            }
-        case .artistZA:
-            let artistCache = buildArtistCache(for: tracks)
-            return tracks.sorted { track1, track2 in
-                let artist1 = artistCache[track1.artistId ?? -1] ?? ""
-                let artist2 = artistCache[track2.artistId ?? -1] ?? ""
-                return artist1.lowercased() > artist2.lowercased()
-            }
-        case .sizeLargest:
-            return tracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
-        case .sizeSmallest:
-            return tracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
-        }
+        // Keep genre playback order stable to match Album behavior.
+        tracks
     }
 
     private func buildArtistCache(for tracks: [Track]) -> [Int64: String] {
@@ -220,98 +192,93 @@ struct GenreDetailScreen: View {
         ZStack {
             ScreenSpecificBackgroundView(screen: .genreDetail)
 
-            List {
-                Section {
-                    VStack(spacing: 16) {
-                        HStack(alignment: .top, spacing: 16) {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                .overlay {
-                                    if let image = artworkImage {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                            .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    } else {
-                                        Image(systemName: "music.note")
-                                            .font(.system(size: 40))
-                                            .foregroundColor(.secondary)
-                                    }
+            VStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    HStack(alignment: .top, spacing: 16) {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(width: headerArtworkSize, height: headerArtworkSize)
+                            .overlay {
+                                if let image = artworkImage {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: headerArtworkSize, height: headerArtworkSize)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                } else {
+                                    Image(systemName: "music.note")
+                                        .font(.system(size: 40))
+                                        .foregroundColor(.secondary)
                                 }
-                                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Spacer()
-                                    .frame(height: headerTextTopOffset)
-
-                                Text(genreName)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                    .multilineTextAlignment(.leading)
-
-                                Text(Localized.songsCountOnly(tracks.count))
-                                    .font(.body)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.leading)
-
-                                Spacer(minLength: 0)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Spacer()
+                                .frame(height: headerTextTopOffset)
+
+                            Text(genreName)
+                                .font(.title2)
+                                .fontWeight(.bold)
+                                .multilineTextAlignment(.leading)
+
+                            Text(Localized.songsCountOnly(tracks.count))
+                                .font(.body)
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.leading)
+
+                            Spacer(minLength: 0)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-
-                        HStack(spacing: 12) {
-                            Button {
-                                if let first = sortedTracks.first {
-                                    Task {
-                                        await playerEngine.playTrack(first, queue: sortedTracks)
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "play.fill")
-                                    Text(Localized.play)
-                                }
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(.black)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.white)
-                                .cornerRadius(28)
-                            }
-
-                            Button {
-                                guard !sortedTracks.isEmpty else { return }
-                                let shuffled = sortedTracks.shuffled()
-                                Task {
-                                    await playerEngine.playTrack(shuffled[0], queue: shuffled)
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "shuffle")
-                                    Text(Localized.shuffle)
-                                }
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(Color.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(28)
-                            }
-                        }
-                        .padding(.horizontal, 8)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .padding(.horizontal)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets())
-                }
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                Section {
+                    HStack(spacing: 12) {
+                        Button {
+                            if let first = sortedTracks.first {
+                                Task {
+                                    await playerEngine.playTrack(first, queue: sortedTracks)
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "play.fill")
+                                Text(Localized.play)
+                            }
+                            .font(.title3.weight(.semibold))
+                            .foregroundColor(.black)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(Color.white)
+                            .cornerRadius(28)
+                        }
+
+                        Button {
+                            guard !sortedTracks.isEmpty else { return }
+                            let shuffled = sortedTracks.shuffled()
+                            Task {
+                                await playerEngine.playTrack(shuffled[0], queue: shuffled)
+                            }
+                        } label: {
+                            HStack {
+                                Image(systemName: "shuffle")
+                                Text(Localized.shuffle)
+                            }
+                            .font(.title3.weight(.semibold))
+                            .foregroundColor(Color.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(28)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 16)
+                .padding(.horizontal)
+
+                List {
                     HStack {
                         Text(Localized.songs)
                             .font(.title3.weight(.bold))
@@ -422,9 +389,9 @@ struct GenreDetailScreen: View {
                         }
                     }
                 }
+                .listStyle(PlainListStyle())
+                .scrollContentBackground(.hidden)
             }
-            .listStyle(PlainListStyle())
-            .scrollContentBackground(.hidden)
             .padding(.bottom, 90) // Space for mini player
         }
         .navigationTitle(genreName)
