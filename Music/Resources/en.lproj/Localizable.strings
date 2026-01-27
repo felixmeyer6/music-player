@@ -1,7 +1,7 @@
 /* Playlist related strings */
 "playlists" = "Playlists";
 "no_playlists_yet" = "No playlists yet";
-"create_playlists_instruction" = "Create playlists by adding songs to them from the library";
+"create_playlists_instruction" = "Create playlists by adding tracks to them from the library";
 "add_to_playlist" = "Add to Playlist";
 "create_new_playlist" = "Create New Playlist";
 "create_playlist" = "Create Playlist";
@@ -19,11 +19,11 @@
 "enter_new_name" = "Enter a new name for the playlist";
 "manage_playlists" = "Manage Playlists";
 "playlist" = "Playlist";
-"songs_count_singular" = "%d song";
-"songs_count_plural" = "%d songs";
+"songs_count_singular" = "%d track";
+"songs_count_plural" = "%d tracks";
 "created_date" = "Created %@";
-"no_songs_found" = "No songs found";
-"your_music_will_appear_here" = "To add your music:\n\n1. Open the Files app (or tap 'Add Songs')\n2. Choose either:\n   • iCloud Drive → Music folder\n   • On My iPhone → Music\n3. Drag your music files into either location";
+"no_songs_found" = "No tracks found";
+"your_music_will_appear_here" = "To add your music:\n\n1. Open the Files app (or tap 'Add Tracks')\n2. Choose either:\n   • iCloud Drive → Music folder\n   • On My iPhone → Music\n3. Drag your music files into either location";
 "create_first_playlist" = "Create your first playlist to get started";
 
 /* General UI strings */
@@ -31,6 +31,8 @@
 "liked_songs" = "Liked";
 "add_songs" = "Open Files";
 "import_music_files" = "Import music files";
+"open_folder" = "Open Folder";
+"import_music_folder" = "Import all music from a folder";
 "ok" = "OK";
 "settings" = "Settings";
 "retry" = "Retry";
@@ -47,7 +49,7 @@
 "albums" = "Albums";
 "search" = "Search";
 "browse" = "Browse";
-"songs" = "Songs";
+"songs" = "Tracks";
 "processing" = "Processing";
 "waiting" = "Waiting";
 "and_more" = "... and %d more";
@@ -66,12 +68,12 @@
 
 /* Player */
 "playing_queue" = "Playing Queue";
-"no_songs_in_queue" = "No songs in queue";
+"no_songs_in_queue" = "No tracks in queue";
 "no_track_selected" = "No track selected";
 
 /* Search */
 "search_your_music_library" = "Search your music library";
-"find_songs_artists_albums_playlists" = "Find songs, artists, albums, and playlists";
+"find_songs_artists_albums_playlists" = "Find tracks, artists, albums, and playlists";
 "no_results_found" = "No results found";
 "try_different_keywords" = "Try searching with different keywords";
 
@@ -145,20 +147,24 @@
 "percent_complete" = "%d%%";
 
 /* Subtitles and descriptions */
-"songs_count" = "%d songs";
+"songs_count" = "%d tracks";
 "your_favorites" = "Your favorites";
 "your_playlists" = "Your playlists";
 "browse_by_artist" = "Browse by artist";
+"browse_by_genre" = "Browse by genre";
 "browse_by_album" = "Browse by album";
+"genre" = "Genre";
+"no_genres_found" = "No genres found";
+"genres_will_appear" = "Genres will appear here once your music includes genre metadata";
 "unknown_album" = "Unknown Album";
 "unknown_artist" = "Unknown Artist";
 
 /* Sync result messages */
 "sync_no_new_tracks" = "No new music found";
-"sync_one_new_track" = "1 new song found";
-"sync_multiple_new_tracks" = "%d new songs found";
-"sync_one_track_deleted" = "1 song removed";
-"sync_multiple_tracks_deleted" = "%d songs removed";
+"sync_one_new_track" = "1 new track found";
+"sync_multiple_new_tracks" = "%d new tracks found";
+"sync_one_track_deleted" = "1 track removed";
+"sync_multiple_tracks_deleted" = "%d tracks removed";
 "sync_no_changes" = "Library is up to date";
 
 /* Equalizer strings */
@@ -168,12 +174,12 @@
 "enable_disable_eq_description" = "Enable or disable the graphic equalizer";
 
 /* Manual EQ Presets */
-"manual_eq_presets" = "Manual 16-Band Presets";
+"manual_eq_presets" = "Manual 6-Band Presets";
 "no_manual_presets_created" = "No manual presets created";
-"create_manual_eq_description" = "Create a custom 16-band equalizer preset with adjustable sliders";
-"create_manual_16band_eq" = "Create Manual 16-Band EQ";
-"manual_16band_eq" = "Manual 16-Band EQ";
-"manual_16band_description" = "Creates a 16-band equalizer with standard ISO frequencies that you can adjust manually";
+"create_manual_eq_description" = "Create a custom 6-band equalizer preset with adjustable sliders";
+"create_manual_16band_eq" = "Create Manual 6-Band EQ";
+"manual_16band_eq" = "Manual 6-Band EQ";
+"manual_16band_description" = "Creates a 6-band equalizer with bands at 50, 125, 250, 500, 2K, and 16K Hz";
 "adjust_bands_after_creation" = "You'll be able to adjust all frequency bands after creation";
 "frequency_bands" = "Frequency Bands";
 "edit_equalizer" = "Edit Equalizer";
@@ -234,14 +240,6 @@
 
 /* Audio Settings */
 "audio_settings" = "Audio";
-"dsd_playback_mode" = "DSD Playback Mode";
-"dsd_playback_mode_description" = "Choose how DSD audio files (DSF/DFF) are played back";
-"dsd_mode_auto" = "Auto (Detect DAC)";
-"dsd_mode_pcm" = "PCM Conversion";
-"dsd_mode_dop" = "DoP (DSD over PCM)";
-"dsd_mode_auto_description" = "Automatically detect external DAC and use DoP if available, otherwise convert to PCM";
-"dsd_mode_pcm_description" = "Always convert DSD to PCM for playback (compatible with all devices)";
-"dsd_mode_dop_description" = "Always use DoP encoding (requires external DAC that supports DSD)";
 
 /* Sort Options */
 "sort_date_newest" = "Date Added (Newest)";
@@ -252,8 +250,8 @@
 "sort_size_smallest" = "Size (Smallest)";
 
 /* Queue Actions */
-"play_next" = "Play Next";
-"add_to_queue" = "Add to Queue";
+"play_next" = "Next Up";
+"add_to_queue" = "Queue";
 
 /* Bulk Selection */
 "select" = "Select";

@@ -42,6 +42,7 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var stableId: String
     var albumId: Int64?
     var artistId: Int64?
+    var genre: String?
     var title: String
     var trackNo: Int?
     var discNo: Int?
@@ -51,11 +52,8 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var channels: Int?
     var path: String
     var fileSize: Int64?
-    var replaygainTrackGain: Double?
-    var replaygainAlbumGain: Double?
-    var replaygainTrackPeak: Double?
-    var replaygainAlbumPeak: Double?
     var hasEmbeddedArt: Bool = false
+    var waveformData: String?
     
     static let databaseTableName = "track"
     
@@ -63,7 +61,7 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     nonisolated(unsafe) static let album = belongsTo(Album.self)
     
     enum CodingKeys: String, CodingKey {
-        case id, title, path
+        case id, title, path, genre
         case stableId = "stable_id"
         case albumId = "album_id"
         case artistId = "artist_id"
@@ -73,11 +71,18 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
         case sampleRate = "sample_rate"
         case bitDepth = "bit_depth"
         case channels, fileSize = "file_size"
-        case replaygainTrackGain = "replaygain_track_gain"
-        case replaygainAlbumGain = "replaygain_album_gain"
-        case replaygainTrackPeak = "replaygain_track_peak"
-        case replaygainAlbumPeak = "replaygain_album_peak"
         case hasEmbeddedArt = "has_embedded_art"
+        case waveformData = "waveform_data"
+    }
+}
+
+struct GenreSummary: FetchableRecord, Decodable, Hashable {
+    let name: String
+    let trackCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case trackCount = "track_count"
     }
 }
 
@@ -139,7 +144,7 @@ struct PlaylistItem: Codable, FetchableRecord, PersistableRecord {
 
 enum EQPresetType: String, Codable {
     case imported = "imported"    // Imported GraphicEQ with variable bands
-    case manual = "manual"        // Manual 16-band EQ
+    case manual = "manual"        // Manual EQ (6-band editor)
 }
 
 struct EQPreset: Codable, FetchableRecord, PersistableRecord, Identifiable {

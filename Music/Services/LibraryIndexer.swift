@@ -2,13 +2,13 @@
 //  LibraryIndexer.swift
 //  Cosmos Music Player
 //
-//  Indexes audio files (FLAC, MP3, WAV, AAC, Opus, Vorbis, DSD) in iCloud Drive using NSMetadataQuery
+//  Indexes audio files (FLAC, MP3, WAV, AAC, M4A) in iCloud Drive using NSMetadataQuery
 //
 
 import Foundation
 import CryptoKit
 import AVFoundation
-import SFBAudioEngine
+import Accelerate
 
 enum LibraryIndexerError: Error {
     case parseTimeout
@@ -28,6 +28,7 @@ class LibraryIndexer: NSObject, ObservableObject {
     private let metadataQuery = NSMetadataQuery()
     private let databaseManager = DatabaseManager.shared
     private let stateManager = StateManager.shared
+    private let waveformBars = 150
     
     override init() {
         super.init()
@@ -44,8 +45,8 @@ class LibraryIndexer: NSObject, ObservableObject {
             metadataQuery.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
         }
         
-        // Support all audio formats according to plan
-        let formats = ["*.flac", "*.mp3", "*.wav", "*.m4a", "*.aac", "*.opus", "*.ogg", "*.dsf", "*.dff"]
+        // Support native AVAudioEngine audio formats
+        let formats = ["*.flac", "*.mp3", "*.wav", "*.m4a", "*.aac"]
         let formatPredicates = formats.map { format in
             NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, format)
         }
@@ -159,8 +160,23 @@ class LibraryIndexer: NSObject, ObservableObject {
                 return
             }
 
+            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let fileSize = Int64(resourceValues.fileSize ?? 0)
+            let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
+            let waveformMeta = Self.makeWaveformMeta(
+                totalBars: waveformBars,
+                fileSize: fileSize,
+                contentModificationTime: contentModificationTime
+            )
+
             print("🎶 Parsing external audio file: \(fileURL.lastPathComponent)")
-            let track = try await parseAudioFile(at: fileURL, stableId: stableId)
+            let track = try await parseAudioFile(
+                at: fileURL,
+                stableId: stableId,
+                fileSize: fileSize,
+                contentModificationTime: contentModificationTime,
+                waveformMeta: waveformMeta
+            )
             print("✅ External audio file parsed successfully: \(track.title)")
 
             print("💾 Inserting external track into database: \(track.title)")
@@ -377,12 +393,8 @@ class LibraryIndexer: NSObject, ObservableObject {
                 try databaseManager.syncPlaylistWithFolder(playlistId: existingPlaylist.id!, trackStableIds: trackStableIds)
                 print("✅ Synced playlist '\(existingPlaylist.title)' with folder contents")
             } else {
-                // Create new folder playlist
-                print("➕ Creating new folder playlist: \(folderName)")
-
-                let playlist = try databaseManager.createFolderPlaylist(title: folderName, folderPath: folderPath)
-                try databaseManager.syncPlaylistWithFolder(playlistId: playlist.id!, trackStableIds: trackStableIds)
-                print("✅ Created folder playlist '\(playlist.title)' with \(trackStableIds.count) tracks")
+                // Auto-creation of folder playlists is disabled.
+                print("⏭️ Skipping auto-creation of folder playlist for: \(folderName)")
             }
 
         } catch {
@@ -449,7 +461,7 @@ class LibraryIndexer: NSObject, ObservableObject {
                         }
                         
                         let pathExtension = fileURL.pathExtension.lowercased()
-                        let supportedExtensions = ["flac", "mp3", "wav", "m4a", "aac", "opus", "ogg", "dsf", "dff"]
+                        let supportedExtensions = ["flac", "mp3", "wav", "m4a", "aac"]
                         if supportedExtensions.contains(pathExtension) {
                             musicFiles.append(fileURL)
                         }
@@ -506,8 +518,23 @@ class LibraryIndexer: NSObject, ObservableObject {
                 return
             }
             
+            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let fileSize = Int64(resourceValues.fileSize ?? 0)
+            let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
+            let waveformMeta = Self.makeWaveformMeta(
+                totalBars: waveformBars,
+                fileSize: fileSize,
+                contentModificationTime: contentModificationTime
+            )
+
             print("🎶 Parsing audio file: \(fileURL.lastPathComponent)")
-            let track = try await parseAudioFile(at: fileURL, stableId: stableId)
+            let track = try await parseAudioFile(
+                at: fileURL,
+                stableId: stableId,
+                fileSize: fileSize,
+                contentModificationTime: contentModificationTime,
+                waveformMeta: waveformMeta
+            )
             print("✅ Audio file parsed successfully: \(track.title)")
 
             print("💾 Inserting track into database: \(track.title)")
@@ -565,19 +592,35 @@ class LibraryIndexer: NSObject, ObservableObject {
     private func processMetadataItem(_ item: NSMetadataItem) async {
         guard let fileURL = item.value(forAttribute: NSMetadataItemURLKey) as? URL else { return }
         let ext = fileURL.pathExtension.lowercased()
-        let supportedFormats = ["flac", "mp3", "wav", "m4a", "aac", "opus", "ogg", "dsf", "dff"]
+        let supportedFormats = ["flac", "mp3", "wav", "m4a", "aac"]
         guard supportedFormats.contains(ext) else { return }
 
         do {
             let stableId = try generateStableId(for: fileURL)
 
-            if try databaseManager.getTrack(byStableId: stableId) != nil {
+            try await CloudDownloadManager.shared.ensureLocal(fileURL)
+
+            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let fileSize = Int64(resourceValues.fileSize ?? 0)
+            let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
+            let waveformMeta = Self.makeWaveformMeta(
+                totalBars: waveformBars,
+                fileSize: fileSize,
+                contentModificationTime: contentModificationTime
+            )
+
+            if let existing = try databaseManager.getTrack(byStableId: stableId),
+               Self.waveformMatches(existing.waveformData, meta: waveformMeta) {
                 return
             }
 
-            try await CloudDownloadManager.shared.ensureLocal(fileURL)
-
-            let track = try await parseAudioFile(at: fileURL, stableId: stableId)
+            let track = try await parseAudioFile(
+                at: fileURL,
+                stableId: stableId,
+                fileSize: fileSize,
+                contentModificationTime: contentModificationTime,
+                waveformMeta: waveformMeta
+            )
             try databaseManager.upsertTrack(track)
 
             // Pre-cache artwork for instant loading later
@@ -603,7 +646,13 @@ class LibraryIndexer: NSObject, ObservableObject {
         return digest.compactMap { String(format: "%02x", $0) }.joined()
     }
     
-    private func parseAudioFile(at url: URL, stableId: String) async throws -> Track {
+    private func parseAudioFile(
+        at url: URL,
+        stableId: String,
+        fileSize: Int64,
+        contentModificationTime: TimeInterval,
+        waveformMeta: WaveformMeta
+    ) async throws -> Track {
         print("🔍 Calling AudioMetadataParser for: \(url.lastPathComponent)")
         
         // Add timeout to prevent hanging
@@ -629,6 +678,7 @@ class LibraryIndexer: NSObject, ObservableObject {
         
         // Clean and normalize artist name to merge similar artists
         let cleanedArtistName = cleanArtistName(metadata.artist ?? Localized.unknownArtist)
+        let cleanedGenre = cleanGenre(metadata.genre)
         print("🎤 Creating artist with cleaned name: '\(cleanedArtistName)'")
         
         let artist = try databaseManager.upsertArtist(name: cleanedArtistName)
@@ -639,12 +689,20 @@ class LibraryIndexer: NSObject, ObservableObject {
             albumArtist: metadata.albumArtist
         )
         
-        let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+        let bars = waveformBars
+        let waveformData = await Task.detached(priority: .utility) {
+            await Self.buildWaveformData(
+                for: url,
+                totalBars: bars,
+                waveformMeta: waveformMeta
+            )
+        }.value
         
         return Track(
             stableId: stableId,
             albumId: album.id,
             artistId: artist.id,
+            genre: cleanedGenre,
             title: metadata.title ?? url.deletingPathExtension().lastPathComponent,
             trackNo: metadata.trackNumber,
             discNo: metadata.discNumber,
@@ -653,13 +711,189 @@ class LibraryIndexer: NSObject, ObservableObject {
             bitDepth: metadata.bitDepth,
             channels: metadata.channels,
             path: url.path,
-            fileSize: Int64(resourceValues.fileSize ?? 0),
-            replaygainTrackGain: metadata.replaygainTrackGain,
-            replaygainAlbumGain: metadata.replaygainAlbumGain,
-            replaygainTrackPeak: metadata.replaygainTrackPeak,
-            replaygainAlbumPeak: metadata.replaygainAlbumPeak,
-            hasEmbeddedArt: metadata.hasEmbeddedArt
+            fileSize: fileSize,
+            hasEmbeddedArt: metadata.hasEmbeddedArt,
+            waveformData: waveformData
         )
+    }
+
+    // MARK: - Waveform Analysis
+
+    private struct WaveformMeta: Codable, Equatable {
+        let totalBars: Int
+        let fileSize: Int64
+        let contentModificationTime: TimeInterval
+        let version: Int
+    }
+
+    private struct WaveformPayload: Codable {
+        let meta: WaveformMeta
+        let bars: [Float]
+    }
+
+    nonisolated private static func makeWaveformMeta(
+        totalBars: Int,
+        fileSize: Int64,
+        contentModificationTime: TimeInterval
+    ) -> WaveformMeta {
+        WaveformMeta(
+            totalBars: totalBars,
+            fileSize: fileSize,
+            contentModificationTime: contentModificationTime,
+            version: 4
+        )
+    }
+
+    nonisolated private static func waveformMatches(_ waveformData: String?, meta: WaveformMeta) -> Bool {
+        guard let payload = decodeWaveformPayload(waveformData) else {
+            return false
+        }
+
+        guard payload.meta.totalBars == meta.totalBars,
+              payload.meta.fileSize == meta.fileSize,
+              payload.meta.version == meta.version else {
+            return false
+        }
+
+        // Allow small timestamp drift due to filesystem precision.
+        return abs(payload.meta.contentModificationTime - meta.contentModificationTime) < 1.0
+    }
+
+    nonisolated private static func decodeWaveformPayload(_ waveformData: String?) -> WaveformPayload? {
+        guard let waveformData, let data = waveformData.data(using: .utf8) else {
+            return nil
+        }
+        return try? JSONDecoder().decode(WaveformPayload.self, from: data)
+    }
+
+    nonisolated private static func buildWaveformData(
+        for url: URL,
+        totalBars: Int,
+        waveformMeta: WaveformMeta
+    ) async -> String? {
+        guard totalBars > 0 else { return nil }
+
+        let bars = await analyzeWaveformBars(for: url, totalBars: totalBars)
+        guard !bars.isEmpty else { return nil }
+
+        let payload = WaveformPayload(meta: waveformMeta, bars: bars)
+        do {
+            let data = try JSONEncoder().encode(payload)
+            return String(data: data, encoding: .utf8)
+        } catch {
+            print("⚠️ Failed to encode waveform payload for \(url.lastPathComponent): \(error)")
+            return nil
+        }
+    }
+
+    nonisolated private static func analyzeWaveformBars(for url: URL, totalBars: Int) async -> [Float] {
+        guard totalBars > 0 else { return [] }
+
+        let asset = AVURLAsset(url: url)
+        guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+            return []
+        }
+
+        let durationSeconds = CMTimeGetSeconds(asset.duration)
+        guard durationSeconds.isFinite, durationSeconds > 0 else {
+            return []
+        }
+
+        // Keep mapping math aligned with the decode sample rate to avoid
+        // compressing the waveform into the first portion of the bars.
+        let decodeSampleRate: Double = 11_025
+        let estimatedFrames = max(1, Int(durationSeconds * decodeSampleRate))
+        let framesPerBar = max(1, estimatedFrames / totalBars)
+
+        // Aggressive downsampling budget: only inspect a limited number of samples.
+        let targetSampleCount = max(totalBars * 32, 1024)
+        let stride = max(1, estimatedFrames / targetSampleCount)
+
+        do {
+            let reader = try AVAssetReader(asset: asset)
+            let outputSettings: [String: Any] = [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVLinearPCMIsFloatKey: true,
+                AVLinearPCMBitDepthKey: 32,
+                AVLinearPCMIsNonInterleaved: false,
+                AVNumberOfChannelsKey: 1,
+                AVSampleRateKey: decodeSampleRate,
+                AVLinearPCMIsBigEndianKey: false
+            ]
+
+            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
+            output.alwaysCopiesSampleData = false
+
+            guard reader.canAdd(output) else { return [] }
+            reader.add(output)
+
+            guard reader.startReading() else { return [] }
+
+            var barPeaks = [Float](repeating: 0, count: totalBars)
+            var runningFrameIndex = 0
+
+            while reader.status == .reading {
+                guard let sampleBuffer = output.copyNextSampleBuffer() else { break }
+                guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
+
+                var totalLength = 0
+                var dataPointer: UnsafeMutablePointer<Int8>?
+                let status = CMBlockBufferGetDataPointer(
+                    blockBuffer,
+                    atOffset: 0,
+                    lengthAtOffsetOut: nil,
+                    totalLengthOut: &totalLength,
+                    dataPointerOut: &dataPointer
+                )
+
+                guard status == kCMBlockBufferNoErr,
+                      let dataPointer else { continue }
+
+                let sampleCount = totalLength / MemoryLayout<Float>.size
+                if sampleCount == 0 { continue }
+
+                let floatPointer = dataPointer.withMemoryRebound(to: Float.self, capacity: sampleCount) { $0 }
+                var absSamples = [Float](repeating: 0, count: sampleCount)
+                vDSP_vabs(floatPointer, 1, &absSamples, 1, vDSP_Length(sampleCount))
+
+                var idx = 0
+                while idx < sampleCount {
+                    let globalFrame = runningFrameIndex + idx
+                    let barIndex = min(totalBars - 1, globalFrame / framesPerBar)
+                    let value = absSamples[idx]
+                    if value > barPeaks[barIndex] {
+                        barPeaks[barIndex] = value
+                    }
+                    idx += stride
+                }
+
+                runningFrameIndex += sampleCount
+            }
+
+            if reader.status == .failed {
+                print("⚠️ AVAssetReader failed for \(url.lastPathComponent): \(reader.error?.localizedDescription ?? "unknown error")")
+                return []
+            }
+
+            let maxAmp = barPeaks.max() ?? 0
+            if maxAmp > 0 {
+                barPeaks = barPeaks.map { $0 / maxAmp }
+            }
+
+            return barPeaks
+        } catch {
+            print("⚠️ Waveform analysis failed for \(url.lastPathComponent): \(error)")
+            return []
+        }
+    }
+
+    nonisolated private static func estimatedSampleRate(for track: AVAssetTrack) async -> Double? {
+        let descriptions = try? await track.load(.formatDescriptions)
+        guard let desc = descriptions?.first,
+              let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(desc) else {
+            return nil
+        }
+        return asbdPointer.pointee.mSampleRate
     }
     
     private func cleanArtistName(_ artistName: String) -> String {
@@ -694,6 +928,12 @@ class LibraryIndexer: NSObject, ObservableObject {
         }
         
         return cleaned.isEmpty ? Localized.unknownArtist : cleaned
+    }
+
+    private func cleanGenre(_ genre: String?) -> String? {
+        guard let genre else { return nil }
+        let cleaned = genre.trimmingCharacters(in: .whitespacesAndNewlines)
+        return cleaned.isEmpty ? nil : cleaned
     }
     
     func copyFilesFromSharedContainer() async {
@@ -832,12 +1072,8 @@ class LibraryIndexer: NSObject, ObservableObject {
                     try databaseManager.syncPlaylistWithFolder(playlistId: existingPlaylist.id!, trackStableIds: trackStableIds)
                     print("✅ Synced shared playlist '\(existingPlaylist.title)' with folder contents")
                 } else {
-                    // Create new folder playlist for shared folder
-                    print("➕ Creating new shared folder playlist: \(folderName)")
-
-                    let playlist = try databaseManager.createFolderPlaylist(title: folderName, folderPath: folderPath)
-                    try databaseManager.syncPlaylistWithFolder(playlistId: playlist.id!, trackStableIds: trackStableIds)
-                    print("✅ Created shared folder playlist '\(playlist.title)' with \(trackStableIds.count) tracks")
+                    // Auto-creation of shared folder playlists is disabled.
+                    print("⏭️ Skipping auto-creation of shared folder playlist for: \(folderName)")
                 }
 
             } catch {
@@ -1071,6 +1307,7 @@ struct AudioMetadata {
     let artist: String?
     let album: String?
     let albumArtist: String?
+    let genre: String?
     let trackNumber: Int?
     let discNumber: Int?
     let year: Int?
@@ -1094,24 +1331,12 @@ class AudioMetadataParser {
         let ext = url.pathExtension.lowercased()
 
         switch ext {
-        // Native formats
+        // Native AVAudioEngine formats
         case "flac", "mp3", "wav", "aac":
             return try await parseNativeFormat(url)
 
         case "m4a":
-            // Detect if AAC or Opus
-            if isOpusInM4A(url) {
-                return try await parseBasicMetadata(url, format: "Opus") // Opus → Basic parsing
-            } else {
-                return try await parseAacMetadata(url)  // AAC → Native
-            }
-
-        // SFBAudioEngine formats (but use basic parsing for metadata to avoid hangs)
-        case "opus", "ogg":
-            return try await parseBasicMetadata(url, format: "Opus/Vorbis")
-
-        case "dsf", "dff":
-            return try await parseDSDBasicMetadata(url)
+            return try await parseAacMetadata(url)
 
         default:
             throw AudioParseError.unsupportedFormat
@@ -1123,6 +1348,7 @@ class AudioMetadataParser {
         var artist: String?
         var album: String?
         var albumArtist: String?
+        var genre: String?
         var trackNumber: Int?
         var discNumber: Int?
         var year: Int?
@@ -1241,6 +1467,7 @@ class AudioMetadataParser {
                 artist = metadata["ARTIST"] ?? metadata["ARTISTE"]
                 album = metadata["ALBUM"]
                 albumArtist = metadata["ALBUMARTIST"]
+                genre = metadata["GENRE"]
                 
                 if let trackStr = metadata["TRACKNUMBER"] {
                     trackNumber = Int(trackStr)
@@ -1279,6 +1506,7 @@ class AudioMetadataParser {
             artist: artist,
             album: album,
             albumArtist: albumArtist,
+            genre: genre,
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
@@ -1370,6 +1598,7 @@ class AudioMetadataParser {
         var artist: String?
         var album: String?
         var albumArtist: String?
+        var genre: String?
         var trackNumber: Int?
         var discNumber: Int?
         var year: Int?
@@ -1436,6 +1665,11 @@ class AudioMetadataParser {
                             artist = try? await metadata.load(.stringValue)
                             print("🎤 Found artist in TPE1: \(artist ?? "nil")")
                         }
+                    case "id3/TCON":
+                        // Genre
+                        if genre == nil {
+                            genre = try? await metadata.load(.stringValue)
+                        }
                     // Add more ID3 artist tag variations
                     case "id3/TIT2":
                         // Title fallback
@@ -1448,6 +1682,10 @@ class AudioMetadataParser {
                             album = try? await metadata.load(.stringValue)
                         }
                     default:
+                        // Fallback: check for non-ID3 genre identifiers (e.g., QuickTime/iTunes).
+                        if genre == nil && identifier.rawValue.lowercased().contains("genre") {
+                            genre = try? await metadata.load(.stringValue)
+                        }
                         // Debug: log unhandled tags that might contain artist info
                         if identifier.rawValue.contains("ART") || identifier.rawValue.contains("TPE") {
                             let value = try? await metadata.load(.stringValue)
@@ -1457,6 +1695,9 @@ class AudioMetadataParser {
                     }
                 }
             }
+
+            // Secondary pass: check genre across key spaces and identifiers.
+            genre = await extractGenre(from: allMetadata, current: genre)
         } catch {
             print("Failed to load asset metadata: \(error)")
         }
@@ -1512,12 +1753,14 @@ class AudioMetadataParser {
         print("   Artist: \(artist ?? "nil")")
         print("   Album: \(album ?? "nil")")
         print("   Album Artist: \(albumArtist ?? "nil")")
+        print("   Genre: \(genre ?? "nil")")
         
         return AudioMetadata(
             title: title,
             artist: artist,
             album: album,
             albumArtist: albumArtist,
+            genre: genre,
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
@@ -1545,6 +1788,7 @@ class AudioMetadataParser {
         var artist: String?
         var album: String?
         var albumArtist: String?
+        var genre: String?
         var trackNumber: Int?
         var discNumber: Int?
         var year: Int?
@@ -1574,6 +1818,7 @@ class AudioMetadataParser {
         do {
             let asset = AVURLAsset(url: url)
             let commonMetadata = try await asset.load(.commonMetadata)
+            let allMetadata = try await asset.load(.metadata)
 
             for item in commonMetadata {
                 switch item.commonKey {
@@ -1593,6 +1838,9 @@ class AudioMetadataParser {
                     break
                 }
             }
+
+            // Secondary pass: check genre across key spaces and identifiers.
+            genre = await extractGenre(from: allMetadata, current: genre)
         } catch {
             print("⚠️ Failed to read WAV metadata: \(error)")
         }
@@ -1618,6 +1866,7 @@ class AudioMetadataParser {
         print("🎵 Final WAV metadata for \(url.lastPathComponent):")
         print("   Title: \(title ?? "nil")")
         print("   Artist: \(artist ?? "nil")")
+        print("   Genre: \(genre ?? "nil")")
         print("   Sample Rate: \(sampleRate ?? 0) Hz")
         print("   Channels: \(channels ?? 0)")
         print("   Bit Depth: \(bitDepth ?? 0)")
@@ -1627,6 +1876,7 @@ class AudioMetadataParser {
             artist: artist,
             album: album,
             albumArtist: albumArtist,
+            genre: genre,
             trackNumber: trackNumber,
             discNumber: discNumber,
             year: year,
@@ -1662,19 +1912,6 @@ class AudioMetadataParser {
         }
     }
 
-    // Check if M4A contains Opus codec
-    private static func isOpusInM4A(_ url: URL) -> Bool {
-        // Check MP4 atoms for Opus codec
-        guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
-            return false
-        }
-
-        // Look for 'Opus' atom in MP4 structure
-        // MP4 structure: ftyp → moov → trak → mdia → minf → stbl → stsd → Opus
-        let opusSignature = "Opus".data(using: .ascii)!
-        return data.range(of: opusSignature, in: 0..<min(data.count, 10000)) != nil
-    }
-
     // Parse AAC metadata using native AVFoundation
     private static func parseAacMetadata(_ url: URL) async throws -> AudioMetadata {
         print("📖 Reading AAC metadata for: \(url.lastPathComponent)")
@@ -1683,569 +1920,55 @@ class AudioMetadataParser {
         return try await parseMp3MetadataSync(from: url)
     }
 
-    // Parse using SFBAudioEngine for Opus, Vorbis, etc.
-    private static func parseSFBAudioFile(_ url: URL) async throws -> AudioMetadata {
-        print("📖 Reading SFBAudioEngine metadata for: \(url.lastPathComponent)")
+    private static func normalizeGenre(_ value: String?) -> String? {
+        guard var value else { return nil }
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
 
-        do {
-            // Create SFBAudioFile for metadata extraction
-            let audioFile = try SFBAudioEngine.AudioFile(readingPropertiesAndMetadataFrom: url)
-
-            // Extract basic properties
-            let properties = audioFile.properties
-            let metadata = audioFile.metadata
-
-            let durationSeconds = properties.duration ?? 0
-            let sampleRate = Int(properties.sampleRate ?? 0)
-            let channels = Int(properties.channelCount ?? 0)
-            let bitDepth = 0  // BitDepth not directly available from AudioProperties
-
-            // Extract metadata
-            let title = metadata.title
-            let artist = metadata.artist
-            let album = metadata.albumTitle
-            let albumArtist = metadata.albumArtist
-            let trackNumber = metadata.trackNumber
-            let discNumber = metadata.discNumber
-            let year = metadata.releaseDate?.components(separatedBy: "-").first.flatMap { Int($0) }
-
-            print("🎵 SFBAudioEngine metadata for \(url.lastPathComponent):")
-            print("   Title: \(title ?? "nil")")
-            print("   Artist: \(artist ?? "nil")")
-            print("   Sample Rate: \(sampleRate) Hz")
-            print("   Channels: \(channels)")
-            print("   Duration: \(durationSeconds) seconds")
-
-            return AudioMetadata(
-                title: title,
-                artist: artist,
-                album: album,
-                albumArtist: albumArtist,
-                trackNumber: trackNumber,
-                discNumber: discNumber,
-                year: year,
-                durationMs: Int(durationSeconds * 1000),
-                sampleRate: sampleRate,
-                bitDepth: bitDepth > 0 ? bitDepth : nil,
-                channels: channels,
-                replaygainTrackGain: metadata.replayGainTrackGain,
-                replaygainAlbumGain: metadata.replayGainAlbumGain,
-                replaygainTrackPeak: metadata.replayGainTrackPeak,
-                replaygainAlbumPeak: metadata.replayGainAlbumPeak,
-                hasEmbeddedArt: await checkForEmbeddedArtwork(url: url)  // Check for embedded artwork in SFBAudioEngine files
-            )
-
-        } catch {
-            print("❌ SFBAudioEngine parsing failed: \(error)")
-            throw AudioParseError.invalidFile
+        // Handle common ID3 numeric wrapping like "(17)".
+        if value.hasPrefix("("), value.hasSuffix(")") {
+            let inner = String(value.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !inner.isEmpty {
+                value = inner
+            }
         }
+
+        return value.isEmpty ? nil : value
     }
 
-    // Simple artwork detection for supported formats
+    private static func isGenreIdentifier(_ identifier: AVMetadataIdentifier) -> Bool {
+        let raw = identifier.rawValue.lowercased()
+        // Accept explicit genre identifiers and common key spaces used in audio files.
+        if raw.contains("genre") {
+            return true
+        }
+        // ID3 TCON is the canonical genre tag for MP3.
+        if raw.contains("/tcon") {
+            return true
+        }
+        return false
+    }
+
+    private static func extractGenre(from items: [AVMetadataItem], current: String?) async -> String? {
+        var genre = normalizeGenre(current)
+
+        for item in items {
+            guard genre == nil else { break }
+            guard let identifier = item.identifier else { continue }
+            guard isGenreIdentifier(identifier) else { continue }
+
+            let value = try? await item.load(.stringValue)
+            genre = normalizeGenre(value)
+        }
+
+        return genre
+    }
+
+    // Simple artwork detection for supported formats (uses AVAsset)
     private static func checkForEmbeddedArtwork(url: URL) async -> Bool {
-        do {
-            let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            let ext = url.pathExtension.lowercased()
-
-            // Common image format signatures
-            let jpegSignature = Data([0xFF, 0xD8, 0xFF])
-            let pngSignature = Data([0x89, 0x50, 0x4E, 0x47])
-
-            if ext == "opus" || ext == "ogg" {
-                // OGG/Opus files use Vorbis Comments with base64-encoded METADATA_BLOCK_PICTURE
-                // Search for "METADATA_BLOCK_PICTURE=" tag
-                if let pictureTag = "METADATA_BLOCK_PICTURE=".data(using: .utf8),
-                   data.range(of: pictureTag) != nil {
-                    return true
-                }
-                return false
-            } else if ext == "dsf" {
-                // DSF files: artwork is typically stored after the format chunk
-                // DSF signature: "DSD " (44 53 44 20)
-                let dsfSignature = Data([0x44, 0x53, 0x44, 0x20])
-                if data.starts(with: dsfSignature) {
-                    // Search for image signatures in the file (DSF can contain embedded artwork)
-                    let searchRange = 0..<min(data.count, 1048576) // Search first 1MB
-                    return data.range(of: jpegSignature, in: searchRange) != nil ||
-                           data.range(of: pngSignature, in: searchRange) != nil
-                }
-            } else if ext == "dff" {
-                // DSDIFF files: look for ID3v2 tags or artwork chunks
-                // DSDIFF signature: "FRM8" + "DSD "
-                if data.count >= 12 {
-                    let frm8Signature = Data([0x46, 0x52, 0x4D, 0x38]) // "FRM8"
-                    let dsdSignature = Data([0x44, 0x53, 0x44, 0x20])   // "DSD "
-
-                    if data.starts(with: frm8Signature) &&
-                       data.subdata(in: 8..<12) == dsdSignature {
-                        // Search for image signatures in DSDIFF file
-                        let searchRange = 0..<min(data.count, 1048576) // Search first 1MB
-                        return data.range(of: jpegSignature, in: searchRange) != nil ||
-                               data.range(of: pngSignature, in: searchRange) != nil
-                    }
-                }
-            }
-
-            return false
-        } catch {
-            print("⚠️ Artwork detection failed for \(url.lastPathComponent): \(error)")
-            return false
-        }
-    }
-
-    // Parse basic metadata from filename (for SFBAudioEngine formats to avoid hangs)
-    private static func parseBasicMetadata(_ url: URL, format: String) async throws -> AudioMetadata {
-        print("📖 Reading basic metadata for \(format): \(url.lastPathComponent)")
-
-        // Use filename parsing for all SFBAudioEngine formats
-        let filename = url.deletingPathExtension().lastPathComponent
-        var title = filename
-        var artist: String? = nil
-
-        // Try to parse "Artist - Title" format
-        let components = filename.components(separatedBy: " - ")
-        if components.count >= 2 {
-            artist = components[0].trimmingCharacters(in: .whitespaces)
-            title = components.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
-        }
-
-        // Basic properties - don't assume sample rate as it's crucial for timing
-        let ext = url.pathExtension.lowercased()
-        let sampleRate = 0      // Unknown - will be determined by audio engine during playback
-        let channels = 0        // Unknown - will be determined during playback
-        var bitDepth: Int? = nil
-
-        switch ext {
-        case "opus", "ogg", "m4a":
-            bitDepth = nil      // Lossy format
-        default:
-            break
-        }
-
-        // Check for embedded artwork in supported formats
-        var hasEmbeddedArt = false
-        if ext == "opus" || ext == "ogg" {
-            // These formats can have embedded artwork, check with basic methods
-            hasEmbeddedArt = await checkForEmbeddedArtwork(url: url)
-        }
-
-        print("🎵 Basic metadata for \(url.lastPathComponent):")
-        print("   Title: \(title)")
-        print("   Artist: \(artist ?? "Unknown")")
-        print("   Format: \(format)")
-        print("   Sample Rate: Unknown (will be detected during playback)")
-        print("   Has Artwork: \(hasEmbeddedArt)")
-
-        return AudioMetadata(
-            title: title,
-            artist: artist,
-            album: nil,
-            albumArtist: artist,
-            trackNumber: nil,
-            discNumber: nil,
-            year: nil,
-            durationMs: 0,  // Duration will be calculated during playback
-            sampleRate: sampleRate,
-            bitDepth: bitDepth,
-            channels: channels,
-            replaygainTrackGain: nil,
-            replaygainAlbumGain: nil,
-            replaygainTrackPeak: nil,
-            replaygainAlbumPeak: nil,
-            hasEmbeddedArt: hasEmbeddedArt
-        )
-    }
-
-    // Parse DSD metadata with proper ID3v2 tag extraction from DSF files
-    private static func parseDSDBasicMetadata(_ url: URL) async throws -> AudioMetadata {
-        print("📖 Reading DSD metadata with ID3v2 extraction for: \(url.lastPathComponent)")
-
-        var title: String?
-        var artist: String?
-        var album: String?
-        var albumArtist: String?
-        var trackNumber: Int?
-        var discNumber: Int?
-        var year: Int?
-        var hasEmbeddedArt = false
-        var sampleRate = 0
-        var channels = 0
-        let bitDepth = 1  // DSD is always 1-bit
-
-        // Try to extract metadata from DSF file
-        if url.pathExtension.lowercased() == "dsf" {
-            do {
-                let metadata = try await extractDSFMetadata(from: url)
-                title = metadata.title
-                artist = metadata.artist
-                album = metadata.album
-                albumArtist = metadata.albumArtist
-                trackNumber = metadata.trackNumber
-                discNumber = metadata.discNumber
-                year = metadata.year
-                hasEmbeddedArt = metadata.hasEmbeddedArt
-                sampleRate = metadata.sampleRate
-                channels = metadata.channels
-                print("✅ Successfully extracted DSF metadata for: \(url.lastPathComponent)")
-            } catch {
-                print("⚠️ Failed to extract DSF metadata, falling back to filename parsing: \(error)")
-            }
-        }
-
-        // Fallback to filename parsing if metadata extraction failed
-        if title == nil {
-            let filename = url.deletingPathExtension().lastPathComponent
-            title = filename
-
-            // Try to parse "Artist - Title" format
-            let components = filename.components(separatedBy: " - ")
-            if components.count >= 2 {
-                artist = components[0].trimmingCharacters(in: .whitespaces)
-                title = components.dropFirst().joined(separator: " - ").trimmingCharacters(in: .whitespaces)
-            }
-        }
-
-        // Check for embedded artwork if not already determined
-        if !hasEmbeddedArt {
-            hasEmbeddedArt = await checkForEmbeddedArtwork(url: url)
-        }
-
-        print("🎵 DSD metadata for \(url.lastPathComponent):")
-        print("   Title: \(title ?? "Unknown")")
-        print("   Artist: \(artist ?? "Unknown")")
-        print("   Album: \(album ?? "Unknown")")
-        print("   Track: \(trackNumber?.description ?? "Unknown")")
-        print("   Sample Rate: \(sampleRate > 0 ? "\(sampleRate) Hz" : "Unknown")")
-        print("   Channels: \(channels > 0 ? "\(channels)" : "Unknown")")
-        print("   Has Artwork: \(hasEmbeddedArt)")
-
-        return AudioMetadata(
-            title: title,
-            artist: artist,
-            album: album,
-            albumArtist: albumArtist,
-            trackNumber: trackNumber,
-            discNumber: discNumber,
-            year: year,
-            durationMs: 0,  // Duration will be calculated during playback
-            sampleRate: sampleRate,
-            bitDepth: bitDepth,
-            channels: channels,
-            replaygainTrackGain: nil,
-            replaygainAlbumGain: nil,
-            replaygainTrackPeak: nil,
-            replaygainAlbumPeak: nil,
-            hasEmbeddedArt: hasEmbeddedArt
-        )
-    }
-
-    // Extract metadata from DSF file using DSF format specification and ID3v2 tags
-    private static func extractDSFMetadata(from url: URL) async throws -> (title: String?, artist: String?, album: String?, albumArtist: String?, trackNumber: Int?, discNumber: Int?, year: Int?, hasEmbeddedArt: Bool, sampleRate: Int, channels: Int) {
-
-        // Add memory safety check - avoid large file loading during startup if low memory
-        let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        if fileSize > 50_000_000 { // Skip files larger than 50MB to prevent memory pressure
-            print("⚠️ Skipping large DSF file during startup: \(url.lastPathComponent) (\(fileSize) bytes)")
-            return (nil, nil, nil, nil, nil, nil, nil, false, 0, 0)
-        }
-
-        let data = try Data(contentsOf: url)
-
-        // Validate DSF signature: 'D', 'S', 'D', ' ' (includes 1 space)
-        guard data.count >= 28,
-              data[0] == 0x44, data[1] == 0x53, data[2] == 0x44, data[3] == 0x20 else {
-            throw AudioParseError.unsupportedFormat
-        }
-
-        // Read DSF header (little-endian) with safe byte-by-byte reading
-        let chunkSize = readLittleEndianUInt64(from: data, offset: 4)
-        let totalFileSize = readLittleEndianUInt64(from: data, offset: 12)
-        let metadataPointer = readLittleEndianUInt64(from: data, offset: 20)
-
-        print("📊 DSF Header Analysis for \(url.lastPathComponent):")
-        print("   Chunk Size: \(chunkSize)")
-        print("   Total File Size: \(totalFileSize)")
-        print("   Metadata Pointer: \(metadataPointer)")
-
-        // Parse format chunk to get sample rate and channels
-        var sampleRate = 0
-        var channels = 0
-
-        // Look for fmt chunk after DSD chunk (at offset 28)
-        if data.count >= 52 &&
-           data[28] == 0x66 && data[29] == 0x6D && data[30] == 0x74 && data[31] == 0x20 { // "fmt "
-
-            let fmtChunkSize = readLittleEndianUInt64(from: data, offset: 32)
-
-            if fmtChunkSize >= 52 {
-                let formatVersion = readLittleEndianUInt32(from: data, offset: 40)
-                let formatId = readLittleEndianUInt32(from: data, offset: 44)
-                let channelType = readLittleEndianUInt32(from: data, offset: 48)
-                let channelNum = readLittleEndianUInt32(from: data, offset: 52)
-                let sampleFrequency = readLittleEndianUInt32(from: data, offset: 56)
-
-                sampleRate = Int(sampleFrequency)
-                channels = Int(channelNum)
-
-                print("   Format Version: \(formatVersion)")
-                print("   Format ID: \(formatId)")
-                print("   Channel Type: \(channelType)")
-                print("   Channels: \(channels)")
-                print("   Sample Rate: \(sampleRate) Hz")
-            }
-        }
-
-        // Parse ID3v2 metadata if metadata pointer is valid
-        var title: String?
-        var artist: String?
-        var album: String?
-        var albumArtist: String?
-        var trackNumber: Int?
-        var discNumber: Int?
-        var year: Int?
-        var hasEmbeddedArt = false
-
-        if metadataPointer > 0 && metadataPointer < data.count {
-            let metadataOffset = Int(metadataPointer)
-
-            // Check for ID3v2 signature at metadata pointer
-            if data.count >= metadataOffset + 10 &&
-               data[metadataOffset] == 0x49 && data[metadataOffset + 1] == 0x44 && data[metadataOffset + 2] == 0x33 { // "ID3"
-
-                print("🏷️ Found ID3v2 tag at offset \(metadataOffset)")
-
-                let id3Data = data.subdata(in: metadataOffset..<data.count)
-                let parsedTags = parseID3v2Tags(from: id3Data)
-
-                title = parsedTags.title
-                artist = parsedTags.artist
-                album = parsedTags.album
-                albumArtist = parsedTags.albumArtist
-                trackNumber = parsedTags.trackNumber
-                discNumber = parsedTags.discNumber
-                year = parsedTags.year
-                hasEmbeddedArt = parsedTags.hasArtwork
-            }
-        }
-
-        return (
-            title: title,
-            artist: artist,
-            album: album,
-            albumArtist: albumArtist,
-            trackNumber: trackNumber,
-            discNumber: discNumber,
-            year: year,
-            hasEmbeddedArt: hasEmbeddedArt,
-            sampleRate: sampleRate,
-            channels: channels
-        )
-    }
-
-    // Parse ID3v2 tags from binary data
-    private static func parseID3v2Tags(from data: Data) -> (title: String?, artist: String?, album: String?, albumArtist: String?, trackNumber: Int?, discNumber: Int?, year: Int?, hasArtwork: Bool) {
-
-        guard data.count >= 10 else { return (nil, nil, nil, nil, nil, nil, nil, false) }
-
-        // Read ID3v2 header
-        let majorVersion = data[3]
-        let revision = data[4]
-        let flags = data[5]
-
-        // Read size (synchsafe integer)
-        let tagSize = Int((UInt32(data[6]) << 21) | (UInt32(data[7]) << 14) | (UInt32(data[8]) << 7) | UInt32(data[9]))
-
-        print("🏷️ ID3v2.\(majorVersion).\(revision) tag, size: \(tagSize) bytes, flags: 0x\(String(flags, radix: 16))")
-
-        var title: String?
-        var artist: String?
-        var album: String?
-        var albumArtist: String?
-        var trackNumber: Int?
-        var discNumber: Int?
-        var year: Int?
-        var hasArtwork = false
-
-        // Parse frames (starting from offset 10)
-        var offset = 10
-        let endOffset = min(data.count, 10 + tagSize)
-
-        while offset < endOffset - 10 {
-            // Read frame header (10 bytes for v2.3/v2.4)
-            let frameId = String(data: data.subdata(in: offset..<offset+4), encoding: .ascii) ?? ""
-
-            let frameSize: Int
-            if majorVersion >= 4 {
-                // ID3v2.4 uses synchsafe integers for frame size
-                frameSize = Int((UInt32(data[offset+4]) << 21) | (UInt32(data[offset+5]) << 14) | (UInt32(data[offset+6]) << 7) | UInt32(data[offset+7]))
-            } else {
-                // ID3v2.3 uses regular 32-bit big-endian integer
-                frameSize = Int((UInt32(data[offset+4]) << 24) | (UInt32(data[offset+5]) << 16) | (UInt32(data[offset+6]) << 8) | UInt32(data[offset+7]))
-            }
-
-            _ = (UInt16(data[offset+8]) << 8) | UInt16(data[offset+9])
-
-            // Move to frame data
-            offset += 10
-
-            guard frameSize > 0 && offset + frameSize <= endOffset else {
-                break
-            }
-
-            let frameData = data.subdata(in: offset..<offset+frameSize)
-
-            // Parse frame based on ID
-            switch frameId {
-            case "TIT2": // Title
-                title = parseTextFrame(frameData)
-            case "TPE1": // Artist
-                artist = parseTextFrame(frameData)
-            case "TALB": // Album
-                album = parseTextFrame(frameData)
-            case "TPE2": // Album Artist
-                albumArtist = parseTextFrame(frameData)
-            case "TRCK": // Track number
-                if let trackString = parseTextFrame(frameData) {
-                    trackNumber = Int(trackString.components(separatedBy: "/").first ?? "")
-                }
-            case "TPOS": // Disc number
-                if let discString = parseTextFrame(frameData) {
-                    discNumber = Int(discString.components(separatedBy: "/").first ?? "")
-                }
-            case "TYER", "TDRC": // Year (TYER in v2.3, TDRC in v2.4)
-                if let yearString = parseTextFrame(frameData) {
-                    year = Int(String(yearString.prefix(4)))
-                }
-            case "APIC": // Attached picture
-                hasArtwork = true
-                print("🎨 Found embedded artwork in ID3v2 tag")
-            default:
-                break
-            }
-
-            offset += frameSize
-        }
-
-        print("🎵 Parsed ID3v2 metadata:")
-        print("   Title: \(title ?? "nil")")
-        print("   Artist: \(artist ?? "nil")")
-        print("   Album: \(album ?? "nil")")
-        print("   Album Artist: \(albumArtist ?? "nil")")
-        print("   Track: \(trackNumber?.description ?? "nil")")
-        print("   Year: \(year?.description ?? "nil")")
-        print("   Has Artwork: \(hasArtwork)")
-
-        return (title, artist, album, albumArtist, trackNumber, discNumber, year, hasArtwork)
-    }
-
-    // Parse text frame data handling different encodings
-    private static func parseTextFrame(_ data: Data) -> String? {
-        guard !data.isEmpty else { return nil }
-
-        let encoding = data[0]
-        let textData = data.subdata(in: 1..<data.count)
-
-        switch encoding {
-        case 0: // ISO-8859-1
-            return String(data: textData, encoding: .isoLatin1)?.trimmingCharacters(in: .controlCharacters.union(.whitespacesAndNewlines))
-        case 1: // UTF-16 with BOM
-            return String(data: textData, encoding: .utf16)?.trimmingCharacters(in: .controlCharacters.union(.whitespacesAndNewlines))
-        case 2: // UTF-16BE without BOM
-            return String(data: textData, encoding: .utf16BigEndian)?.trimmingCharacters(in: .controlCharacters.union(.whitespacesAndNewlines))
-        case 3: // UTF-8
-            return String(data: textData, encoding: .utf8)?.trimmingCharacters(in: .controlCharacters.union(.whitespacesAndNewlines))
-        default:
-            // Fallback to UTF-8
-            return String(data: textData, encoding: .utf8)?.trimmingCharacters(in: .controlCharacters.union(.whitespacesAndNewlines))
-        }
-    }
-
-    // Safe byte reading helpers for DSF format (little-endian)
-    private static func readLittleEndianUInt64(from data: Data, offset: Int) -> UInt64 {
-        guard offset >= 0 && offset + 8 <= data.count else {
-            print("⚠️ Invalid byte access: offset=\(offset), dataSize=\(data.count)")
-            return 0
-        }
-
-        let byte0 = UInt64(data[offset])
-        let byte1 = UInt64(data[offset + 1]) << 8
-        let byte2 = UInt64(data[offset + 2]) << 16
-        let byte3 = UInt64(data[offset + 3]) << 24
-        let byte4 = UInt64(data[offset + 4]) << 32
-        let byte5 = UInt64(data[offset + 5]) << 40
-        let byte6 = UInt64(data[offset + 6]) << 48
-        let byte7 = UInt64(data[offset + 7]) << 56
-
-        return byte0 | byte1 | byte2 | byte3 | byte4 | byte5 | byte6 | byte7
-    }
-
-    private static func readLittleEndianUInt32(from data: Data, offset: Int) -> UInt32 {
-        guard offset >= 0 && offset + 4 <= data.count else {
-            print("⚠️ Invalid byte access: offset=\(offset), dataSize=\(data.count)")
-            return 0
-        }
-
-        let byte0 = UInt32(data[offset])
-        let byte1 = UInt32(data[offset + 1]) << 8
-        let byte2 = UInt32(data[offset + 2]) << 16
-        let byte3 = UInt32(data[offset + 3]) << 24
-
-        return byte0 | byte1 | byte2 | byte3
-    }
-
-    // Parse DSD metadata with SFBAudioEngine (DEPRECATED - causes hangs)
-    private static func parseDSDMetadata(_ url: URL) async throws -> AudioMetadata {
-        print("📖 Reading DSD metadata for: \(url.lastPathComponent)")
-
-        do {
-            // Create DSD decoder
-            let decoder = try SFBAudioEngine.AudioDecoder(url: url)
-
-            // Extract properties
-            let sourceFormat = decoder.sourceFormat
-            _ = decoder.processingFormat
-
-            let sampleRate = Int(sourceFormat.sampleRate)
-            let channels = Int(sourceFormat.channelCount)
-            // Duration calculation for DSD - using properties if available
-            let durationSeconds = 0.0  // Duration not directly available from AudioDecoder
-
-            // DSD is 1-bit, but we report the effective resolution
-            let bitDepth = 1
-
-            print("🎵 DSD metadata for \(url.lastPathComponent):")
-            print("   Sample Rate: \(sampleRate) Hz (DSD)")
-            print("   Channels: \(channels)")
-            print("   Duration: \(durationSeconds) seconds")
-            print("   Format: DSD (1-bit)")
-
-            // For DSD files, metadata is limited, so use filename parsing
-            let filename = url.deletingPathExtension().lastPathComponent
-            let title = filename
-
-            return AudioMetadata(
-                title: title,
-                artist: nil,
-                album: nil,
-                albumArtist: nil,
-                trackNumber: nil,
-                discNumber: nil,
-                year: nil,
-                durationMs: Int(durationSeconds * 1000),
-                sampleRate: sampleRate,
-                bitDepth: bitDepth,
-                channels: channels,
-                replaygainTrackGain: nil,
-                replaygainAlbumGain: nil,
-                replaygainTrackPeak: nil,
-                replaygainAlbumPeak: nil,
-                hasEmbeddedArt: false
-            )
-
-        } catch {
-            print("❌ DSD parsing failed: \(error)")
-            throw AudioParseError.invalidFile
-        }
+        // For supported formats, we rely on AVAsset for artwork detection
+        // This is handled during artwork loading, not indexing
+        return false
     }
 }
 

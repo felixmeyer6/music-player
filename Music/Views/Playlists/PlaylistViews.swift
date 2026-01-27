@@ -2,6 +2,7 @@ import SwiftUI
 import GRDB
 import PhotosUI
 import WidgetKit
+import UIKit
 
 
 struct PlaylistsScreen: View {
@@ -253,7 +254,7 @@ struct PlaylistCardView: View {
                         .aspectRatio(1, contentMode: .fit)
                         .clipped()
                 } else if allTracks.count >= 4 {
-                    // 2x2 mashup for 4+ songs
+                    // 2x2 mashup for 4+ tracks
                     GeometryReader { geometry in
                         let size = (geometry.size.width - 2) / 2
                         VStack(spacing: 2) {
@@ -268,7 +269,7 @@ struct PlaylistCardView: View {
                         }
                     }
                 } else if !allTracks.isEmpty {
-                    // Single artwork for 1-3 songs
+                    // Single artwork for 1-3 tracks
                     GeometryReader { geometry in
                         artworkView(at: 0, size: geometry.size.width)
                     }
@@ -414,6 +415,7 @@ struct PlaylistCardView: View {
 struct PlaylistDetailScreen: View {
     let playlist: Playlist
     @EnvironmentObject private var appCoordinator: AppCoordinator
+    @StateObject private var playerEngine = PlayerEngine.shared
     @State private var tracks: [Track] = []
     @State private var isEditMode: Bool = false
     @State private var artworks: [UIImage] = []
@@ -426,9 +428,26 @@ struct PlaylistDetailScreen: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var customCoverImage: UIImage?
     @State private var showCoverOptions = false
+    private let headerArtworkSize: CGFloat = 140
+    private let mashupSpacing: CGFloat = 2
 
-    private var playerEngine: PlayerEngine {
-        appCoordinator.playerEngine
+    private var mashupCellSize: CGFloat {
+        (headerArtworkSize - mashupSpacing) / 2
+    }
+
+    private var headerTextTopOffset: CGFloat {
+        headerArtworkSize * 0.15
+    }
+
+    @ViewBuilder
+    private func swipeIcon(systemName: String) -> some View {
+        if let icon = UIImage(systemName: systemName)?
+            .withTintColor(.black, renderingMode: .alwaysOriginal) {
+            Image(uiImage: icon)
+        } else {
+            Image(systemName: systemName)
+                .foregroundColor(.black)
+        }
     }
 
     private func markAsActed(_ trackId: String) {
@@ -440,50 +459,38 @@ struct PlaylistDetailScreen: View {
     }
 
     private var sortedTracks: [Track] {
-        // Filter out incompatible formats when connected to CarPlay
-        let filteredTracks: [Track]
-        if SFBAudioEngineManager.shared.isCarPlayEnvironment {
-            filteredTracks = tracks.filter { track in
-                let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-                let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-                return !incompatibleFormats.contains(ext)
-            }
-        } else {
-            filteredTracks = tracks
-        }
-
         switch sortOption {
         case .playlistOrder:
             // Respect the playlist position order (tracks are already loaded in position order)
-            return filteredTracks
+            return tracks
         case .dateNewest:
-            return filteredTracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
+            return tracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
         case .dateOldest:
-            return filteredTracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
+            return tracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
         case .nameAZ:
-            return filteredTracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
+            return tracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
         case .nameZA:
-            return filteredTracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
+            return tracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
         case .artistAZ:
             // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: filteredTracks)
-            return filteredTracks.sorted { track1, track2 in
+            let artistCache = buildArtistCache(for: tracks)
+            return tracks.sorted { track1, track2 in
                 let artist1 = artistCache[track1.artistId ?? -1] ?? ""
                 let artist2 = artistCache[track2.artistId ?? -1] ?? ""
                 return artist1.lowercased() < artist2.lowercased()
             }
         case .artistZA:
             // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: filteredTracks)
-            return filteredTracks.sorted { track1, track2 in
+            let artistCache = buildArtistCache(for: tracks)
+            return tracks.sorted { track1, track2 in
                 let artist1 = artistCache[track1.artistId ?? -1] ?? ""
                 let artist2 = artistCache[track2.artistId ?? -1] ?? ""
                 return artist1.lowercased() > artist2.lowercased()
             }
         case .sizeLargest:
-            return filteredTracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
+            return tracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
         case .sizeSmallest:
-            return filteredTracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
+            return tracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
         }
     }
 
@@ -516,82 +523,89 @@ struct PlaylistDetailScreen: View {
                 // Header section with artwork and buttons
                 Section {
                     VStack(spacing: 16) {
-                        // Four-song grid artwork
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: 250, height: 250)
+                        HStack(alignment: .top, spacing: 16) {
+                            // Four-track grid artwork
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.gray.opacity(0.2))
+                                    .frame(width: headerArtworkSize, height: headerArtworkSize)
 
-                            // Show custom cover if available, otherwise show auto-generated mashup
-                            if let customCover = customCoverImage {
-                                Image(uiImage: customCover)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 250, height: 250)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                            } else if tracks.count >= 4 {
-                                // 2x2 mashup for 4+ songs
-                                VStack(spacing: 2) {
-                                    HStack(spacing: 2) {
-                                        artworkView(at: 0, size: 124)
-                                        artworkView(at: 1, size: 124)
-                                    }
-                                    HStack(spacing: 2) {
-                                        artworkView(at: 2, size: 124)
-                                        artworkView(at: 3, size: 124)
-                                    }
-                                }
-                                .frame(width: 250, height: 250)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                            } else if !tracks.isEmpty {
-                                // Single artwork for 1-3 songs
-                                artworkView(at: 0, size: 250)
-                            } else {
-                                // Default icon for empty playlist
-                                Image(systemName: "music.note.list")
-                                    .font(.system(size: 50))
-                                    .foregroundColor(.secondary)
-                            }
-
-                            // Edit mode: Show large centered photo icon
-                            if isEditMode {
-                                VStack {
-                                    Spacer()
-                                    HStack {
-                                        Spacer()
-                                        Button(action: {
-                                            showCoverOptions = true
-                                        }) {
-                                            Image(systemName: "photo")
-                                                .font(.system(size: 40, weight: .light))
-                                                .foregroundColor(.white)
-                                                .frame(width: 80, height: 80)
-                                                .background(Color.black.opacity(0.6))
-                                                .clipShape(Circle())
+                                // Show custom cover if available, otherwise show auto-generated mashup
+                                if let customCover = customCoverImage {
+                                    Image(uiImage: customCover)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: headerArtworkSize, height: headerArtworkSize)
+                                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                                } else if tracks.count >= 4 {
+                                    // 2x2 mashup for 4+ tracks
+                                    VStack(spacing: mashupSpacing) {
+                                        HStack(spacing: mashupSpacing) {
+                                            artworkView(at: 0, size: mashupCellSize)
+                                            artworkView(at: 1, size: mashupCellSize)
                                         }
-                                        .buttonStyle(PlainButtonStyle())
+                                        HStack(spacing: mashupSpacing) {
+                                            artworkView(at: 2, size: mashupCellSize)
+                                            artworkView(at: 3, size: mashupCellSize)
+                                        }
+                                    }
+                                    .frame(width: headerArtworkSize, height: headerArtworkSize)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                } else if !tracks.isEmpty {
+                                    // Single artwork for 1-3 tracks
+                                    artworkView(at: 0, size: headerArtworkSize)
+                                } else {
+                                    // Default icon for empty playlist
+                                    Image(systemName: "music.note.list")
+                                        .font(.system(size: 40))
+                                        .foregroundColor(.secondary)
+                                }
+
+                                // Edit mode: Show centered photo icon
+                                if isEditMode {
+                                    VStack {
+                                        Spacer()
+                                        HStack {
+                                            Spacer()
+                                            Button(action: {
+                                                showCoverOptions = true
+                                            }) {
+                                                Image(systemName: "photo")
+                                                    .font(.system(size: 36, weight: .light))
+                                                    .foregroundColor(.white)
+                                                    .frame(width: 72, height: 72)
+                                                    .background(Color.black.opacity(0.6))
+                                                    .clipShape(Circle())
+                                            }
+                                            .buttonStyle(PlainButtonStyle())
+                                            Spacer()
+                                        }
                                         Spacer()
                                     }
-                                    Spacer()
+                                    .frame(width: headerArtworkSize, height: headerArtworkSize)
                                 }
-                                .frame(width: 250, height: 250)
                             }
-                        }
-                        .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-                        .frame(maxWidth: .infinity, alignment: .center)
+                            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
 
-                        VStack(spacing: 8) {
-                            Text(playlist.title)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .multilineTextAlignment(.center)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Spacer()
+                                    .frame(height: headerTextTopOffset)
 
-                            Text(Localized.songsCount(tracks.count))
-                                .font(.title3)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
+                                Text(playlist.title)
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                    .multilineTextAlignment(.leading)
+
+                                Text(Localized.songsCount(tracks.count))
+                                    .font(.body)
+                                    .foregroundColor(.secondary)
+                                    .multilineTextAlignment(.leading)
+
+                                Spacer(minLength: 0)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         // Play and Shuffle buttons
                         HStack(spacing: 12) {
@@ -609,9 +623,9 @@ struct PlaylistDetailScreen: View {
                                 .font(.title3.weight(.semibold))
                                 .foregroundColor(.black)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(height: 56)
                                 .background(Color.white)
-                                .cornerRadius(25)
+                                .cornerRadius(28)
                             }
                             .disabled(tracks.isEmpty)
 
@@ -629,15 +643,16 @@ struct PlaylistDetailScreen: View {
                                 .font(.title3.weight(.semibold))
                                 .foregroundColor(Color.white)
                                 .frame(maxWidth: .infinity)
-                                .frame(height: 50)
+                                .frame(height: 56)
                                 .background(Color.white.opacity(0.1))
-                                .cornerRadius(25)
+                                .cornerRadius(28)
                             }
                             .disabled(tracks.isEmpty)
                         }
                         .padding(.horizontal, 8)
                     }
                     .padding(.vertical)
+                    .padding(.horizontal)
                 }
                 .listRowBackground(Color.clear)
                 .listRowSeparator(.hidden)
@@ -704,9 +719,13 @@ struct PlaylistDetailScreen: View {
                                     playerEngine.insertNext(track)
                                     markAsActed(track.stableId)
                                 } label: {
-                                    Label(Localized.playNext, systemImage: "text.line.first.and.arrowtriangle.forward")
+                                    HStack(spacing: 8) {
+                                        swipeIcon(systemName: "text.line.first.and.arrowtriangle.forward")
+                                        Text(Localized.playNext)
+                                    }
+                                    .foregroundColor(.black)
                                 }
-                                .tint(Color.white)
+                                .tint(.white)
                             }
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -715,9 +734,13 @@ struct PlaylistDetailScreen: View {
                                     playerEngine.addToQueue(track)
                                     markAsActed(track.stableId)
                                 } label: {
-                                    Label(Localized.addToQueue, systemImage: "text.append")
+                                    HStack(spacing: 8) {
+                                        swipeIcon(systemName: "text.append")
+                                        Text(Localized.addToQueue)
+                                    }
+                                    .foregroundColor(.black)
                                 }
-                                .tint(.blue)
+                                .tint(.white)
                             }
                         }
                         .listRowBackground(Color.clear)
@@ -998,7 +1021,7 @@ struct PlaylistListView: View {
                 Text("No playlists yet")
                     .font(.headline)
                 
-                Text("Create playlists by adding songs to them from the library")
+                Text("Create playlists by adding tracks to them from the library")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
@@ -1053,8 +1076,8 @@ struct PlaylistSelectionView: View {
     @State private var settings = DeleteSettings.load()
     
     var sortedPlaylists: [Playlist] {
-        // Sort playlists: first those where song is NOT in playlist (sorted by most recent played), 
-        // then those where song IS in playlist (also sorted by most recent played)
+        // Sort playlists: first those where track is NOT in playlist (sorted by most recent played),
+        // then those where track IS in playlist (also sorted by most recent played)
         return playlists.sorted { playlist1, playlist2 in
             let isInPlaylist1 = (try? appCoordinator.isTrackInPlaylist(playlistId: playlist1.id ?? 0, trackStableId: track.stableId)) ?? false
             let isInPlaylist2 = (try? appCoordinator.isTrackInPlaylist(playlistId: playlist2.id ?? 0, trackStableId: track.stableId)) ?? false

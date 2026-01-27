@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import UIKit
 
 struct EqualizerBarsExact: View {
     let color: Color
@@ -17,7 +18,7 @@ struct EqualizerBarsExact: View {
     private var restartKey: String { "\(isActive)-\(trackId ?? "")" }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 1) {
+        HStack(alignment: .center, spacing: 1) {
             ForEach(0..<4, id: \.self) { i in
                 RoundedRectangle(cornerRadius: 0.5)
                     .fill(color)
@@ -70,6 +71,32 @@ extension Color {
             green: Double(g) / 255,
             blue:  Double(b) / 255,
             opacity: Double(a) / 255
+        )
+    }
+
+    func mix(with color: Color, by amount: CGFloat) -> Color {
+        let t = max(0, min(1, amount))
+        let c1 = UIColor(self)
+        let c2 = UIColor(color)
+
+        var r1: CGFloat = 0
+        var g1: CGFloat = 0
+        var b1: CGFloat = 0
+        var a1: CGFloat = 0
+        var r2: CGFloat = 0
+        var g2: CGFloat = 0
+        var b2: CGFloat = 0
+        var a2: CGFloat = 0
+
+        c1.getRed(&r1, green: &g1, blue: &b1, alpha: &a1)
+        c2.getRed(&r2, green: &g2, blue: &b2, alpha: &a2)
+
+        return Color(
+            .sRGB,
+            red: Double(r1 + (r2 - r1) * t),
+            green: Double(g1 + (g2 - g1) * t),
+            blue: Double(b1 + (b2 - b1) * t),
+            opacity: Double(a1 + (a2 - a1) * t)
         )
     }
 }
@@ -131,6 +158,7 @@ struct PlayerView: View {
     private var mainContent: some View {
         contentView
             .padding(.vertical)
+            .padding(.top, 8)
             .onChange(of: playerEngine.currentTrack) { _, newTrack in
                 currentArtwork = nil
                 Task {
@@ -160,7 +188,6 @@ struct PlayerView: View {
 
                 VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 20 : 25) {
                     titleAndArtistSection(track: currentTrack)
-                    progressBarSection
                     controlsSection
                 }
                 .padding(.horizontal, max(16, min(20, UIScreen.main.bounds.width * 0.05)))
@@ -435,18 +462,27 @@ struct PlayerView: View {
     // MARK: - Progress Bar Section
 
     private var progressBarSection: some View {
-        VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 12 : 16) {
-            InteractiveProgressBar(
-                progress: playerEngine.duration > 0 ? playerEngine.playbackTime / playerEngine.duration : 0,
-                onSeek: { progress in
-                    let newTime = progress * playerEngine.duration
-                    Task {
-                        await playerEngine.seek(to: newTime)
-                    }
-                },
-                accentColor: dominantColor
+        let progressBinding = Binding<Double>(
+            get: {
+                guard playerEngine.duration > 0 else { return 0 }
+                return playerEngine.playbackTime / playerEngine.duration
+            },
+            set: { newProgress in
+                guard playerEngine.duration > 0 else { return }
+                let newTime = newProgress * playerEngine.duration
+                Task { await playerEngine.seek(to: newTime) }
+            }
+        )
+
+        return VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 12 : 16) {
+            WaveformScrubber(
+                progress: progressBinding,
+                accentColor: dominantColor,
+                track: playerEngine.currentTrack
             )
-            .frame(height: 1)
+            .frame(height: 36)
+            .padding(.vertical, 12)
+            .padding(.top, 4)
 
             HStack {
                 Text(formatTime(playerEngine.playbackTime))
@@ -459,6 +495,7 @@ struct PlayerView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+            .padding(.top, 6)
         }
         .padding(.horizontal, 8)
     }
@@ -468,6 +505,7 @@ struct PlayerView: View {
     private var controlsSection: some View {
         VStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 20 : 25) {
             playbackControlsView
+            progressBarSection
             additionalControlsView
         }
     }
@@ -722,54 +760,261 @@ struct PlayerView: View {
     }
 }
 
-struct InteractiveProgressBar: View {
-    let progress: Double
-    let onSeek: (Double) -> Void
+struct WaveformScrubber: View {
+    @Binding var progress: Double
     let accentColor: Color
-    
+    let track: Track?
+
+    var barWidth: CGFloat = 2
+    var barSpacing: CGFloat = 1
+    var barCornerRadius: CGFloat = 1
+    var totalBars: Int = 150
+
     @State private var isDragging = false
-    @State private var dragProgress: Double = 0
-    
-    var displayProgress: Double {
-        isDragging ? dragProgress : progress
+    @State private var dragStartProgress: Double = 0
+    @State private var amplitudes: [CGFloat] = []
+
+    private var totalWidth: CGFloat {
+        CGFloat(totalBars) * (barWidth + barSpacing)
     }
-    
+
+    private var taskKey: String {
+        "\(track?.stableId ?? "none")-\(totalBars)"
+    }
+
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Background track
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Color.gray.opacity(0.3))
-                    .frame(height: 4)
-                
-                // Progress fill
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(accentColor)
-                    .frame(width: geometry.size.width * displayProgress, height: 4)
-                
-                // Thumb/Handle
-                Circle()
-                    .fill(accentColor)
-                    .frame(width: 12, height: 12)
-                    .offset(x: (geometry.size.width * displayProgress) - 6)
+        GeometryReader { geo in
+            let centerOffset = geo.size.width / 2
+            let progressOffset = totalWidth * progress
+
+            HStack(spacing: barSpacing) {
+                ForEach(0..<totalBars, id: \.self) { i in
+                    let isFilled = Double(i) / Double(totalBars) <= progress
+
+                    RoundedRectangle(cornerRadius: barCornerRadius)
+                        .fill(
+                            isFilled
+                            ? accentColor
+                            : Color(white: 0.6).mix(with: accentColor, by: 0.1)
+                        )
+                        .frame(width: barWidth, height: barHeight(for: i) * geo.size.height)
+                }
             }
+            .frame(height: geo.size.height)
+            .offset(x: centerOffset - progressOffset)
             .contentShape(Rectangle())
-            .onTapGesture { location in
-                let newProgress = max(0, min(1, location.x / geometry.size.width))
-                onSeek(newProgress)
-            }
             .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        isDragging = true
-                        dragProgress = max(0, min(1, value.location.x / geometry.size.width))
+                DragGesture()
+                    .onChanged { drag in
+                        if !isDragging {
+                            isDragging = true
+                            dragStartProgress = progress
+                        }
+                        let delta = -drag.translation.width / totalWidth
+                        progress = max(0, min(1, dragStartProgress + delta))
                     }
-                    .onEnded { value in
-                        let finalProgress = max(0, min(1, value.location.x / geometry.size.width))
-                        onSeek(finalProgress)
+                    .onEnded { _ in
                         isDragging = false
                     }
             )
+        }
+        .task(id: taskKey) {
+            await loadAmplitudes()
+        }
+    }
+
+    private func barHeight(for index: Int) -> CGFloat {
+        if amplitudes.count == totalBars {
+            return amplitudes[index]
+        }
+
+        // Fallback placeholder while waveform loads or if analysis fails:
+        // set bar height to half the configured maximum.
+        let minHeight: CGFloat = 0.18
+        let heightScale: CGFloat = 2.0
+        let maxHeight = minHeight + (1 - minHeight) * heightScale
+        return maxHeight * 0.5
+    }
+
+    private func loadAmplitudes() async {
+        guard let track else {
+            await MainActor.run { amplitudes = [] }
+            return
+        }
+
+        let result = await WaveformAnalyzer.shared.amplitudes(for: track, totalBars: totalBars)
+        await MainActor.run {
+            amplitudes = result
+        }
+    }
+}
+
+actor WaveformAnalyzer {
+    static let shared = WaveformAnalyzer()
+
+    private var cache: [String: [CGFloat]] = [:]
+
+    func amplitudes(for track: Track, totalBars: Int) async -> [CGFloat] {
+        let key = "\(track.stableId)-\(totalBars)"
+        if let cached = cache[key] {
+            return cached
+        }
+
+        if let precomputed = decodeWaveformData(track.waveformData, totalBars: totalBars) {
+            cache[key] = precomputed
+            return precomputed
+        }
+
+        let computed = await computeAmplitudes(for: track, totalBars: totalBars)
+        cache[key] = computed
+        return computed
+    }
+
+    private func computeAmplitudes(for track: Track, totalBars: Int) async -> [CGFloat] {
+        guard totalBars > 0 else { return [] }
+
+        let url = URL(fileURLWithPath: track.path)
+
+        do {
+            let audioFile = try AVAudioFile(forReading: url)
+            let totalFrames = max(1, Int(audioFile.length))
+            let framesPerBar = max(1, totalFrames / totalBars)
+            let channels = Int(audioFile.processingFormat.channelCount)
+
+            var bars = [Float](repeating: 0, count: totalBars)
+
+            let chunkSize = 4096
+            audioFile.framePosition = 0
+
+            while Int(audioFile.framePosition) < totalFrames {
+                let remaining = totalFrames - Int(audioFile.framePosition)
+                let framesToRead = min(chunkSize, remaining)
+
+                guard let buffer = AVAudioPCMBuffer(
+                    pcmFormat: audioFile.processingFormat,
+                    frameCapacity: AVAudioFrameCount(framesToRead)
+                ) else {
+                    break
+                }
+
+                try audioFile.read(into: buffer, frameCount: AVAudioFrameCount(framesToRead))
+                let framesRead = Int(buffer.frameLength)
+                if framesRead == 0 { break }
+
+                let startFrame = Int(audioFile.framePosition) - framesRead
+
+                for frame in 0..<framesRead {
+                    let amplitude = sampleAmplitude(buffer: buffer, frame: frame, channels: channels)
+                    let globalFrame = startFrame + frame
+                    let barIndex = min(totalBars - 1, globalFrame / framesPerBar)
+                    if amplitude > bars[barIndex] {
+                        bars[barIndex] = amplitude
+                    }
+                }
+            }
+
+            let maxAmp = bars.max() ?? 0
+            if maxAmp > 0 {
+                bars = bars.map { $0 / maxAmp }
+            }
+
+            return mapToHeights(bars, totalBars: totalBars)
+        } catch {
+            print("⚠️ Waveform analysis failed for \(track.title): \(error)")
+            return []
+        }
+    }
+
+    private func decodeWaveformData(_ waveformData: String?, totalBars: Int) -> [CGFloat]? {
+        guard totalBars > 0, let waveformData, let data = waveformData.data(using: .utf8) else {
+            return nil
+        }
+
+        struct WaveformPayload: Codable {
+            let bars: [Float]
+        }
+
+        let decodedBars: [Float]
+        if let payload = try? JSONDecoder().decode(WaveformPayload.self, from: data), !payload.bars.isEmpty {
+            decodedBars = payload.bars
+        } else if let array = try? JSONDecoder().decode([Float].self, from: data), !array.isEmpty {
+            decodedBars = array
+        } else {
+            return nil
+        }
+
+        let resampled: [Float]
+        if decodedBars.count == totalBars {
+            resampled = decodedBars
+        } else if decodedBars.count == 1 {
+            resampled = Array(repeating: decodedBars[0], count: totalBars)
+        } else {
+            resampled = (0..<totalBars).map { i in
+                let t = Double(i) / Double(max(1, totalBars - 1))
+                let idx = Int(round(t * Double(decodedBars.count - 1)))
+                return decodedBars[min(max(0, idx), decodedBars.count - 1)]
+            }
+        }
+
+        let maxAmp = resampled.max() ?? 0
+        let normalized = maxAmp > 0 ? resampled.map { $0 / maxAmp } : resampled
+        return mapToHeights(normalized, totalBars: totalBars)
+    }
+
+    private func mapToHeights(_ bars: [Float], totalBars: Int) -> [CGFloat] {
+        guard totalBars > 0 else { return [] }
+
+        // Map to visual heights with a floor so quiet parts remain visible.
+        let minHeight: CGFloat = 0.18
+        let heightScale: CGFloat = 2.0
+        let curveExponent: Float = 0.6
+        if bars.count == totalBars {
+            return bars.map { value in
+                let shaped = powf(max(0, value), curveExponent)
+                return minHeight + CGFloat(shaped) * (1 - minHeight) * heightScale
+            }
+        }
+
+        // Fallback safety if counts don't match.
+        return (0..<totalBars).map { i in
+            let idx = min(max(0, i), bars.count - 1)
+            let shaped = powf(max(0, bars[idx]), curveExponent)
+            return minHeight + CGFloat(shaped) * (1 - minHeight) * heightScale
+        }
+    }
+
+    private func sampleAmplitude(buffer: AVAudioPCMBuffer, frame: Int, channels: Int) -> Float {
+        guard channels > 0 else { return 0 }
+
+        switch buffer.format.commonFormat {
+        case .pcmFormatFloat32:
+            guard let data = buffer.floatChannelData else { return 0 }
+            var sum: Float = 0
+            for ch in 0..<channels {
+                sum += abs(data[ch][frame])
+            }
+            return sum / Float(channels)
+
+        case .pcmFormatInt16:
+            guard let data = buffer.int16ChannelData else { return 0 }
+            let scale = Float(Int16.max)
+            var sum: Float = 0
+            for ch in 0..<channels {
+                sum += abs(Float(data[ch][frame])) / scale
+            }
+            return sum / Float(channels)
+
+        case .pcmFormatInt32:
+            guard let data = buffer.int32ChannelData else { return 0 }
+            let scale = Float(Int32.max)
+            var sum: Float = 0
+            for ch in 0..<channels {
+                sum += abs(Float(data[ch][frame])) / scale
+            }
+            return sum / Float(channels)
+
+        default:
+            return 0
         }
     }
 }
@@ -785,6 +1030,28 @@ struct MiniPlayerView: View {
     var body: some View {
         Group {
             if playerEngine.currentTrack != nil {
+                let halfScreenHeight = UIScreen.main.bounds.height / 2
+                let miniPlayerOpacity = max(0, min(1, 1 - ((-dragOffset) / halfScreenHeight)))
+                let expandGesture = DragGesture(minimumDistance: 10, coordinateSpace: .local)
+                    .onChanged { value in
+                        // Only track upward drags to create a seamless lift animation.
+                        let translation = value.translation.height
+                        if translation < 0 {
+                            dragOffset = translation
+                        }
+                    }
+                    .onEnded { value in
+                        let translation = value.translation.height
+                        let predicted = value.predictedEndTranslation.height
+                        let shouldExpand = translation < -50 || predicted < -120
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) {
+                            dragOffset = 0
+                        }
+                        if shouldExpand {
+                            isExpanded = true
+                        }
+                    }
+
                 // Mini player that shows sheet when tapped
                 VStack(spacing: 0) {
                     // Mini player content
@@ -860,6 +1127,10 @@ struct MiniPlayerView: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .contentShape(Rectangle())
+                    .offset(y: dragOffset)
+                    .opacity(miniPlayerOpacity)
+                    .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.9), value: dragOffset)
+                    .gesture(expandGesture)
                     .onTapGesture {
                         isExpanded = true
                     }
@@ -871,6 +1142,11 @@ struct MiniPlayerView: View {
                         .presentationDragIndicator(.visible)
                         .interactiveDismissDisabled(false)
                         .accentColor(dominantColor)
+                }
+                .onChange(of: isExpanded) { _, expanded in
+                    if !expanded {
+                        dragOffset = 0
+                    }
                 }
                 .task(id: playerEngine.currentTrack?.stableId) {
                     if let track = playerEngine.currentTrack {

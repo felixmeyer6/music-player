@@ -33,7 +33,7 @@ struct PlayerWidgetProvider: TimelineProvider {
             date: Date(),
             trackData: WidgetTrackData(
                 trackId: "placeholder",
-                title: "Song Title",
+                title: "Track Title",
                 artist: "Artist Name",
                 isPlaying: false,
                 backgroundColorHex: "FF6B9D"

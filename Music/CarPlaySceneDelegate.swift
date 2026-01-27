@@ -11,16 +11,8 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
                                  didConnect interfaceController: CPInterfaceController) {
         self.interfaceController = interfaceController
 
-        // Fetch all tracks and filter incompatible formats for CarPlay
-        let allFetchedTracks = (try? AppCoordinator.shared.getAllTracks()) ?? []
-        self.allTracks = allFetchedTracks.filter { track in
-            let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-            let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-            return !incompatibleFormats.contains(ext)
-        }
-
-        // Update SFBAudioEngine CarPlay status
-        SFBAudioEngineManager.shared.updateCarPlayStatus()
+        // Fetch all tracks for CarPlay
+        self.allTracks = (try? AppCoordinator.shared.getAllTracks()) ?? []
 
         // Create tab bar template with top tabs
         let allSongsTemplate = createAllSongsTab(tracks: allTracks)
@@ -198,12 +190,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                  didDisconnect interfaceController: CPInterfaceController) {
         self.interfaceController = nil
-
-        // Update SFBAudioEngineManager's CarPlay status
         print("🚗 CarPlay disconnected")
-        Task { @MainActor in
-            SFBAudioEngineManager.shared.updateCarPlayStatus()
-        }
     }
 
     // MARK: - Navigation Methods
@@ -287,13 +274,54 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
             allTracks.first { $0.stableId == item.trackStableId }
         }
 
-        // Filter out incompatible formats for CarPlay
-        let tracks = allPlaylistTracks.filter { track in
-            let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-            let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-            return !incompatibleFormats.contains(ext)
+        let songItems: [CPListItem] = allPlaylistTracks.map { track in
+            let artistName = getArtistName(for: track)
+            let item = CPListItem(text: track.title, detailText: artistName)
+
+            // Load cached artwork asynchronously
+            Task { @MainActor in
+                if let artwork = await ArtworkManager.shared.getArtwork(for: track) {
+                    let resizedImage = resizeImageForCarPlay(artwork, rounded: true)
+                    item.setImage(resizedImage)
+                } else {
+                    let placeholder = createPlaceholderImage()
+                    item.setImage(placeholder)
+                }
+            }
+
+            item.handler = { _, completion in
+                Task {
+                    await AppCoordinator.shared.playTrack(track, queue: allPlaylistTracks)
+                }
+                completion()
+            }
+            return item
         }
 
+        let section = CPListSection(items: songItems)
+        let listTemplate = CPListTemplate(title: playlist.title, sections: [section])
+        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
+    }
+
+    private func showArtists(tracks: [Track]) {
+        let artists = (try? AppCoordinator.shared.databaseManager.getAllArtists()) ?? []
+
+        let artistItems: [CPListItem] = artists.map { artist in
+            let artistTracks = tracks.filter { $0.artistId == artist.id }
+            let item = CPListItem(text: artist.name, detailText: "\(artistTracks.count) tracks")
+            item.handler = { [weak self] _, completion in
+                self?.showArtistDetail(artist: artist, tracks: artistTracks)
+                completion()
+            }
+            return item
+        }
+
+        let section = CPListSection(items: artistItems)
+        let listTemplate = CPListTemplate(title: Localized.artists, sections: [section])
+        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
+    }
+
+    private func showArtistDetail(artist: Artist, tracks: [Track]) {
         let songItems: [CPListItem] = tracks.map { track in
             let artistName = getArtistName(for: track)
             let item = CPListItem(text: track.title, detailText: artistName)
@@ -312,61 +340,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
             item.handler = { _, completion in
                 Task {
                     await AppCoordinator.shared.playTrack(track, queue: tracks)
-                }
-                completion()
-            }
-            return item
-        }
-
-        let section = CPListSection(items: songItems)
-        let listTemplate = CPListTemplate(title: playlist.title, sections: [section])
-        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
-    }
-
-    private func showArtists(tracks: [Track]) {
-        let artists = (try? AppCoordinator.shared.databaseManager.getAllArtists()) ?? []
-
-        let artistItems: [CPListItem] = artists.map { artist in
-            let artistTracks = tracks.filter { $0.artistId == artist.id }
-            let item = CPListItem(text: artist.name, detailText: "\(artistTracks.count) songs")
-            item.handler = { [weak self] _, completion in
-                self?.showArtistDetail(artist: artist, tracks: artistTracks)
-                completion()
-            }
-            return item
-        }
-
-        let section = CPListSection(items: artistItems)
-        let listTemplate = CPListTemplate(title: Localized.artists, sections: [section])
-        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
-    }
-
-    private func showArtistDetail(artist: Artist, tracks: [Track]) {
-        // Filter out incompatible formats for CarPlay
-        let filteredTracks = tracks.filter { track in
-            let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-            let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-            return !incompatibleFormats.contains(ext)
-        }
-
-        let songItems: [CPListItem] = filteredTracks.map { track in
-            let artistName = getArtistName(for: track)
-            let item = CPListItem(text: track.title, detailText: artistName)
-
-            // Load cached artwork asynchronously
-            Task { @MainActor in
-                if let artwork = await ArtworkManager.shared.getArtwork(for: track) {
-                    let resizedImage = resizeImageForCarPlay(artwork, rounded: true)
-                    item.setImage(resizedImage)
-                } else {
-                    let placeholder = createPlaceholderImage()
-                    item.setImage(placeholder)
-                }
-            }
-
-            item.handler = { _, completion in
-                Task {
-                    await AppCoordinator.shared.playTrack(track, queue: filteredTracks)
                 }
                 completion()
             }
@@ -398,15 +371,8 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     }
 
     private func showAlbumDetail(album: Album, tracks: [Track]) {
-        // Filter out incompatible formats for CarPlay
-        let filteredTracks = tracks.filter { track in
-            let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-            let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-            return !incompatibleFormats.contains(ext)
-        }
-
         // Sort by disc number first, then track number
-        let sortedTracks = filteredTracks.sorted {
+        let sortedTracks = tracks.sorted {
             let disc0 = $0.discNo ?? 1
             let disc1 = $1.discNo ?? 1
 
@@ -490,8 +456,8 @@ extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
         let lowercasedQuery = searchText.lowercased()
         var items: [CPListItem] = []
 
-        // Search songs (by title, artist, album)
-        let matchingSongs = allTracks.filter { track in
+        // Search tracks (by title, artist, album)
+        let matchingTracks = allTracks.filter { track in
             // Search by title
             if track.title.lowercased().contains(lowercasedQuery) {
                 return true
@@ -518,8 +484,8 @@ extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
             return false
         }
 
-        // Add song results
-        for track in matchingSongs {
+        // Add track results
+        for track in matchingTracks {
             let artistName = getArtistName(for: track)
             let item = CPListItem(text: track.title, detailText: artistName)
 
@@ -536,7 +502,7 @@ extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
 
             item.handler = { _, completion in
                 Task {
-                    await AppCoordinator.shared.playTrack(track, queue: matchingSongs)
+                    await AppCoordinator.shared.playTrack(track, queue: matchingTracks)
                 }
                 completion()
             }
@@ -660,7 +626,7 @@ private func resizeImageForCarPlay(_ image: UIImage, rounded: Bool = false) -> U
     }
 }
 
-// Helper function to create placeholder image for songs without artwork
+// Helper function to create placeholder image for tracks without artwork
 @MainActor
 private func createPlaceholderImage() -> UIImage {
     let size = CPListItem.maximumImageSize

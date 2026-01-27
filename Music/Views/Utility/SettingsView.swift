@@ -3,28 +3,79 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var deleteSettings = DeleteSettings.load()
+    let onManualSync: (() async -> (before: Int, after: Int))?
+
+    @State private var showMusicPicker = false
+    @State private var showFolderPicker = false
+    @State private var isImporting = false
+    @State private var showImportAlert = false
+    @State private var importAlertMessage = ""
     
     var body: some View {
         NavigationView {
             Form {
+                Section(Localized.library) {
+                    Button {
+                        guard !isImporting else { return }
+                        showMusicPicker = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "plus.circle.fill")
+                                .foregroundColor(.blue)
+                                .font(.system(size: 20))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Localized.addSongs)
+                                Text(Localized.importMusicFiles)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            if isImporting {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isImporting)
+
+                    Button {
+                        guard !isImporting else { return }
+                        showFolderPicker = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "folder.fill")
+                                .foregroundColor(.orange)
+                                .font(.system(size: 20))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Localized.openFolder)
+                                Text(Localized.importMusicFolder)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            if isImporting {
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isImporting)
+                }
+
                 Section(Localized.appearance) {
                     Toggle(Localized.minimalistLibraryIcons, isOn: $deleteSettings.minimalistIcons)
                         .onChange(of: deleteSettings.minimalistIcons) { _, _ in
                             deleteSettings.save()
                         }
-                    
-                    Text(Localized.useSimpleIcons)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    
+
                     Toggle(Localized.forceDarkMode, isOn: $deleteSettings.forceDarkMode)
                         .onChange(of: deleteSettings.forceDarkMode) { _, _ in
                             deleteSettings.save()
                         }
-                    
-                    Text(Localized.overrideSystemAppearance)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
                 }
                 
                 
@@ -37,35 +88,6 @@ struct SettingsView: View {
                             Text(Localized.graphicEqualizer)
                         }
                     }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(Localized.dsdPlaybackMode)
-                            .font(.headline)
-
-                        Text(Localized.dsdPlaybackModeDescription)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-
-                        Picker("", selection: $deleteSettings.dsdPlaybackMode) {
-                            ForEach(DSDPlaybackMode.allCases, id: \.self) { mode in
-                                VStack(alignment: .leading) {
-                                    Text(mode.displayName)
-                                        .font(.body)
-                                }
-                                .tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: deleteSettings.dsdPlaybackMode) { _, _ in
-                            deleteSettings.save()
-                        }
-
-                        Text(deleteSettings.dsdPlaybackMode.description)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                            .padding(.top, 4)
-                    }
-                    .padding(.vertical, 4)
                 }
 
             }
@@ -82,9 +104,60 @@ struct SettingsView: View {
                 }
             }
         }
+        .sheet(isPresented: $showMusicPicker) {
+            MusicFilePicker { urls in
+                importFiles(urls)
+            }
+        }
+        .sheet(isPresented: $showFolderPicker) {
+            MusicFolderPicker { folderURL in
+                importFolder(folderURL)
+            }
+        }
+        .alert(Localized.library, isPresented: $showImportAlert) {
+            Button(Localized.ok) {}
+        } message: {
+            Text(importAlertMessage)
+        }
+    }
+
+    private func importFiles(_ urls: [URL]) {
+        isImporting = true
+
+        Task {
+            let processedCount = await ExternalImportManager.shared.importFiles(urls: urls)
+
+            if processedCount > 0, let onManualSync = onManualSync {
+                _ = await onManualSync()
+            }
+
+            await MainActor.run {
+                isImporting = false
+                importAlertMessage = processedCount == 1 ? "1 track processed" : "\(processedCount) tracks processed"
+                showImportAlert = true
+            }
+        }
+    }
+
+    private func importFolder(_ folderURL: URL) {
+        isImporting = true
+
+        Task {
+            let processedCount = await ExternalImportManager.shared.importFolder(folderURL)
+
+            if processedCount > 0, let onManualSync = onManualSync {
+                _ = await onManualSync()
+            }
+
+            await MainActor.run {
+                isImporting = false
+                importAlertMessage = processedCount == 1 ? "1 track processed" : "\(processedCount) tracks processed"
+                showImportAlert = true
+            }
+        }
     }
 }
 
 #Preview {
-    SettingsView()
+    SettingsView(onManualSync: nil)
 }

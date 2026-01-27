@@ -14,34 +14,11 @@ enum BackgroundColor: String, CaseIterable, Codable {
     }
 }
 
-enum DSDPlaybackMode: String, CaseIterable, Codable {
-    case auto = "auto"
-    case pcm = "pcm"
-    case dop = "dop"
-
-    var displayName: String {
-        switch self {
-        case .auto: return Localized.dsdModeAuto
-        case .pcm: return Localized.dsdModePCM
-        case .dop: return Localized.dsdModeDoP
-        }
-    }
-
-    var description: String {
-        switch self {
-        case .auto: return Localized.dsdModeAutoDescription
-        case .pcm: return Localized.dsdModePCMDescription
-        case .dop: return Localized.dsdModeDoDescription
-        }
-    }
-}
-
 struct DeleteSettings: Codable {
     var hasShownDeletePopup: Bool = false
     var minimalistIcons: Bool = false
     var backgroundColorChoice: BackgroundColor = .white
     var forceDarkMode: Bool = false
-    var dsdPlaybackMode: DSDPlaybackMode = .pcm
     var lastLibraryScanDate: Date? = nil
 
     static func load() -> DeleteSettings {

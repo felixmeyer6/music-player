@@ -48,6 +48,8 @@ struct Localized {
     static let likedSongs = "liked_songs".localized
     static let addSongs = "add_songs".localized
     static let importMusicFiles = "import_music_files".localized
+    static let openFolder = "open_folder".localized
+    static let importMusicFolder = "import_music_folder".localized
     static let noSongsFound = "no_songs_found".localized
     static let yourMusicWillAppearHere = "your_music_will_appear_here".localized
     static let ok = "ok".localized
@@ -64,6 +66,7 @@ struct Localized {
     static let library = "library".localized
     static let artists = "artists".localized
     static let albums = "albums".localized
+    static let genre = "genre".localized
     static let search = "search".localized
     static let browse = "browse".localized
     static let songs = "songs".localized
@@ -72,6 +75,8 @@ struct Localized {
     // MARK: - Artist/Album/Track Info
     static let noAlbumsFound = "no_albums_found".localized
     static let albumsWillAppear = "albums_will_appear".localized
+    static let noGenresFound = "no_genres_found".localized
+    static let genresWillAppear = "genres_will_appear".localized
     static let artist = "artist".localized
     static let album = "album".localized
     static let play = "play".localized
@@ -153,6 +158,7 @@ struct Localized {
     static let yourPlaylists = "your_playlists".localized
     static let browseByArtist = "browse_by_artist".localized
     static let browseByAlbum = "browse_by_album".localized
+    static let browseByGenre = "browse_by_genre".localized
     static let unknownAlbum = "unknown_album".localized
     static let unknownArtist = "unknown_artist".localized
     
@@ -270,14 +276,6 @@ struct Localized {
 
     // MARK: - Audio Settings
     static let audioSettings = "audio_settings".localized
-    static let dsdPlaybackMode = "dsd_playback_mode".localized
-    static let dsdPlaybackModeDescription = "dsd_playback_mode_description".localized
-    static let dsdModeAuto = "dsd_mode_auto".localized
-    static let dsdModePCM = "dsd_mode_pcm".localized
-    static let dsdModeDoP = "dsd_mode_dop".localized
-    static let dsdModeAutoDescription = "dsd_mode_auto_description".localized
-    static let dsdModePCMDescription = "dsd_mode_pcm_description".localized
-    static let dsdModeDoDescription = "dsd_mode_dop_description".localized
 
     // MARK: - Sort Options
     static let sortDateNewest = "sort_date_newest".localized

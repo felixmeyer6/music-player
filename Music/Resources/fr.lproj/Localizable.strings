@@ -31,6 +31,8 @@
 "liked_songs" = "Favoris";
 "add_songs" = "Ouvrir Fichiers";
 "import_music_files" = "Importer des musiques";
+"open_folder" = "Ouvrir un dossier";
+"import_music_folder" = "Importer toute la musique d'un dossier";
 "ok" = "OK";
 "settings" = "Réglages";
 "retry" = "Réessayer";
@@ -149,7 +151,11 @@
 "your_favorites" = "Vos favoris";
 "your_playlists" = "Vos listes de lecture";
 "browse_by_artist" = "Parcourir par artiste";
+"browse_by_genre" = "Parcourir par genre";
 "browse_by_album" = "Parcourir par album";
+"genre" = "Genre";
+"no_genres_found" = "Aucun genre trouvé";
+"genres_will_appear" = "Les genres apparaîtront ici une fois que votre musique inclura des métadonnées de genre";
 "unknown_album" = "Album inconnu";
 "unknown_artist" = "Artiste inconnu";
 
@@ -168,12 +174,12 @@
 "enable_disable_eq_description" = "Activer ou désactiver l'égaliseur graphique";
 
 /* Manual EQ Presets */
-"manual_eq_presets" = "Préréglages Manuels 16 Bandes";
+"manual_eq_presets" = "Préréglages Manuels 6 Bandes";
 "no_manual_presets_created" = "Aucun préréglage manuel créé";
-"create_manual_eq_description" = "Créez un préréglage d'égaliseur 16 bandes personnalisé avec des curseurs ajustables";
-"create_manual_16band_eq" = "Créer un EQ Manuel 16 Bandes";
-"manual_16band_eq" = "EQ Manuel 16 Bandes";
-"manual_16band_description" = "Crée un égaliseur 16 bandes avec des fréquences ISO standard que vous pouvez ajuster manuellement";
+"create_manual_eq_description" = "Créez un préréglage d'égaliseur 6 bandes personnalisé avec des curseurs ajustables";
+"create_manual_16band_eq" = "Créer un EQ Manuel 6 Bandes";
+"manual_16band_eq" = "EQ Manuel 6 Bandes";
+"manual_16band_description" = "Crée un égaliseur 6 bandes à 50, 125, 250, 500, 2K et 16K Hz";
 "adjust_bands_after_creation" = "Vous pourrez ajuster toutes les bandes de fréquence après la création";
 "frequency_bands" = "Bandes de Fréquence";
 "edit_equalizer" = "Modifier l'Égaliseur";
@@ -234,14 +240,6 @@
 
 /* Audio Settings */
 "audio_settings" = "Audio";
-"dsd_playback_mode" = "Mode de Lecture DSD";
-"dsd_playback_mode_description" = "Choisissez comment les fichiers audio DSD (DSF/DFF) sont lus";
-"dsd_mode_auto" = "Auto (Détection DAC)";
-"dsd_mode_pcm" = "Conversion PCM";
-"dsd_mode_dop" = "DoP (DSD sur PCM)";
-"dsd_mode_auto_description" = "Détecte automatiquement le DAC externe et utilise DoP si disponible, sinon convertit en PCM";
-"dsd_mode_pcm_description" = "Toujours convertir DSD en PCM pour la lecture (compatible avec tous les appareils)";
-"dsd_mode_dop_description" = "Toujours utiliser l'encodage DoP (nécessite un DAC externe qui supporte DSD)";
 
 /* Sort Options */
 "sort_date_newest" = "Date d'ajout (Plus récent)";
@@ -252,8 +250,8 @@
 "sort_size_smallest" = "Taille (Plus petit)";
 
 /* Queue Actions */
-"play_next" = "Lire ensuite";
-"add_to_queue" = "Ajouter à la file";
+"play_next" = "À suivre";
+"add_to_queue" = "File";
 
 /* Bulk Selection */
 "select" = "Sélectionner";

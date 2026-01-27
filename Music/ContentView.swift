@@ -32,7 +32,8 @@ struct ContentView: View {
                 appCoordinator: appCoordinator,
                 showTutorial: $showTutorial,
                 showPlaylistManagement: $showPlaylistManagement,
-                showSettings: $showSettings
+                showSettings: $showSettings,
+                onManualSync: performManualSync
             ))
     }
     
@@ -46,8 +47,10 @@ struct ContentView: View {
             onManualSync: performManualSync
         )
         .safeAreaInset(edge: .bottom) {
-            MiniPlayerView()
-                .background(.clear)
+            VStack(spacing: 0) {
+                MiniPlayerView()
+            }
+            .background(.clear)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LibraryNeedsRefresh"))) { _ in
             Task {
@@ -61,19 +64,7 @@ struct ContentView: View {
     
     @Sendable private func refreshLibrary() async {
         do {
-            let allTracks = try appCoordinator.getAllTracks()
-
-            // Filter out incompatible formats when connected to CarPlay
-            if SFBAudioEngineManager.shared.isCarPlayEnvironment {
-                tracks = allTracks.filter { track in
-                    let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-                    let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-                    return !incompatibleFormats.contains(ext)
-                }
-                print("🚗 CarPlay: Filtered \(allTracks.count - tracks.count) incompatible tracks")
-            } else {
-                tracks = allTracks
-            }
+            tracks = try appCoordinator.getAllTracks()
         } catch {
             print("Failed to refresh library: \(error)")
         }
@@ -183,6 +174,7 @@ struct SheetModifier: ViewModifier {
     @Binding var showTutorial: Bool
     @Binding var showPlaylistManagement: Bool
     @Binding var showSettings: Bool
+    let onManualSync: (() async -> (before: Int, after: Int))?
 
     func body(content: Content) -> some View {
         content
@@ -197,7 +189,7 @@ struct SheetModifier: ViewModifier {
                     .accentColor(.white)
             }
             .sheet(isPresented: $showSettings) {
-                SettingsView()
+                SettingsView(onManualSync: onManualSync)
                     .accentColor(.white)
             }
             .alert(Localized.libraryOutOfSync, isPresented: .init(

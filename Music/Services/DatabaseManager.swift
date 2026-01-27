@@ -102,7 +102,7 @@ class DatabaseManager: @unchecked Sendable {
     }
     
     private func getDatabaseURL() throws -> URL {
-        // Try to use app group container first for sharing with Siri extension
+        // Try to use app group container first for shared data (e.g., widgets)
         if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player") {
             return containerURL.appendingPathComponent("cosmos_music.db")
         } else {
@@ -138,6 +138,7 @@ class DatabaseManager: @unchecked Sendable {
                     stable_id TEXT NOT NULL UNIQUE,
                     album_id INTEGER REFERENCES album(id) ON DELETE SET NULL,
                     artist_id INTEGER REFERENCES artist(id) ON DELETE SET NULL,
+                    genre TEXT COLLATE NOCASE,
                     title TEXT NOT NULL COLLATE NOCASE,
                     track_no INTEGER,
                     disc_no INTEGER,
@@ -151,7 +152,8 @@ class DatabaseManager: @unchecked Sendable {
                     replaygain_album_gain REAL,
                     replaygain_track_peak REAL,
                     replaygain_album_peak REAL,
-                    has_embedded_art INTEGER DEFAULT 0
+                    has_embedded_art INTEGER DEFAULT 0,
+                    waveform_data TEXT
                 )
             """)
             
@@ -193,6 +195,12 @@ class DatabaseManager: @unchecked Sendable {
 
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_album ON track(album_id)")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_artist ON track(artist_id)")
+            do {
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
+            } catch {
+                // Column may not exist yet on older databases; migration will handle it.
+                print("ℹ️ Database migration: idx_track_genre creation deferred: \(error)")
+            }
 
             // EQ Tables
             try db.execute(sql: """
@@ -288,6 +296,32 @@ class DatabaseManager: @unchecked Sendable {
             } catch {
                 // Column may already exist, which is fine
                 print("ℹ️ Database migration: custom_cover_image_path column already exists or migration failed: \(error)")
+            }
+
+            // Migration: Add genre column to track table
+            do {
+                try db.execute(sql: "ALTER TABLE track ADD COLUMN genre TEXT COLLATE NOCASE")
+                print("✅ Database: Added genre column to track table")
+            } catch {
+                // Column may already exist, which is fine
+                print("ℹ️ Database migration: genre column already exists or migration failed: \(error)")
+            }
+
+            // Migration: Add genre index after ensuring column exists
+            do {
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
+                print("✅ Database: Ensured idx_track_genre exists")
+            } catch {
+                print("ℹ️ Database migration: idx_track_genre creation failed: \(error)")
+            }
+
+            // Migration: Add waveform_data column to track table
+            do {
+                try db.execute(sql: "ALTER TABLE track ADD COLUMN waveform_data TEXT")
+                print("✅ Database: Added waveform_data column to track table")
+            } catch {
+                // Column may already exist, which is fine
+                print("ℹ️ Database migration: waveform_data column already exists or migration failed: \(error)")
             }
 
             // Migration: Create deleted_folder_playlist table to prevent recreation of deleted folder playlists
@@ -662,6 +696,53 @@ class DatabaseManager: @unchecked Sendable {
                 .filter(Column("artist_id") == artistId)
                 .order(Column("title"))
                 .fetchAll(db)
+        }
+    }
+
+    func getAllGenres() throws -> [GenreSummary] {
+        return try read { db in
+            // Group case-insensitively while preserving a representative display name.
+            return try GenreSummary.fetchAll(
+                db,
+                sql: """
+                    SELECT MIN(genre) AS name, COUNT(*) AS track_count
+                    FROM track
+                    WHERE genre IS NOT NULL AND TRIM(genre) <> ''
+                    GROUP BY LOWER(genre)
+                    ORDER BY LOWER(name)
+                """
+            )
+        }
+    }
+
+    func getTracksByGenre(_ genre: String) throws -> [Track] {
+        return try read { db in
+            return try Track.fetchAll(
+                db,
+                sql: """
+                    SELECT *
+                    FROM track
+                    WHERE genre IS NOT NULL AND LOWER(genre) = LOWER(?)
+                    ORDER BY title COLLATE NOCASE
+                """,
+                arguments: [genre]
+            )
+        }
+    }
+
+    func getFirstTrackByGenre(_ genre: String) throws -> Track? {
+        return try read { db in
+            try Track.fetchOne(
+                db,
+                sql: """
+                    SELECT *
+                    FROM track
+                    WHERE genre IS NOT NULL AND TRIM(genre) <> '' AND LOWER(genre) = LOWER(?)
+                    ORDER BY id
+                    LIMIT 1
+                """,
+                arguments: [genre]
+            )
         }
     }
 

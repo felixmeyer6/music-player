@@ -2,7 +2,7 @@
 
 ---
 
-Music is a high-quality music player supporting iCloud and local storage based on Cosmos, an open source music player by [@clquwu](https://github.com/clquwu).
+Music is a high-quality music player supporting iCloud and local storage based on Cosmos, an open source music player by [@clquwu](https://github.com/clquwu). This project has way less features than the original project because I didn't need all of them and wanted to keep the project light. If you're looking for more, the original repo is definetly more complete!
 
 ## Features ✨
 
@@ -183,7 +183,7 @@ GraphicEQ format allows you to define frequency-specific gain adjustments for pr
 ### Creating Playlists
 1. Tap the "+" button in the Playlists section
 2. Enter a playlist name
-3. Add songs from your library
+3. Add tracks from your library
 4. Playlists sync automatically across devices
 
 ### Language Settings

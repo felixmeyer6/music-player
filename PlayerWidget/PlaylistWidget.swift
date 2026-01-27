@@ -168,7 +168,7 @@ struct PlaylistCard: View {
                     .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
                 }
 
-                // Playlist title and song count
+                // Playlist title and track count
                 VStack(spacing: 2) {
                     Text(playlist.name)
                         .font(.system(size: 12, weight: .semibold))
@@ -176,7 +176,7 @@ struct PlaylistCard: View {
                         .lineLimit(1)
                         .frame(width: 100)
 
-                    Text("\(playlist.trackCount) \(playlist.trackCount == 1 ? "song" : "songs")")
+                    Text("\(playlist.trackCount) \(playlist.trackCount == 1 ? "track" : "tracks")")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundColor(.secondary)
                 }

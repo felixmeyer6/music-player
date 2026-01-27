@@ -67,7 +67,7 @@ struct AlbumsScreen: View {
 private struct EmptyAlbumsView: View {
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "opticaldisc")
+            Image(systemName: "rectangle.stack.fill")
                 .font(.system(size: 40))
                 .foregroundColor(.secondary)
             Text(Localized.noAlbumsFound).font(.headline)
@@ -139,25 +139,15 @@ struct AlbumDetailScreen: View {
     let album: Album
     let allTracks: [Track]
     @EnvironmentObject private var appCoordinator: AppCoordinator
+    @StateObject private var playerEngine = PlayerEngine.shared
     @State private var artworkImage: UIImage?
     @State private var settings = DeleteSettings.load()
     @State private var albumTracks: [Track] = []
-
-    private var playerEngine: PlayerEngine {
-        appCoordinator.playerEngine
-    }
+    private let headerArtworkSize: CGFloat = 140
+    private var headerTextTopOffset: CGFloat { headerArtworkSize * 0.15 }
 
     private var filteredAlbumTracks: [Track] {
-        // Filter out incompatible formats when connected to CarPlay
-        if SFBAudioEngineManager.shared.isCarPlayEnvironment {
-            return albumTracks.filter { track in
-                let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-                let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-                return !incompatibleFormats.contains(ext)
-            }
-        } else {
-            return albumTracks
-        }
+        return albumTracks
     }
 
     private var groupedByDisc: [(discNumber: Int, tracks: [Track])] {
@@ -189,40 +179,54 @@ struct AlbumDetailScreen: View {
                 VStack(spacing: 24) {
                     // Artwork + info
                     VStack(spacing: 16) {
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(Color.gray.opacity(0.2))
-                            .frame(width: 250, height: 250)
-                            .overlay {
-                                if let image = artworkImage {
-                                    Image(uiImage: image)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: 250, height: 250)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                } else {
-                                    Image(systemName: "music.note")
-                                        .font(.system(size: 50))
-                                        .foregroundColor(.secondary)
+                        HStack(alignment: .top, spacing: 16) {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.gray.opacity(0.2))
+                                .frame(width: headerArtworkSize, height: headerArtworkSize)
+                                .overlay {
+                                    if let image = artworkImage {
+                                        Image(uiImage: image)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(width: headerArtworkSize, height: headerArtworkSize)
+                                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    } else {
+                                        Image(systemName: "music.note")
+                                            .font(.system(size: 40))
+                                            .foregroundColor(.secondary)
+                                    }
                                 }
-                            }
-                            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-                        
-                        VStack(spacing: 8) {
-                            Text(album.title)
-                                .font(.title2)
-                                .fontWeight(.bold)
-                                .multilineTextAlignment(.center)
-                            
-                            NavigationLink {
-                                ArtistDetailScreenWrapper(artistName: albumArtist, allTracks: allTracks)
-                            } label: {
-                                Text(albumArtist)
-                                    .font(.title3)
+                                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Spacer()
+                                    .frame(height: headerTextTopOffset)
+
+                                Text(album.title)
+                                    .font(.title2)
+                                    .fontWeight(.bold)
+                                    .multilineTextAlignment(.leading)
+
+                                Text(Localized.songsCount(filteredAlbumTracks.count))
+                                    .font(.body)
                                     .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.center)
+                                    .multilineTextAlignment(.leading)
+
+                                NavigationLink {
+                                    ArtistDetailScreenWrapper(artistName: albumArtist, allTracks: allTracks)
+                                } label: {
+                                    Text(albumArtist)
+                                        .font(.body)
+                                        .foregroundColor(.secondary)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                .buttonStyle(.plain)
+
+                                Spacer(minLength: 0)
                             }
-                            .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         
                         HStack(spacing: 12) {
                             Button {

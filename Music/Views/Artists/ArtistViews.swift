@@ -152,24 +152,10 @@ struct ArtistDetailScreen: View {
     let artist: Artist
     let allTracks: [Track]
     @EnvironmentObject private var appCoordinator: AppCoordinator
-    
-    private var playerEngine: PlayerEngine {
-        appCoordinator.playerEngine
-    }
+    @StateObject private var playerEngine = PlayerEngine.shared
     
     private var artistTracks: [Track] {
-        let tracks = allTracks.filter { $0.artistId == artist.id }
-
-        // Filter out incompatible formats when connected to CarPlay
-        if SFBAudioEngineManager.shared.isCarPlayEnvironment {
-            return tracks.filter { track in
-                let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-                let incompatibleFormats = ["ogg", "opus", "dsf", "dff"]
-                return !incompatibleFormats.contains(ext)
-            }
-        }
-
-        return tracks
+        return allTracks.filter { $0.artistId == artist.id }
     }
     
     private var artistAlbums: [Album] {
@@ -217,7 +203,7 @@ struct ArtistDetailScreen: View {
     }
     
     private var playButtons: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 12) {
             Button {
                 guard let first = artistTracks.first else { return }
                 Task { await playerEngine.playTrack(first, queue: artistTracks) }
@@ -226,9 +212,9 @@ struct ArtistDetailScreen: View {
                     .font(.title3).fontWeight(.semibold)
                     .foregroundColor(.black)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 50)
+                    .frame(height: 56)
                     .background(Color.white)
-                    .cornerRadius(25)
+                    .cornerRadius(28)
             }
             Button {
                 let shuffled = artistTracks.shuffled()
@@ -239,11 +225,12 @@ struct ArtistDetailScreen: View {
                     .font(.title3).fontWeight(.semibold)
                     .foregroundColor(Color.white)
                     .frame(maxWidth: .infinity)
-                    .frame(height: 50)
+                    .frame(height: 56)
                     .background(Color.white.opacity(0.1))
-                    .cornerRadius(25)
+                    .cornerRadius(28)
             }
         }
+        .padding(.horizontal, 8)
     }
     
     private var songsSection: some View {
@@ -251,7 +238,7 @@ struct ArtistDetailScreen: View {
             HStack {
                 Text(Localized.songs).font(.title3).fontWeight(.bold)
                 Spacer()
-                Text("\(artistTracks.count) song\(artistTracks.count == 1 ? "" : "s")")
+                Text("\(artistTracks.count) track\(artistTracks.count == 1 ? "" : "s")")
                     .font(.body).foregroundColor(.secondary)
             }
             .padding(.horizontal)

@@ -54,7 +54,7 @@ class EQManager: ObservableObject {
     private var eqFrequencies: [Double] = []
     private var eqGains: [Double] = []
 
-    // Public getters for SFBAudioEngine integration
+    // Public getters for EQ integration
     var currentEQFrequencies: [Double] { eqFrequencies }
     var currentEQGains: [Double] { eqGains }
 
@@ -211,14 +211,11 @@ class EQManager: ObservableObject {
         if !isEnabled || currentPreset == nil {
             eqNode?.bands.forEach { $0.bypass = true }
             eqNode?.globalGain = 0.0
-            
-            SFBAudioEngineManager.shared.updateEQSettings()
             print("🚫 EQ disabled - all bands bypassed")
             return
         }
-        
+
         guard let preset = currentPreset else {
-            SFBAudioEngineManager.shared.updateEQSettings()
             return
         }
         
@@ -238,7 +235,7 @@ class EQManager: ObservableObject {
                         self.configureEQBands()
                         print("✅ Reconfigured existing EQ node with \(newFrequencies.count) input bands")
                     } else {
-                        print("ℹ️ Stored \(newFrequencies.count) EQ bands for SFBAudioEngine")
+                        print("ℹ️ Stored \(newFrequencies.count) EQ bands")
                     }
                 }
                 
@@ -253,8 +250,6 @@ class EQManager: ObservableObject {
     private func applyGlobalGain() {
         let globalGainFloat = Float(globalGain)
         eqNode?.globalGain = globalGainFloat
-        
-        SFBAudioEngineManager.shared.updateEQSettings()
     }
 
 
@@ -274,11 +269,11 @@ class EQManager: ObservableObject {
         }
     }
 
-    // Standard 16-band frequencies (ISO standard)
-    static let manual16BandFrequencies: [Double] = [
-        31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000,
-        32, 64, 128, 256, 512, 1024
-    ].sorted()
+    // Standard 6-band frequencies for the manual EQ editor
+    // Bands: 50, 125, 250, 500, 2K, 16K
+    static let manual6BandFrequencies: [Double] = [
+        50, 125, 250, 500, 2000, 16000
+    ]
 
     func createPreset(name: String, frequencies: [Double], gains: [Double], type: EQPresetType = .imported) async throws -> EQPreset {
         let currentTime = Int64(Date().timeIntervalSince1970)
@@ -437,10 +432,10 @@ class EQManager: ObservableObject {
         return graphicEQString
     }
 
-    func createManual16BandPreset(name: String) async throws -> EQPreset {
-        // Create a flat 16-band preset with 0dB gain
-        let frequencies = EQManager.manual16BandFrequencies
-        let gains = Array(repeating: 0.0, count: 16)
+    func createManual6BandPreset(name: String) async throws -> EQPreset {
+        // Create a flat 6-band preset with 0dB gain
+        let frequencies = EQManager.manual6BandFrequencies
+        let gains = Array(repeating: 0.0, count: frequencies.count)
 
         return try await createPreset(name: name, frequencies: frequencies, gains: gains, type: .manual)
     }

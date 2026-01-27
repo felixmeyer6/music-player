@@ -6,6 +6,8 @@ enum ScreenType {
     case albumDetail
     case artists
     case artistDetail
+    case genres
+    case genreDetail
     case playlists
     case playlistDetail
     case allSongs

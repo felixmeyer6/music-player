@@ -16,9 +16,7 @@ struct EQSettingsView: View {
     @State private var showingEditManual = false
 
     var body: some View {
-        NavigationView {
-            formContent
-        }
+        formContent
     }
 
     private var formContent: some View {
@@ -33,7 +31,7 @@ struct EQSettingsView: View {
                     .foregroundColor(.secondary)
             }
 
-            // Manual 16-Band Presets
+            // Manual EQ Presets (6-band editor)
             Section(Localized.manualEQPresets) {
                 if !eqManager.availablePresets.filter({ $0.presetType == .manual }).isEmpty {
                     ForEach(eqManager.availablePresets.filter { $0.presetType == .manual }) { preset in
@@ -297,7 +295,7 @@ struct CreateManualEQView: View {
     private func createPreset() {
         Task {
             do {
-                let preset = try await eqManager.createManual16BandPreset(name: presetName)
+                let preset = try await eqManager.createManual6BandPreset(name: presetName)
 
                 await MainActor.run {
                     eqManager.currentPreset = preset
@@ -338,27 +336,25 @@ struct ManualEQEditorView: View {
                     }
 
                     Section(Localized.frequencyBands) {
-                        ForEach(0..<min(bandGains.count, EQManager.manual16BandFrequencies.count), id: \.self) { index in
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack {
-                                    Text(formatFrequency(EQManager.manual16BandFrequencies[index]))
-                                        .font(.subheadline)
-                                        .foregroundColor(.primary)
-                                        .frame(width: 80, alignment: .leading)
+                        HStack(alignment: .bottom, spacing: 8) {
+                            ForEach(0..<min(bandGains.count, EQManager.manual6BandFrequencies.count), id: \.self) { index in
+                                let frequency = EQManager.manual6BandFrequencies[index]
+                                VStack(spacing: 6) {
+                                    VerticalEQSlider(value: $bandGains[index])
 
-                                    Spacer()
-
-                                    Text("\(bandGains[index], specifier: "%.1f")dB")
-                                        .font(.subheadline.monospacedDigit())
+                                    Text("\(bandGains[index], specifier: "%.1f") dB")
+                                        .font(.caption2.monospacedDigit())
                                         .foregroundColor(bandGains[index] > 0 ? .green : bandGains[index] < 0 ? .red : .secondary)
-                                        .frame(width: 60, alignment: .trailing)
-                                }
 
-                                Slider(value: $bandGains[index], in: -12...12, step: 0.5)
-                                    .tint(.blue)
+                                    Text(formatBandLabel(frequency))
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundColor(.primary)
+                                }
+                                .frame(width: 48)
                             }
-                            .padding(.vertical, 4)
                         }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.vertical, 12)
                     }
                 }
                 .navigationTitle(Localized.editEqualizer)
@@ -384,16 +380,11 @@ struct ManualEQEditorView: View {
         Task {
             do {
                 let bands = try await eqManager.databaseManager.getBands(for: preset)
-                let sortedBands = bands.sorted { $0.bandIndex < $1.bandIndex }
+                let targetFrequencies = EQManager.manual6BandFrequencies
 
                 await MainActor.run {
-                    bandGains = sortedBands.map { $0.gain }
-
-                    // Ensure we have exactly 16 bands
-                    while bandGains.count < 16 {
-                        bandGains.append(0.0)
-                    }
-
+                    bandGains = mapBandsToTargets(bands, targets: targetFrequencies)
+                        .map { min(max($0, -10.0), 10.0) }
                     isLoading = false
                 }
             } catch {
@@ -408,13 +399,15 @@ struct ManualEQEditorView: View {
     private func saveChanges() {
         Task {
             do {
+                let clampedGains = bandGains.map { min(max($0, -10.0), 10.0) }
                 try await eqManager.updatePresetGains(
                     preset,
-                    frequencies: EQManager.manual16BandFrequencies,
-                    gains: bandGains
+                    frequencies: EQManager.manual6BandFrequencies,
+                    gains: clampedGains
                 )
 
                 await MainActor.run {
+                    bandGains = clampedGains
                     dismiss()
                 }
             } catch {
@@ -423,12 +416,44 @@ struct ManualEQEditorView: View {
         }
     }
 
-    private func formatFrequency(_ freq: Double) -> String {
-        if freq >= 1000 {
-            return String(format: "%.1fkHz", freq / 1000)
-        } else {
-            return String(format: "%.0fHz", freq)
+    private func mapBandsToTargets(_ bands: [EQBand], targets: [Double]) -> [Double] {
+        guard !targets.isEmpty else { return [] }
+        guard !bands.isEmpty else {
+            return Array(repeating: 0.0, count: targets.count)
         }
+
+        let bandsByFrequency = bands.sorted { $0.frequency < $1.frequency }
+
+        return targets.map { target in
+            guard let closestBand = bandsByFrequency.min(by: { lhs, rhs in
+                abs(lhs.frequency - target) < abs(rhs.frequency - target)
+            }) else {
+                return 0.0
+            }
+
+            return closestBand.gain
+        }
+    }
+
+    private func formatBandLabel(_ freq: Double) -> String {
+        if freq >= 1000 {
+            return "\(Int(freq / 1000))K"
+        }
+        return "\(Int(freq))"
+    }
+}
+
+private struct VerticalEQSlider: View {
+    @Binding var value: Double
+
+    var body: some View {
+        Slider(value: $value, in: -10...10, step: 0.5)
+            .tint(.blue)
+            .rotationEffect(.degrees(-90))
+            .frame(width: 180)
+            .frame(width: 40, height: 180)
+            .accessibilityLabel("EQ gain")
+            .accessibilityValue("\(value, specifier: "%.1f") dB")
     }
 }
 

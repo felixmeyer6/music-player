@@ -2,6 +2,7 @@ import SwiftUI
 import GRDB
 import UniformTypeIdentifiers
 import Combine
+import UIKit
 
 // MARK: - Responsive Font Helper
 extension View {
@@ -48,7 +49,6 @@ struct LibraryView: View {
     @State private var syncToastColor = Color.green
     @State private var newTracksFoundCount = 0
     @State private var syncCompleted = false
-    @State private var showMusicPicker = false
     
     // Helper function to show sync feedback
     private func showSyncFeedback(trackCountBefore: Int, trackCountAfter: Int) {
@@ -60,9 +60,9 @@ struct LibraryView: View {
             syncToastIcon = "plus.circle.fill"
             syncToastColor = .green
             if trackDifference == 1 {
-                syncToastMessage = NSLocalizedString("sync_one_new_track", value: "1 new song found", comment: "")
+                syncToastMessage = NSLocalizedString("sync_one_new_track", value: "1 new track found", comment: "")
             } else {
-                syncToastMessage = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new songs found", comment: ""), trackDifference)
+                syncToastMessage = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new tracks found", comment: ""), trackDifference)
             }
         } else if trackDifference < 0 {
             // Tracks removed
@@ -70,9 +70,9 @@ struct LibraryView: View {
             syncToastIcon = "minus.circle.fill"
             syncToastColor = .orange
             if deletedCount == 1 {
-                syncToastMessage = NSLocalizedString("sync_one_track_deleted", value: "1 song removed", comment: "")
+                syncToastMessage = NSLocalizedString("sync_one_track_deleted", value: "1 track removed", comment: "")
             } else {
-                syncToastMessage = String(format: NSLocalizedString("sync_multiple_tracks_deleted", value: "%d songs removed", comment: ""), deletedCount)
+                syncToastMessage = String(format: NSLocalizedString("sync_multiple_tracks_deleted", value: "%d tracks removed", comment: ""), deletedCount)
             }
         } else {
             // No changes - but check if we tracked any during sync
@@ -80,9 +80,9 @@ struct LibraryView: View {
                 syncToastIcon = "plus.circle.fill"
                 syncToastColor = .green
                 if newTracksFoundCount == 1 {
-                    syncToastMessage = NSLocalizedString("sync_one_new_track", value: "1 new song found", comment: "")
+                    syncToastMessage = NSLocalizedString("sync_one_new_track", value: "1 new track found", comment: "")
                 } else {
-                    syncToastMessage = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new songs found", comment: ""), newTracksFoundCount)
+                    syncToastMessage = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new tracks found", comment: ""), newTracksFoundCount)
                 }
             } else {
                 syncToastIcon = "checkmark.circle.fill"
@@ -106,111 +106,6 @@ struct LibraryView: View {
         newTracksFoundCount = 0
         syncCompleted = false
     }
-    
-    private func importMusicFiles(_ urls: [URL]) {
-        Task {
-            var processedCount = 0
-            
-            for url in urls {
-                // Reject network URLs
-                if let scheme = url.scheme?.lowercased(), ["http", "https", "ftp", "sftp"].contains(scheme) {
-                    print("❌ Rejected network URL: \(url.absoluteString)")
-                    continue
-                }
-                
-                // Start accessing security-scoped resource
-                guard url.startAccessingSecurityScopedResource() else {
-                    print("Failed to access security scoped resource for: \(url.lastPathComponent)")
-                    continue
-                }
-                
-                defer {
-                    url.stopAccessingSecurityScopedResource()
-                }
-                
-                do {
-                    // Create bookmark data for persistent access
-                    let bookmarkData = try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
-                    
-                    // Store bookmark data for this file
-                    await storeBookmarkData(bookmarkData, for: url)
-                    
-                    // Process the file directly from its original location
-                    await libraryIndexer.processExternalFile(url)
-                    processedCount += 1
-                    print("Processed and bookmarked file from original location: \(url.lastPathComponent)")
-                    
-                } catch {
-                    print("Failed to create bookmark for \(url.lastPathComponent): \(error)")
-                    
-                    // Still try to process the file even if bookmark creation fails
-                    await libraryIndexer.processExternalFile(url)
-                    processedCount += 1
-                    print("Processed file from original location (no bookmark): \(url.lastPathComponent)")
-                }
-            }
-            
-            // Show feedback
-            await MainActor.run {
-                if processedCount > 0 {
-                    syncToastIcon = "plus.circle.fill"
-                    syncToastColor = .green
-                    if processedCount == 1 {
-                        syncToastMessage = "1 song processed"
-                    } else {
-                        syncToastMessage = "\(processedCount) songs processed"
-                    }
-                    
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        showSyncToast = true
-                    }
-                    
-                    // Auto-hide toast after 3 seconds
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showSyncToast = false
-                        }
-                    }
-                }
-            }
-            
-            // Trigger library refresh to update UI
-            if processedCount > 0, let onManualSync = onManualSync {
-                _ = await onManualSync()
-            }
-        }
-    }
-    
-    private func storeBookmarkData(_ bookmarkData: Data, for url: URL) async {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let bookmarksURL = documentsURL.appendingPathComponent("ExternalFileBookmarks.plist")
-        
-        do {
-            // Load existing bookmarks or create new dictionary
-            var bookmarks: [String: Data] = [:]
-            if FileManager.default.fileExists(atPath: bookmarksURL.path) {
-                if let data = try? Data(contentsOf: bookmarksURL),
-                   let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Data] {
-                    bookmarks = plist
-                }
-            }
-            
-            // Generate stableId for this file
-            let stableId = try libraryIndexer.generateStableId(for: url)
-            
-            // Store bookmark using stableId as key (survives file moves)
-            bookmarks[stableId] = bookmarkData
-            
-            // Save updated bookmarks
-            let plistData = try PropertyListSerialization.data(fromPropertyList: bookmarks, format: .xml, options: 0)
-            try plistData.write(to: bookmarksURL)
-            
-            print("Stored bookmark for external file: \(url.lastPathComponent) with stableId: \(stableId)")
-        } catch {
-            print("Failed to store bookmark data: \(error)")
-        }
-    }
-    
     
     var body: some View {
         NavigationStack {
@@ -363,6 +258,18 @@ struct LibraryView: View {
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
+
+                            NavigationLink {
+                                GenresScreen()
+                            } label: {
+                                LibrarySectionRowView(
+                                    title: Localized.genre,
+                                    subtitle: Localized.browseByGenre,
+                                    icon: "music.quarternote.3",
+                                    color: .teal
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
                             
                             NavigationLink {
                                 AlbumsScreen(allTracks: tracks)
@@ -370,27 +277,17 @@ struct LibraryView: View {
                                 LibrarySectionRowView(
                                     title: Localized.albums,
                                     subtitle: Localized.browseByAlbum,
-                                    icon: "opticaldisc.fill",
+                                    icon: "rectangle.stack.fill",
                                     color: .orange
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
                             
-                            Button(action: {
-                                showMusicPicker = true
-                            }) {
-                                LibrarySectionRowView(
-                                    title: Localized.addSongs,
-                                    subtitle: Localized.importMusicFiles,
-                                    icon: "plus.circle.fill",
-                                    color: .blue
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
                         }
                         .padding(16)
                         .padding(.bottom, 100) // Add padding for mini player
                     }
+                    .scrollDisabled(true)
                 }
                 .navigationTitle("")
                 .navigationBarTitleDisplayMode(.large)
@@ -564,11 +461,6 @@ struct LibraryView: View {
                 }
             )
             .accentColor(Color.white)
-        }
-        .sheet(isPresented: $showMusicPicker) {
-            MusicFilePicker { urls in
-                importMusicFiles(urls)
-            }
         }
     }
 }
@@ -783,40 +675,30 @@ struct TrackListView: View {
     
     // Sorting logic stays here
     private var sortedTracks: [Track] {
-        let filteredTracks: [Track]
-        if SFBAudioEngineManager.shared.isCarPlayEnvironment {
-            filteredTracks = tracks.filter { track in
-                let ext = URL(fileURLWithPath: track.path).pathExtension.lowercased()
-                return !["ogg", "opus", "dsf", "dff"].contains(ext)
-            }
-        } else {
-            filteredTracks = tracks
-        }
-        
         switch sortOption {
-        case .playlistOrder: return filteredTracks
-        case .dateNewest: return filteredTracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
-        case .dateOldest: return filteredTracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
-        case .nameAZ: return filteredTracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
-        case .nameZA: return filteredTracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
+        case .playlistOrder: return tracks
+        case .dateNewest: return tracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
+        case .dateOldest: return tracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
+        case .nameAZ: return tracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
+        case .nameZA: return tracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
         case .artistAZ:
             // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: filteredTracks)
-            return filteredTracks.sorted { track1, track2 in
+            let artistCache = buildArtistCache(for: tracks)
+            return tracks.sorted { track1, track2 in
                 let artist1 = artistCache[track1.artistId ?? -1] ?? ""
                 let artist2 = artistCache[track2.artistId ?? -1] ?? ""
                 return artist1.lowercased() < artist2.lowercased()
             }
         case .artistZA:
             // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: filteredTracks)
-            return filteredTracks.sorted { track1, track2 in
+            let artistCache = buildArtistCache(for: tracks)
+            return tracks.sorted { track1, track2 in
                 let artist1 = artistCache[track1.artistId ?? -1] ?? ""
                 let artist2 = artistCache[track2.artistId ?? -1] ?? ""
                 return artist1.lowercased() > artist2.lowercased()
             }
-        case .sizeLargest: return filteredTracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
-        case .sizeSmallest: return filteredTracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
+        case .sizeLargest: return tracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
+        case .sizeSmallest: return tracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
         }
     }
     
@@ -993,10 +875,21 @@ struct TrackListContentView: View {
     @Binding var recentlyActedTracks: Set<String>
     let onEnterBulkMode: (String?) -> Void
     
-    // Only THIS view updates when the song progresses
+    // Only THIS view updates when the track progresses
     @StateObject private var playerEngine = PlayerEngine.shared
     @EnvironmentObject private var appCoordinator: AppCoordinator
     @State private var settings = DeleteSettings.load()
+
+    @ViewBuilder
+    private func swipeIcon(systemName: String) -> some View {
+        if let icon = UIImage(systemName: systemName)?
+            .withTintColor(.black, renderingMode: .alwaysOriginal) {
+            Image(uiImage: icon)
+        } else {
+            Image(systemName: systemName)
+                .foregroundColor(.black)
+        }
+    }
     
     private func toggleSelection(for track: Track) {
         if selectedTracks.contains(track.stableId) {
@@ -1066,8 +959,14 @@ struct TrackListContentView: View {
                         Button {
                             playerEngine.insertNext(track)
                             markAsActed(track.stableId)
-                        } label: { Label(Localized.playNext, systemImage: "text.line.first.and.arrowtriangle.forward") }
-                            .tint(Color.white)
+                        } label: {
+                            HStack(spacing: 8) {
+                                swipeIcon(systemName: "text.line.first.and.arrowtriangle.forward")
+                                Text(Localized.playNext)
+                            }
+                            .foregroundColor(.black)
+                        }
+                        .tint(.white)
                     }
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -1075,8 +974,14 @@ struct TrackListContentView: View {
                         Button {
                             playerEngine.addToQueue(track)
                             markAsActed(track.stableId)
-                        } label: { Label(Localized.addToQueue, systemImage: "text.append") }
-                            .tint(.blue)
+                        } label: {
+                            HStack(spacing: 8) {
+                                swipeIcon(systemName: "text.append")
+                                Text(Localized.addToQueue)
+                            }
+                            .foregroundColor(.black)
+                        }
+                        .tint(.white)
                     }
                 }
                 .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial).opacity(0.7))
@@ -1255,7 +1160,7 @@ struct SearchView: View {
 
     enum SearchCategory: String, CaseIterable {
         case all = "All"
-        case songs = "Songs"
+        case songs = "Tracks"
         case artists = "Artists"
         case albums = "Albums"
         case playlists = "Playlists"
@@ -1369,7 +1274,7 @@ struct SearchView: View {
                                         )
                                         .foregroundColor(
                                             selectedCategory == category ?
-                                                .white :
+                                                .black :
                                                     .primary
                                         )
                                         .cornerRadius(20)
@@ -1521,7 +1426,6 @@ struct SearchView: View {
                                                 .fill(.ultraThinMaterial)
                                                 .opacity(0.7)
                                         )
-                                        .shadow(color: Color.white.opacity(0.15), radius: 4, x: 0, y: 2)
                                         .padding(.horizontal, 16)
                                 }
                             }
@@ -1546,7 +1450,6 @@ struct SearchView: View {
                                             .fill(.ultraThinMaterial)
                                             .opacity(0.7)
                                     )
-                                    .shadow(color: Color.white.opacity(0.15), radius: 4, x: 0, y: 2)
                                     .padding(.horizontal, 16)
                                 }
                             }
@@ -1571,7 +1474,6 @@ struct SearchView: View {
                                             .fill(.ultraThinMaterial)
                                             .opacity(0.7)
                                     )
-                                    .shadow(color: Color.white.opacity(0.15), radius: 4, x: 0, y: 2)
                                     .padding(.horizontal, 16)
                                 }
                             }
@@ -1595,13 +1497,25 @@ struct SearchView: View {
                                             .fill(.ultraThinMaterial)
                                             .opacity(0.7)
                                     )
-                                    .shadow(color: Color.white.opacity(0.15), radius: 4, x: 0, y: 2)
                                     .padding(.horizontal, 16)
                                 }
                             }
                         }
                     }
                     .padding(.vertical, 16)
+                }
+                .overlay(alignment: .top) {
+                    // Soft fade under the category chips instead of a hard edge.
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0.9),
+                            Color.black.opacity(0.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 28)
+                    .allowsHitTesting(false)
                 }
                 .safeAreaInset(edge: .bottom) {
                     Color.clear.frame(height: 100) // Space for mini player
@@ -1962,6 +1876,55 @@ struct MusicFilePicker: UIViewControllerRepresentable {
         
         func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             // User cancelled, clean up delegate
+            controller.delegate = nil
+        }
+    }
+}
+
+struct MusicFolderPicker: UIViewControllerRepresentable {
+    let onFolderPicked: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        picker.modalPresentationStyle = .formSheet
+        context.coordinator.picker = picker
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    static func dismantleUIViewController(_ uiViewController: UIDocumentPickerViewController, coordinator: Coordinator) {
+        uiViewController.delegate = nil
+        coordinator.picker = nil
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onFolderPicked: onFolderPicked)
+    }
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onFolderPicked: (URL) -> Void
+        weak var picker: UIDocumentPickerViewController?
+
+        init(onFolderPicked: @escaping (URL) -> Void) {
+            self.onFolderPicked = onFolderPicked
+            super.init()
+        }
+
+        deinit {
+            picker?.delegate = nil
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            if let folderURL = urls.first {
+                onFolderPicked(folderURL)
+            }
+            controller.delegate = nil
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
             controller.delegate = nil
         }
     }
