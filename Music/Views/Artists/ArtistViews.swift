@@ -103,6 +103,8 @@ struct ArtistDetailScreen: View {
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var sortOption: TrackSortOption = .defaultOrder
     @State private var artworkImage: UIImage?
+    @State private var albumLookup: [Int64: String] = [:]
+    @State private var filterState = TrackFilterState()
 
     private var artistTracks: [Track] {
         allTracks.filter { $0.artistId == artist.id }
@@ -110,6 +112,10 @@ struct ArtistDetailScreen: View {
 
     private var sortedTracks: [Track] {
         TrackSorting.sort(artistTracks, by: sortOption, isPlaylist: false)
+    }
+
+    private var hasFilterOptions: Bool {
+        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
     }
 
     var body: some View {
@@ -145,7 +151,9 @@ struct ArtistDetailScreen: View {
                 onAddToQueue: { track in playerEngine.addToQueue(track) },
                 playlist: nil,
                 activeTrackId: playerEngine.currentTrack?.stableId,
-                isAudioPlaying: playerEngine.isPlaying
+                isAudioPlaying: playerEngine.isPlaying,
+                albumLookup: albumLookup,
+                filterState: filterState
             )
             .padding(.bottom, 90)
         }
@@ -153,29 +161,28 @@ struct ArtistDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    ForEach(TrackSortOption.allCases, id: \.self) { option in
+                HStack(spacing: 16) {
+                    // Filter button
+                    if hasFilterOptions {
                         Button {
-                            sortOption = option
-                            saveSortPreference()
-                        } label: {
-                            HStack {
-                                Text(option.localizedString)
-                                if sortOption == option {
-                                    Image(systemName: "checkmark")
-                                }
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                filterState.toggleFilter()
                             }
+                        } label: {
+                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .foregroundColor(.white)
                         }
                     }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .foregroundColor(.white)
+
+                    // Sort button (rightmost)
+                    SortMenuView(selection: $sortOption, onSelectionChanged: saveSortPreference)
                 }
             }
         }
         .onAppear {
             loadArtwork()
             loadSortPreference()
+            loadAlbumLookup()
         }
     }
 
@@ -186,6 +193,18 @@ struct ArtistDetailScreen: View {
             await MainActor.run {
                 artworkImage = image
             }
+        }
+    }
+
+    private func loadAlbumLookup() {
+        do {
+            let albums = try appCoordinator.databaseManager.getAllAlbums()
+            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
+                guard let id = album.id else { return nil }
+                return (id, album.title)
+            })
+        } catch {
+            print("Failed to load album lookup: \(error)")
         }
     }
 

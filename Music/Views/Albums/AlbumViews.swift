@@ -142,6 +142,25 @@ struct AlbumDetailScreen: View {
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var artworkImage: UIImage?
     @State private var albumTracks: [Track] = []
+    @State private var albumLookup: [Int64: String] = [:]
+    @State private var filterState = TrackFilterState()
+    
+    // 1. Sort State (Removed showSortPopover as Menu handles this automatically)
+    @State private var sortOption: TrackSortOption = .defaultOrder
+
+    private var hasFilterOptions: Bool {
+        TrackFiltering.hasFilterOptions(tracks: albumTracks, albumLookup: albumLookup)
+    }
+
+    // 2. Filter available options (Exclude .album since we are in an album)
+    private var availableSortOptions: [TrackSortOption] {
+        TrackSortOption.allCases.filter { $0 != .album }
+    }
+
+    // 3. Sorting Logic
+    private var sortedTracks: [Track] {
+        TrackSorting.sort(albumTracks, by: sortOption, isPlaylist: false)
+    }
 
     var body: some View {
         ZStack {
@@ -151,10 +170,13 @@ struct AlbumDetailScreen: View {
                 title: album.title,
                 subtitle: Localized.songsCount(albumTracks.count),
                 artwork: artworkImage,
-                displayTracks: albumTracks,  // Already sorted by disc/track from DB
-                sortOptions: [],  // No sorting for albums
-                selectedSort: .defaultOrder,
-                onSelectSort: { _ in },
+                displayTracks: sortedTracks,
+                sortOptions: availableSortOptions,
+                selectedSort: sortOption,
+                onSelectSort: { newSort in
+                    sortOption = newSort
+                    saveSortPreference()
+                },
                 onPlay: { tracks in
                     if let first = tracks.first {
                         Task { await playerEngine.playTrack(first, queue: tracks) }
@@ -173,14 +195,50 @@ struct AlbumDetailScreen: View {
                 onAddToQueue: { track in playerEngine.addToQueue(track) },
                 playlist: nil,
                 activeTrackId: playerEngine.currentTrack?.stableId,
-                isAudioPlaying: playerEngine.isPlaying
+                isAudioPlaying: playerEngine.isPlaying,
+                albumLookup: albumLookup,
+                filterState: filterState
             )
             .padding(.bottom, 90)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                HStack(spacing: 16) {
+                    // Filter Button
+                    if hasFilterOptions {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                filterState.toggleFilter()
+                            }
+                        } label: {
+                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .foregroundColor(.white)
+                        }
+                    }
+
+                    // Sort Button (Standard Menu + Picker)
+                    Menu {
+                        Picker("Sort By", selection: $sortOption) {
+                            ForEach(availableSortOptions, id: \.self) { option in
+                                Label(option.localizedString, systemImage: option.iconName)
+                                    .tag(option)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .foregroundColor(.white)
+                    }
+                    .onChange(of: sortOption) { _ in
+                        saveSortPreference()
+                    }
+                }
+            }
+        }
         .onAppear {
             loadAlbumTracks()
             loadAlbumArtwork()
+            loadSortPreference()
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LibraryNeedsRefresh"))) { _ in
             loadAlbumTracks()
@@ -191,8 +249,21 @@ struct AlbumDetailScreen: View {
         guard let albumId = album.id else { return }
         do {
             albumTracks = try appCoordinator.databaseManager.getTracksByAlbumId(albumId)
+            loadAlbumLookup()
         } catch {
             print("Failed to load album tracks: \(error)")
+        }
+    }
+
+    private func loadAlbumLookup() {
+        do {
+            let albums = try appCoordinator.databaseManager.getAllAlbums()
+            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
+                guard let id = album.id else { return nil }
+                return (id, album.title)
+            })
+        } catch {
+            print("Failed to load album lookup: \(error)")
         }
     }
 
@@ -204,6 +275,22 @@ struct AlbumDetailScreen: View {
                 artworkImage = image
             }
         }
+    }
+    
+    private func sortPreferenceKey() -> String {
+        "sortPreference_album_\(album.id ?? 0)"
+    }
+
+    private func loadSortPreference() {
+        let key = sortPreferenceKey()
+        if let savedRawValue = UserDefaults.standard.string(forKey: key),
+           let saved = TrackSortOption(rawValue: savedRawValue) {
+            sortOption = saved
+        }
+    }
+
+    private func saveSortPreference() {
+        UserDefaults.standard.set(sortOption.rawValue, forKey: sortPreferenceKey())
     }
 }
 

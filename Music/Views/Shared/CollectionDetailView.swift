@@ -36,11 +36,16 @@ struct CollectionDetailView: View {
     var onDelete: ((Track) -> Void)? = nil
     var onMove: ((IndexSet, Int) -> Void)? = nil
 
+    // MARK: - Filter Support (optional)
+    var albumLookup: [Int64: String] = [:]
+    var filterState: TrackFilterState? = nil
+
     // MARK: - Private State
     @State private var recentlyActedTracks: Set<String> = []
     @State private var isBulkMode: Bool = false
     @State private var selectedTracks: Set<String> = []
     @State private var showAddToPlaylistSheet: Bool = false
+    @State private var scrollPosition: String?
 
     // MARK: - Layout Constants
     private let headerArtworkSize: CGFloat = 140
@@ -51,45 +56,103 @@ struct CollectionDetailView: View {
         title != nil || subtitle != nil || artwork != nil
     }
 
+    // MARK: - Filter Computed Properties
+    private var isFilterVisible: Bool {
+        filterState?.isFilterVisible ?? false
+    }
+
+    private var availableGenres: [String] {
+        TrackFiltering.availableGenres(from: displayTracks)
+    }
+
+    private var availableAlbums: [(id: Int64, title: String)] {
+        TrackFiltering.availableAlbums(from: displayTracks, albumLookup: albumLookup)
+    }
+
+    private var availableRatings: [Int] {
+        TrackFiltering.availableRatings(from: displayTracks)
+    }
+
+    private var filteredTracks: [Track] {
+        guard let state = filterState else { return displayTracks }
+        return TrackFiltering.filter(tracks: displayTracks, with: state, albumLookup: albumLookup)
+    }
+
+    private var hasAnyFilterOptions: Bool {
+        TrackFiltering.hasFilterOptions(tracks: displayTracks, albumLookup: albumLookup)
+    }
+
     // MARK: - Body
     var body: some View {
-        List {
-            // Header Section (only if artwork/title/subtitle provided)
-            if showArtworkHeader {
-                Section {
-                    headerContent
+        ZStack(alignment: .top) {
+            List {
+                // Spacer for filter row when visible
+                if isFilterVisible {
+                    Color.clear
+                        .frame(height: 56)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets())
+                        .id("__filter_spacer__")
                 }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets())
-            } else {
-                // Just Play/Shuffle buttons without artwork header
-                Section {
-                    playShuffleButtons
-                        .padding(.vertical, 16)
-                        .padding(.horizontal)
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets())
-            }
 
-            // Track List
-            if displayTracks.isEmpty {
-                emptyStateView
+                // Header Section (only if artwork/title/subtitle provided)
+                if showArtworkHeader {
+                    Section {
+                        headerContent
+                            .id("__header__")
+                    }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets())
-            } else {
-                ForEach(displayTracks, id: \.stableId) { track in
-                    trackRow(for: track)
+                } else {
+                    // Just Play/Shuffle buttons without artwork header
+                    Section {
+                        playShuffleButtons
+                            .padding(.vertical, 16)
+                            .padding(.horizontal)
+                            .id("__buttons__")
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets())
                 }
-                .onMove(perform: isEditMode ? onMove : nil)
+
+                // Track List
+                if filteredTracks.isEmpty {
+                    if isFilterVisible && !displayTracks.isEmpty {
+                        filterEmptyStateView
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets())
+                            .id("__filter_empty__")
+                    } else {
+                        emptyStateView
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets())
+                            .id("__empty__")
+                    }
+                } else {
+                    ForEach(filteredTracks, id: \.stableId) { track in
+                        trackRow(for: track)
+                            .id(track.stableId)
+                    }
+                    .onMove(perform: isEditMode ? onMove : nil)
+                }
+            }
+            .listStyle(PlainListStyle())
+            .scrollContentBackground(.hidden)
+            .scrollPosition(id: $scrollPosition, anchor: .top)
+            .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
+
+            // Sticky filter row
+            if isFilterVisible {
+                filterRow
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .listStyle(PlainListStyle())
-        .scrollContentBackground(.hidden)
-        .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
+        .animation(.easeInOut(duration: 0.2), value: isFilterVisible)
         .sheet(isPresented: $showAddToPlaylistSheet) {
             AddToPlaylistView(
                 trackIds: Array(selectedTracks),
@@ -104,21 +167,28 @@ struct CollectionDetailView: View {
     func sortToolbarContent() -> some ToolbarContent {
         if !sortOptions.isEmpty && !isBulkMode {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    ForEach(sortOptions, id: \.self) { option in
-                        Button {
-                            onSelectSort(option)
-                        } label: {
-                            HStack {
-                                Text(option.localizedString)
-                                if selectedSort == option {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
+                SortMenuView(
+                    selection: Binding(
+                        get: { selectedSort },
+                        set: { onSelectSort($0) }
+                    ),
+                    options: sortOptions
+                )
+            }
+        }
+    }
+
+    // MARK: - Filter Toolbar
+    @ToolbarContentBuilder
+    func filterToolbarContent() -> some ToolbarContent {
+        if let state = filterState, hasAnyFilterOptions && !isBulkMode {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        state.toggleFilter()
                     }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    Image(systemName: state.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                         .foregroundColor(.white)
                 }
             }
@@ -392,6 +462,101 @@ struct CollectionDetailView: View {
         .padding(.vertical, 40)
     }
 
+    // MARK: - Filter Empty State
+    @ViewBuilder
+    private var filterEmptyStateView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 40))
+                .foregroundColor(.secondary)
+
+            Text("No Matching Tracks")
+                .font(.headline)
+
+            Text("Select filters above to show tracks")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    // MARK: - Filter Row
+    @ViewBuilder
+    private var filterRow: some View {
+        if let state = filterState {
+            HStack(spacing: 8) {
+                // Three filter buttons with equal width (1/3 each)
+                HStack(spacing: 8) {
+                    // Genre Filter
+                    FilterDropdown(
+                        title: "Genre",
+                        options: availableGenres,
+                        selectedOptions: Binding(
+                            get: { state.selectedGenres },
+                            set: { state.selectedGenres = $0 }
+                        ),
+                        isAvailable: !availableGenres.isEmpty
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    // Album Filter
+                    FilterDropdown(
+                        title: "Album",
+                        options: availableAlbums.map { $0.title },
+                        selectedOptions: Binding(
+                            get: {
+                                Set(state.selectedAlbums.compactMap { id in
+                                    availableAlbums.first { $0.id == id }?.title
+                                })
+                            },
+                            set: { newTitles in
+                                state.selectedAlbums = Set(newTitles.compactMap { title in
+                                    availableAlbums.first { $0.title == title }?.id
+                                })
+                            }
+                        ),
+                        isAvailable: !availableAlbums.isEmpty
+                    )
+                    .frame(maxWidth: .infinity)
+
+                    // Rating Filter
+                    FilterDropdown(
+                        title: "Rating",
+                        options: availableRatings.map { TrackFiltering.ratingString($0) },
+                        selectedOptions: Binding(
+                            get: {
+                                Set(state.selectedRatings.map { TrackFiltering.ratingString($0) })
+                            },
+                            set: { newStrings in
+                                state.selectedRatings = Set(newStrings.compactMap { str in
+                                    availableRatings.first { TrackFiltering.ratingString($0) == str }
+                                })
+                            }
+                        ),
+                        isAvailable: !availableRatings.isEmpty
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+
+                // Close filter button
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        state.toggleFilter()
+                    }
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial)
+        }
+    }
+
     // MARK: - Helper Methods
     @ViewBuilder
     private func swipeIcon(systemName: String) -> some View {
@@ -436,4 +601,126 @@ struct CollectionDetailView: View {
         selectedTracks = Set(displayTracks.map { $0.stableId })
     }
 
+}
+
+// MARK: - Filter Dropdown Component
+private struct FilterDropdown: View {
+    let title: String
+    let options: [String]
+    @Binding var selectedOptions: Set<String>
+    var isAvailable: Bool = true
+    @State private var isExpanded: Bool = false
+
+    var body: some View {
+        Button {
+            if isAvailable && !options.isEmpty {
+                isExpanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+
+                if !selectedOptions.isEmpty && isAvailable {
+                    Text("(\(selectedOptions.count))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer(minLength: 4)
+
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.caption2)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isAvailable && !selectedOptions.isEmpty ? Color.white.opacity(0.25) : Color.white.opacity(0.1))
+            )
+            .foregroundColor(isAvailable ? .white : .white.opacity(0.4))
+        }
+        .disabled(!isAvailable || options.isEmpty)
+        .popover(isPresented: $isExpanded, arrowEdge: .top) {
+            FilterOptionsView(
+                title: title,
+                options: options,
+                selectedOptions: $selectedOptions
+            )
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+// MARK: - Filter Options Popover Content
+private struct FilterOptionsView: View {
+    let title: String
+    let options: [String]
+    @Binding var selectedOptions: Set<String>
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header
+            HStack {
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                if !selectedOptions.isEmpty {
+                    Button {
+                        selectedOptions.removeAll()
+                    } label: {
+                        Text("Clear")
+                            .font(.subheadline)
+                            .foregroundColor(.red)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            // Options list
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(options, id: \.self) { option in
+                        Button {
+                            toggleOption(option)
+                        } label: {
+                            HStack {
+                                Text(option)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                if selectedOptions.contains(option) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundColor(.accentColor)
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if option != options.last {
+                            Divider()
+                                .padding(.leading, 16)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 300)
+        }
+        .frame(minWidth: 200)
+    }
+
+    private func toggleOption(_ option: String) {
+        if selectedOptions.contains(option) {
+            selectedOptions.remove(option)
+        } else {
+            selectedOptions.insert(option)
+        }
+    }
 }

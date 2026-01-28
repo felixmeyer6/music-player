@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 import GRDB
 
 /// Unified sort options for track lists
@@ -27,6 +28,18 @@ enum TrackSortOption: String, CaseIterable {
         case .album: return "Album"
         case .artist: return "Artist"
         case .date: return "Date"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .defaultOrder: return "line.3.horizontal"
+        case .rating: return "star"
+        case .playCount: return "play"
+        case .genre: return "music.quarternote.3"
+        case .album: return "rectangle.stack"
+        case .artist: return "person"
+        case .date: return "calendar"
         }
     }
 }
@@ -120,5 +133,29 @@ struct TrackSorting {
             print("⚠️ Failed to fetch artist names for sorting: \(error)")
         }
         return result
+    }
+}
+
+// MARK: - Sort Menu View
+struct SortMenuView: View {
+    @Binding var selection: TrackSortOption
+    var options: [TrackSortOption] = TrackSortOption.allCases
+    var onSelectionChanged: (() -> Void)? = nil
+
+    var body: some View {
+        Menu {
+            Picker(selection: $selection) {
+                ForEach(options, id: \.self) { option in
+                    Label(option.localizedString, systemImage: option.iconName)
+                        .tag(option)
+                }
+            } label: {}
+            .pickerStyle(.inline)
+            .fixedSize(horizontal: true, vertical: false)
+            .onChange(of: selection) { _ in onSelectionChanged?() }
+        } label: {
+            Image(systemName: "arrow.up.arrow.down")
+                .foregroundColor(.white)
+        }
     }
 }

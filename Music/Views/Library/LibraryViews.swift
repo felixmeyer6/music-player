@@ -517,11 +517,18 @@ struct LibrarySectionRowView: View {
 
 struct AllSongsScreen: View {
     let tracks: [Track]
+    @EnvironmentObject private var appCoordinator: AppCoordinator
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var sortOption: TrackSortOption = .defaultOrder
+    @State private var albumLookup: [Int64: String] = [:]
+    @State private var filterState = TrackFilterState()
 
     private var sortedTracks: [Track] {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: false)
+    }
+
+    private var hasFilterOptions: Bool {
+        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
     }
 
     var body: some View {
@@ -557,7 +564,9 @@ struct AllSongsScreen: View {
                 onAddToQueue: { track in playerEngine.addToQueue(track) },
                 playlist: nil,
                 activeTrackId: playerEngine.currentTrack?.stableId,
-                isAudioPlaying: playerEngine.isPlaying
+                isAudioPlaying: playerEngine.isPlaying,
+                albumLookup: albumLookup,
+                filterState: filterState
             )
             .padding(.bottom, 90)
         }
@@ -565,27 +574,28 @@ struct AllSongsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    ForEach(TrackSortOption.allCases, id: \.self) { option in
+                HStack(spacing: 16) {
+                    // Filter button
+                    if hasFilterOptions {
                         Button {
-                            sortOption = option
-                            saveSortPreference()
-                        } label: {
-                            HStack {
-                                Text(option.localizedString)
-                                if sortOption == option {
-                                    Image(systemName: "checkmark")
-                                }
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                filterState.toggleFilter()
                             }
+                        } label: {
+                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .foregroundColor(.white)
                         }
                     }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .foregroundColor(.white)
+
+                    // Sort button (rightmost)
+                    SortMenuView(selection: $sortOption, onSelectionChanged: saveSortPreference)
                 }
             }
         }
-        .onAppear { loadSortPreference() }
+        .onAppear {
+            loadSortPreference()
+            loadAlbumLookup()
+        }
     }
 
     private func loadSortPreference() {
@@ -597,6 +607,18 @@ struct AllSongsScreen: View {
 
     private func saveSortPreference() {
         UserDefaults.standard.set(sortOption.rawValue, forKey: "sortPreference_all_songs")
+    }
+
+    private func loadAlbumLookup() {
+        do {
+            let albums = try appCoordinator.databaseManager.getAllAlbums()
+            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
+                guard let id = album.id else { return nil }
+                return (id, album.title)
+            })
+        } catch {
+            print("Failed to load album lookup: \(error)")
+        }
     }
 
 }

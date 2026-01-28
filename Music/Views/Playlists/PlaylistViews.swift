@@ -378,9 +378,15 @@ struct PlaylistDetailScreen: View {
     @State private var isEditMode: Bool = false
     @State private var sortOption: TrackSortOption = .defaultOrder
     @State private var artworkImage: UIImage?
+    @State private var albumLookup: [Int64: String] = [:]
+    @State private var filterState = TrackFilterState()
 
     private var sortedTracks: [Track] {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: true)
+    }
+
+    private var hasFilterOptions: Bool {
+        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
     }
 
     var body: some View {
@@ -444,7 +450,9 @@ struct PlaylistDetailScreen: View {
                 },
                 onMove: sortOption == .defaultOrder ? { source, dest in
                     reorderPlaylistItems(from: source, to: dest)
-                } : nil
+                } : nil,
+                albumLookup: albumLookup,
+                filterState: filterState
             )
             .padding(.bottom, 90)
         }
@@ -453,31 +461,28 @@ struct PlaylistDetailScreen: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
-                    Menu {
-                        ForEach(TrackSortOption.allCases, id: \.self) { option in
-                            Button {
-                                sortOption = option
-                                saveSortPreference()
-                            } label: {
-                                HStack {
-                                    Text(option.localizedString)
-                                    if sortOption == option {
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .foregroundColor(.white)
-                    }
-
+                    // Edit button (leftmost)
                     Button {
                         withAnimation { isEditMode.toggle() }
                     } label: {
                         Image(systemName: isEditMode ? "checkmark" : "pencil")
                     }
                     .disabled(tracks.isEmpty)
+
+                    // Filter button
+                    if hasFilterOptions {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                filterState.toggleFilter()
+                            }
+                        } label: {
+                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .foregroundColor(.white)
+                        }
+                    }
+
+                    // Sort button (rightmost)
+                    SortMenuView(selection: $sortOption, onSelectionChanged: saveSortPreference)
                 }
             }
         }
@@ -500,8 +505,21 @@ struct PlaylistDetailScreen: View {
             tracks = playlistItems.compactMap { item in
                 allTracks.first { $0.stableId == item.trackStableId }
             }
+            loadAlbumLookup()
         } catch {
             print("Failed to load playlist tracks: \(error)")
+        }
+    }
+
+    private func loadAlbumLookup() {
+        do {
+            let albums = try appCoordinator.databaseManager.getAllAlbums()
+            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
+                guard let id = album.id else { return nil }
+                return (id, album.title)
+            })
+        } catch {
+            print("Failed to load album lookup: \(error)")
         }
     }
 

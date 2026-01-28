@@ -136,9 +136,15 @@ struct GenreDetailScreen: View {
     @State private var tracks: [Track] = []
     @State private var sortOption: TrackSortOption = .defaultOrder
     @State private var artworkImage: UIImage?
+    @State private var albumLookup: [Int64: String] = [:]
+    @State private var filterState = TrackFilterState()
 
     private var sortedTracks: [Track] {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: false)
+    }
+
+    private var hasFilterOptions: Bool {
+        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
     }
 
     var body: some View {
@@ -174,7 +180,9 @@ struct GenreDetailScreen: View {
                 onAddToQueue: { track in playerEngine.addToQueue(track) },
                 playlist: nil,
                 activeTrackId: playerEngine.currentTrack?.stableId,
-                isAudioPlaying: playerEngine.isPlaying
+                isAudioPlaying: playerEngine.isPlaying,
+                albumLookup: albumLookup,
+                filterState: filterState
             )
             .padding(.bottom, 90)
         }
@@ -182,23 +190,21 @@ struct GenreDetailScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    ForEach(TrackSortOption.allCases, id: \.self) { option in
+                HStack(spacing: 16) {
+                    // Filter button
+                    if hasFilterOptions {
                         Button {
-                            sortOption = option
-                            saveSortPreference()
-                        } label: {
-                            HStack {
-                                Text(option.localizedString)
-                                if sortOption == option {
-                                    Image(systemName: "checkmark")
-                                }
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                filterState.toggleFilter()
                             }
+                        } label: {
+                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                                .foregroundColor(.white)
                         }
                     }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .foregroundColor(.white)
+
+                    // Sort button (rightmost)
+                    SortMenuView(selection: $sortOption, onSelectionChanged: saveSortPreference)
                 }
             }
         }
@@ -216,8 +222,21 @@ struct GenreDetailScreen: View {
     private func loadTracks() {
         do {
             tracks = try appCoordinator.databaseManager.getTracksByGenre(genreName)
+            loadAlbumLookup()
         } catch {
             print("Failed to load genre tracks: \(error)")
+        }
+    }
+
+    private func loadAlbumLookup() {
+        do {
+            let albums = try appCoordinator.databaseManager.getAllAlbums()
+            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
+                guard let id = album.id else { return nil }
+                return (id, album.title)
+            })
+        } catch {
+            print("Failed to load album lookup: \(error)")
         }
     }
 
