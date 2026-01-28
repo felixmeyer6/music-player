@@ -11,11 +11,20 @@ import Foundation
 struct Artist: Codable, FetchableRecord, PersistableRecord {
     var id: Int64?
     var name: String
-    
+
     static let databaseTableName = "artist"
-    
+
     nonisolated(unsafe) static let tracks = hasMany(Track.self)
     nonisolated(unsafe) static let albums = hasMany(Album.self)
+}
+
+struct Genre: Codable, FetchableRecord, PersistableRecord {
+    var id: Int64?
+    var name: String
+
+    static let databaseTableName = "genre"
+
+    nonisolated(unsafe) static let tracks = hasMany(Track.self)
 }
 
 struct Album: Codable, FetchableRecord, PersistableRecord {
@@ -42,6 +51,7 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var stableId: String
     var albumId: Int64?
     var artistId: Int64?
+    var genreId: Int64?
     var genre: String?
     /// User rating on a 1–5 scale (stored as POPM for MP3s).
     var rating: Int?
@@ -59,15 +69,17 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var playCount: Int = 0
 
     static let databaseTableName = "track"
-    
+
     nonisolated(unsafe) static let artist = belongsTo(Artist.self)
     nonisolated(unsafe) static let album = belongsTo(Album.self)
-    
+    nonisolated(unsafe) static let genreRecord = belongsTo(Genre.self)
+
     enum CodingKeys: String, CodingKey {
         case id, title, path, genre, rating
         case stableId = "stable_id"
         case albumId = "album_id"
         case artistId = "artist_id"
+        case genreId = "genre_id"
         case trackNo = "track_no"
         case discNo = "disc_no"
         case durationMs = "duration_ms"

@@ -119,6 +119,10 @@ struct PlayerView: View {
     @State private var dominantColor: Color = .white
     @State private var isScrubbing = false
     @State private var scrubProgress: Double?
+    @State private var currentAlbumName: String?
+    @State private var mostRecentPlaylist: Playlist?
+    @State private var isTrackInMostRecentPlaylist = false
+    @State private var wasAddedByQuickAction = false
     
     private var currentArtworkKey: String {
         playerEngine.currentTrack?.stableId ?? "none"
@@ -162,14 +166,17 @@ struct PlayerView: View {
             .padding(.top, 8)
             .onChange(of: playerEngine.currentTrack) { _, newTrack in
                 currentArtwork = nil
+                wasAddedByQuickAction = false
                 Task {
                     await loadAllArtworks()
+                    await loadPlaylistState()
                 }
             }
             .onAppear {
                 Task {
                     await loadAllArtworks()
                     await loadTracks()
+                    await loadPlaylistState()
                 }
             }
             .sheet(isPresented: $showPlaylistDialog) {
@@ -363,6 +370,7 @@ struct PlayerView: View {
                 titleButton(track: track)
                 artistButton(track: track)
             }
+            .padding(.leading, 12)
 
             Spacer()
         }
@@ -435,11 +443,51 @@ struct PlayerView: View {
 
     private var addToPlaylistButton: some View {
         Button(action: {
-            showPlaylistDialog = true
+            handleAddToPlaylistTap()
         }) {
-            Image(systemName: "plus.circle")
+            Image(systemName: isTrackInMostRecentPlaylist ? "checkmark.circle.fill" : "plus.circle")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
-                .foregroundColor(.primary)
+                .foregroundColor(isTrackInMostRecentPlaylist ? dominantColor : .primary)
+                .animation(.easeInOut(duration: 0.25), value: isTrackInMostRecentPlaylist)
+        }
+    }
+
+    private func handleAddToPlaylistTap() {
+        guard let track = playerEngine.currentTrack else { return }
+
+        if isTrackInMostRecentPlaylist {
+            // Track is already in the most recent playlist
+            if wasAddedByQuickAction, let playlist = mostRecentPlaylist, let playlistId = playlist.id {
+                // We just added it via quick action - remove it and open dialog
+                do {
+                    try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: track.stableId)
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isTrackInMostRecentPlaylist = false
+                        wasAddedByQuickAction = false
+                    }
+                } catch {
+                    print("❌ Failed to remove from playlist: \(error)")
+                }
+            }
+            // Open the dialog
+            showPlaylistDialog = true
+        } else {
+            // Track is not in the most recent playlist - add it
+            guard let playlist = mostRecentPlaylist, let playlistId = playlist.id else {
+                // No playlists exist, open dialog to create one
+                showPlaylistDialog = true
+                return
+            }
+
+            do {
+                try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: track.stableId)
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    isTrackInMostRecentPlaylist = true
+                    wasAddedByQuickAction = true
+                }
+            } catch {
+                print("❌ Failed to add to playlist: \(error)")
+            }
         }
     }
 
@@ -594,10 +642,29 @@ struct PlayerView: View {
 
     private var additionalControlsView: some View {
         HStack(spacing: 12) {
+            tagButton
             queueButton
             airPlayButton
         }
         .padding(.horizontal, 5)
+    }
+
+    private var tagButton: some View {
+        Button(action: {
+            // TODO: Tag action
+        }) {
+            Image(systemName: "tag")
+                .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
+                .foregroundColor(.primary)
+                .frame(maxWidth: .infinity)
+        }
+        .frame(height: 56)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+        )
     }
 
     private var queueButton: some View {
@@ -607,9 +674,9 @@ struct PlayerView: View {
             Image(systemName: "list.bullet")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
                 .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
         }
+        .frame(height: 56)
         .frame(maxWidth: .infinity)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
         .overlay(
@@ -625,9 +692,9 @@ struct PlayerView: View {
             Image(systemName: "airplayaudio")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
                 .foregroundColor(.primary)
-                .frame(maxWidth: .infinity, minHeight: 25)
-                .padding(.vertical, 16)
+                .frame(maxWidth: .infinity)
         }
+        .frame(height: 56)
         .frame(maxWidth: .infinity)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
         .overlay(
@@ -656,6 +723,14 @@ struct PlayerView: View {
     
     private func loadCurrentArtwork() async {
         if let track = playerEngine.currentTrack {
+            // Load album name
+            let albumName: String? = await Task.detached(priority: .userInitiated) {
+                guard let albumId = track.albumId else { return nil }
+                return try? DatabaseManager.shared.read { db in
+                    try Album.fetchOne(db, key: albumId)?.title
+                }
+            }.value
+
             let artwork = await artworkManager.getArtwork(for: track)
             if let artwork = artwork {
                 let color = await artwork.dominantColorAsync()
@@ -663,6 +738,7 @@ struct PlayerView: View {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         currentArtwork = artwork
                         dominantColor = color
+                        currentAlbumName = albumName
                     }
                     finalizeArtworkPresentation()
                 }
@@ -671,6 +747,7 @@ struct PlayerView: View {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         currentArtwork = nil
                         dominantColor = .white
+                        currentAlbumName = albumName
                     }
                     finalizeArtworkPresentation()
                 }
@@ -680,6 +757,7 @@ struct PlayerView: View {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     currentArtwork = nil
                     dominantColor = .white
+                    currentAlbumName = nil
                 }
                 awaitingNewArtwork = false
                 isArtworkHidden = false
@@ -713,7 +791,41 @@ struct PlayerView: View {
             print("❌ Failed to load tracks: \(error)")
         }
     }
-    
+
+    private func loadPlaylistState() async {
+        guard let track = playerEngine.currentTrack else {
+            await MainActor.run {
+                mostRecentPlaylist = nil
+                isTrackInMostRecentPlaylist = false
+            }
+            return
+        }
+
+        let result: (playlist: Playlist?, isInPlaylist: Bool) = await Task.detached(priority: .userInitiated) {
+            do {
+                let playlists = try DatabaseManager.shared.getAllPlaylists()
+                // Sort by updatedAt descending to get most recently modified playlist
+                guard let mostRecent = playlists.sorted(by: { $0.updatedAt > $1.updatedAt }).first,
+                      let playlistId = mostRecent.id else {
+                    return (nil, false)
+                }
+                let isInPlaylist = (try? DatabaseManager.shared.isTrackInPlaylist(
+                    playlistId: playlistId,
+                    trackStableId: track.stableId
+                )) ?? false
+                return (mostRecent, isInPlaylist)
+            } catch {
+                print("❌ Failed to load playlist state: \(error)")
+                return (nil, false)
+            }
+        }.value
+
+        await MainActor.run {
+            mostRecentPlaylist = result.playlist
+            isTrackInMostRecentPlaylist = result.isInPlaylist
+        }
+    }
+
     private func formatTime(_ time: TimeInterval) -> String {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
@@ -1179,26 +1291,26 @@ struct TrackRowView: View, @MainActor Equatable {
     let track: Track
     let activeTrackId: String?
     let isAudioPlaying: Bool
-    
+
     let onTap: () -> Void
     let playlist: Playlist?
     let showDirectDeleteButton: Bool
     let onEnterBulkMode: (() -> Void)?
-    
+
     @EnvironmentObject private var appCoordinator: AppCoordinator
-    
+
     // Internal state only (does not trigger external redraws)
     @State private var isPressed = false
     @State private var showPlaylistDialog = false
     @State private var artworkImage: UIImage?
 
     @State private var accentColor: Color = .white
-    
+
     // 2. Computed property is now based on passed params
     private var isCurrentlyPlaying: Bool {
         activeTrackId == track.stableId
     }
-    
+
     // 3. Equatable Conformance: Prevents redraws when PlayerEngine updates time
     static func == (lhs: TrackRowView, rhs: TrackRowView) -> Bool {
         return lhs.track.stableId == rhs.track.stableId &&
@@ -1206,7 +1318,7 @@ struct TrackRowView: View, @MainActor Equatable {
         lhs.isAudioPlaying == rhs.isAudioPlaying &&
         lhs.playlist?.id == rhs.playlist?.id
     }
-    
+
     var body: some View {
         HStack(spacing: 0) {
             // MARK: - Tappable Content Area
@@ -1216,7 +1328,7 @@ struct TrackRowView: View, @MainActor Equatable {
                     RoundedRectangle(cornerRadius: 8)
                         .fill(Color.gray.opacity(0.2))
                         .frame(width: 60, height: 60)
-                    
+
                     if let image = artworkImage {
                         Image(uiImage: image)
                             .resizable()
@@ -1228,21 +1340,21 @@ struct TrackRowView: View, @MainActor Equatable {
                             .font(.title2)
                             .foregroundColor(.secondary)
                     }
-                    
+
                     if isCurrentlyPlaying {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(accentColor, lineWidth: 2)
                             .frame(width: 60, height: 60)
                     }
                 }
-                
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(track.title)
                         .font(.body)
                         .fontWeight(.medium)
                         .foregroundColor(.white)
                         .lineLimit(1)
-                    
+
                     if let artistId = track.artistId,
                        let artist = try? DatabaseManager.shared.read({ db in
                            try Artist.fetchOne(db, key: artistId)
@@ -1253,15 +1365,15 @@ struct TrackRowView: View, @MainActor Equatable {
                             .lineLimit(1)
                     }
                 }
-                
+
                 Spacer()
-                
+
             }
             .contentShape(Rectangle())
             .onTapGesture {
                 onTap()
             }
-            
+
             // MARK: - Menu / Action Area
             if showDirectDeleteButton {
                 Button(action: {
@@ -1296,7 +1408,7 @@ struct TrackRowView: View, @MainActor Equatable {
             if artworkImage == nil { loadArtwork() }
         }
     }
-    
+
     private func loadArtwork() {
         Task {
             let image = await ArtworkManager.shared.getArtwork(for: track)
@@ -1310,7 +1422,7 @@ struct TrackRowView: View, @MainActor Equatable {
             }
         }
     }
-    
+
     private func removeFromPlaylist() {
         guard let playlist = playlist, let playlistId = playlist.id else { return }
         Task {

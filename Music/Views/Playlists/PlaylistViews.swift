@@ -109,7 +109,6 @@ struct PlaylistsScreen: View {
                 loadPlaylists()
             }
         }
-        .ignoresSafeArea(.keyboard)
     }
     
     private func getAllPlaylistTracks(_ playlist: Playlist) -> [Track] {

@@ -60,17 +60,11 @@ struct AddToPlaylistView: View {
 
                 VStack(spacing: 0) {
                     if showTrackCount {
-                        VStack(spacing: 8) {
-                            Text(Localized.addToPlaylist)
-                                .font(.title2)
-                                .fontWeight(.semibold)
-
-                            Text(Localized.songsCountOnly(trackIds.count))
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.bottom, 12)
-                        .padding(.horizontal)
+                        Text(Localized.songsCountOnly(trackIds.count))
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .padding(.top, 8)
+                            .padding(.bottom, 12)
                     }
 
                     if playlists.isEmpty {

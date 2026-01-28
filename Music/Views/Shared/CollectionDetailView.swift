@@ -36,14 +36,11 @@ struct CollectionDetailView: View {
     var onDelete: ((Track) -> Void)? = nil
     var onMove: ((IndexSet, Int) -> Void)? = nil
 
-    // MARK: - Bulk Selection (optional)
-    var supportsBulkSelection: Bool = false
-    var onBulkAddToPlaylist: (([Track]) -> Void)? = nil
-
     // MARK: - Private State
     @State private var recentlyActedTracks: Set<String> = []
     @State private var isBulkMode: Bool = false
     @State private var selectedTracks: Set<String> = []
+    @State private var showAddToPlaylistSheet: Bool = false
 
     // MARK: - Layout Constants
     private let headerArtworkSize: CGFloat = 140
@@ -87,12 +84,19 @@ struct CollectionDetailView: View {
                 ForEach(displayTracks, id: \.stableId) { track in
                     trackRow(for: track)
                 }
-                .onMove(perform: onMove)
+                .onMove(perform: isEditMode ? onMove : nil)
             }
         }
         .listStyle(PlainListStyle())
         .scrollContentBackground(.hidden)
         .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
+        .sheet(isPresented: $showAddToPlaylistSheet) {
+            AddToPlaylistView(
+                trackIds: Array(selectedTracks),
+                onComplete: { exitBulkMode() },
+                showTrackCount: true
+            )
+        }
     }
 
     // MARK: - Sort Toolbar
@@ -136,7 +140,7 @@ struct CollectionDetailView: View {
                         Label(Localized.selectAll, systemImage: "checkmark.circle")
                     }
                     Divider()
-                    Button(action: { bulkAddToPlaylist() }) {
+                    Button(action: { showAddToPlaylistSheet = true }) {
                         Label(Localized.addToPlaylist, systemImage: "music.note.list")
                     }
                     .disabled(selectedTracks.isEmpty)
@@ -165,9 +169,9 @@ struct CollectionDetailView: View {
     // MARK: - Header Content
     @ViewBuilder
     private var headerContent: some View {
-        VStack(spacing: 16) {
-            // Artwork + Info Row
-            HStack(alignment: .top, spacing: 16) {
+        VStack(spacing: 12) {
+            // Artwork + Buttons Row
+            HStack(alignment: .center, spacing: 16) {
                 // Artwork
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.gray.opacity(0.2))
@@ -187,33 +191,52 @@ struct CollectionDetailView: View {
                     }
                     .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
 
-                // Title + Subtitle
-                VStack(alignment: .leading, spacing: 6) {
-                    Spacer()
-                        .frame(height: headerTextTopOffset)
-
-                    if let title = title {
-                        Text(title)
-                            .font(.title2)
-                            .fontWeight(.bold)
-                            .multilineTextAlignment(.leading)
+                // Play/Shuffle Buttons (stacked vertically) with subtitle below
+                VStack(spacing: 10) {
+                    // Play Button
+                    Button {
+                        onPlay(displayTracks)
+                    } label: {
+                        HStack {
+                            Image(systemName: "play.fill")
+                            Text(Localized.play)
+                        }
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.white)
+                        .cornerRadius(26)
                     }
+                    .disabled(displayTracks.isEmpty)
 
+                    // Shuffle Button
+                    Button {
+                        onShuffle(displayTracks)
+                    } label: {
+                        HStack {
+                            Image(systemName: "shuffle")
+                            Text(Localized.shuffle)
+                        }
+                        .font(.title3.weight(.semibold))
+                        .foregroundColor(Color.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(Color.white.opacity(0.1))
+                        .cornerRadius(26)
+                    }
+                    .disabled(displayTracks.isEmpty)
+
+                    // Subtitle (track count) centered below buttons
                     if let subtitle = subtitle {
                         Text(subtitle)
-                            .font(.body)
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
-                            .multilineTextAlignment(.leading)
                     }
-
-                    Spacer(minLength: 0)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Play/Shuffle Buttons
-            playShuffleButtons
         }
         .padding(.vertical, 16)
         .padding(.horizontal)
@@ -264,12 +287,14 @@ struct CollectionDetailView: View {
     // MARK: - Track Row
     @ViewBuilder
     private func trackRow(for track: Track) -> some View {
+        let isSelected = selectedTracks.contains(track.stableId)
+
         HStack(spacing: 0) {
             // Bulk selection checkbox
-            if isBulkMode && supportsBulkSelection {
-                Image(systemName: selectedTracks.contains(track.stableId) ? "checkmark.circle.fill" : "circle")
+            if isBulkMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .font(.title2)
-                    .foregroundColor(selectedTracks.contains(track.stableId) ? Color.white : .secondary)
+                    .foregroundColor(isSelected ? Color.white : .secondary)
                     .frame(width: 44, height: 44)
                     .contentShape(Rectangle())
                     .onTapGesture { toggleSelection(for: track) }
@@ -280,7 +305,7 @@ struct CollectionDetailView: View {
                 activeTrackId: activeTrackId,
                 isAudioPlaying: isAudioPlaying,
                 onTap: {
-                    if isBulkMode && supportsBulkSelection {
+                    if isBulkMode {
                         toggleSelection(for: track)
                     } else {
                         onTrackTap(track, displayTracks)
@@ -288,7 +313,7 @@ struct CollectionDetailView: View {
                 },
                 playlist: playlist,
                 showDirectDeleteButton: isEditMode && onDelete != nil,
-                onEnterBulkMode: supportsBulkSelection ? { enterBulkMode(initialSelection: track.stableId) } : nil
+                onEnterBulkMode: { enterBulkMode(initialSelection: track.stableId) }
             )
             .equatable()
         }
@@ -300,8 +325,15 @@ struct CollectionDetailView: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .onLongPressGesture(minimumDuration: 0.5) {
-            if supportsBulkSelection && !isBulkMode {
+            if !isBulkMode {
+                // Enter bulk mode with this track selected
                 enterBulkMode(initialSelection: track.stableId)
+            } else if isSelected {
+                // In bulk mode, long press on selected track - show playlist sheet
+                showAddToPlaylistSheet = true
+            } else {
+                // In bulk mode, long press on unselected track - select it
+                selectedTracks.insert(track.stableId)
             }
         }
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
@@ -401,11 +433,6 @@ struct CollectionDetailView: View {
 
     private func selectAll() {
         selectedTracks = Set(displayTracks.map { $0.stableId })
-    }
-
-    private func bulkAddToPlaylist() {
-        let tracks = displayTracks.filter { selectedTracks.contains($0.stableId) }
-        onBulkAddToPlaylist?(tracks)
     }
 
 }

@@ -688,6 +688,11 @@ class LibraryIndexer: NSObject, ObservableObject {
             year: metadata.year,
             albumArtist: metadata.albumArtist
         )
+        let genreRecord: Genre? = if let genreName = cleanedGenre, !genreName.isEmpty {
+            try databaseManager.upsertGenre(name: genreName)
+        } else {
+            nil
+        }
         
         let bars = waveformBars
         let waveformData = await Task.detached(priority: .utility) {
@@ -702,6 +707,7 @@ class LibraryIndexer: NSObject, ObservableObject {
             stableId: stableId,
             albumId: album.id,
             artistId: artist.id,
+            genreId: genreRecord?.id,
             genre: cleanedGenre,
             rating: metadata.rating,
             title: metadata.title ?? url.deletingPathExtension().lastPathComponent,

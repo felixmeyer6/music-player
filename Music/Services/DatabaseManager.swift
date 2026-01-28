@@ -121,6 +121,13 @@ class DatabaseManager: @unchecked Sendable {
                     name TEXT NOT NULL COLLATE NOCASE
                 )
             """)
+
+            try db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS genre (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                )
+            """)
             
             try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS album (
@@ -138,6 +145,7 @@ class DatabaseManager: @unchecked Sendable {
                     stable_id TEXT NOT NULL UNIQUE,
                     album_id INTEGER REFERENCES album(id) ON DELETE SET NULL,
                     artist_id INTEGER REFERENCES artist(id) ON DELETE SET NULL,
+                    genre_id INTEGER REFERENCES genre(id) ON DELETE SET NULL,
                     genre TEXT COLLATE NOCASE,
                     rating INTEGER CHECK (rating BETWEEN 1 AND 5),
                     title TEXT NOT NULL COLLATE NOCASE,
@@ -190,6 +198,7 @@ class DatabaseManager: @unchecked Sendable {
 
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_album ON track(album_id)")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_artist ON track(artist_id)")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre_id ON track(genre_id)")
             do {
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
             } catch {
@@ -457,6 +466,61 @@ class DatabaseManager: @unchecked Sendable {
                 // Column may already exist, which is fine
                 print("ℹ️ Database migration: play_count column already exists or migration failed: \(error)")
             }
+
+            // Migration: Create genre table and populate from existing track.genre values
+            do {
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS genre (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                    )
+                """)
+                print("✅ Database: Created genre table")
+            } catch {
+                print("ℹ️ Database migration: genre table already exists or migration failed: \(error)")
+            }
+
+            // Migration: Add genre_id column to track table
+            do {
+                try db.execute(sql: "ALTER TABLE track ADD COLUMN genre_id INTEGER REFERENCES genre(id) ON DELETE SET NULL")
+                print("✅ Database: Added genre_id column to track table")
+            } catch {
+                // Column may already exist, which is fine
+                print("ℹ️ Database migration: genre_id column already exists or migration failed: \(error)")
+            }
+
+            // Migration: Populate genre table from existing track.genre values
+            do {
+                // Insert distinct genres from tracks into genre table
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO genre (name)
+                    SELECT DISTINCT genre FROM track
+                    WHERE genre IS NOT NULL AND TRIM(genre) <> ''
+                """)
+
+                // Update tracks to link to the genre table
+                try db.execute(sql: """
+                    UPDATE track
+                    SET genre_id = (
+                        SELECT g.id FROM genre g
+                        WHERE LOWER(g.name) = LOWER(track.genre)
+                    )
+                    WHERE genre IS NOT NULL AND TRIM(genre) <> '' AND genre_id IS NULL
+                """)
+
+                let genreCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM genre") ?? 0
+                print("✅ Database: Populated genre table with \(genreCount) distinct genres")
+            } catch {
+                print("⚠️ Database migration: Genre table population failed: \(error)")
+            }
+
+            // Create index on genre_id if not exists
+            do {
+                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre_id ON track(genre_id)")
+                print("✅ Database: Created idx_track_genre_id index")
+            } catch {
+                print("ℹ️ Database migration: idx_track_genre_id creation failed: \(error)")
+            }
         }
     }
 
@@ -534,7 +598,32 @@ class DatabaseManager: @unchecked Sendable {
                 .fetchAll(db)
         }
     }
-    
+
+    // MARK: - Genre operations
+
+    func upsertGenre(name: String) throws -> Genre {
+        return try write { db in
+            if let existing = try Genre.filter(Column("name").collating(.nocase) == name).fetchOne(db) {
+                return existing
+            }
+
+            let genre = Genre(name: name)
+            return try genre.insertAndFetch(db)!
+        }
+    }
+
+    func getGenre(byId id: Int64) throws -> Genre? {
+        return try read { db in
+            return try Genre.filter(Column("id") == id).fetchOne(db)
+        }
+    }
+
+    func getGenre(byName name: String) throws -> Genre? {
+        return try read { db in
+            return try Genre.filter(Column("name").collating(.nocase) == name).fetchOne(db)
+        }
+    }
+
     // MARK: - Album operations
     
     func upsertAlbum(title: String, artistId: Int64?, year: Int?, albumArtist: String?) throws -> Album {
@@ -702,17 +791,23 @@ class DatabaseManager: @unchecked Sendable {
 
     func getAllGenres() throws -> [GenreSummary] {
         return try read { db in
-            // Group case-insensitively while preserving a representative display name.
+            // Query from genre table and join with tracks to get count
             return try GenreSummary.fetchAll(
                 db,
                 sql: """
-                    SELECT MIN(genre) AS name, COUNT(*) AS track_count
-                    FROM track
-                    WHERE genre IS NOT NULL AND TRIM(genre) <> ''
-                    GROUP BY LOWER(genre)
-                    ORDER BY LOWER(name)
+                    SELECT g.name AS name, COUNT(t.id) AS track_count
+                    FROM genre g
+                    LEFT JOIN track t ON t.genre_id = g.id
+                    GROUP BY g.id, g.name
+                    ORDER BY LOWER(g.name)
                 """
             )
+        }
+    }
+
+    func getAllGenreRecords() throws -> [Genre] {
+        return try read { db in
+            return try Genre.order(Column("name")).fetchAll(db)
         }
     }
 
@@ -721,13 +816,23 @@ class DatabaseManager: @unchecked Sendable {
             return try Track.fetchAll(
                 db,
                 sql: """
-                    SELECT *
-                    FROM track
-                    WHERE genre IS NOT NULL AND LOWER(genre) = LOWER(?)
-                    ORDER BY title COLLATE NOCASE
+                    SELECT t.*
+                    FROM track t
+                    JOIN genre g ON t.genre_id = g.id
+                    WHERE LOWER(g.name) = LOWER(?)
+                    ORDER BY t.title COLLATE NOCASE
                 """,
                 arguments: [genre]
             )
+        }
+    }
+
+    func getTracksByGenreId(_ genreId: Int64) throws -> [Track] {
+        return try read { db in
+            return try Track
+                .filter(Column("genre_id") == genreId)
+                .order(Column("title"))
+                .fetchAll(db)
         }
     }
 
@@ -736,10 +841,11 @@ class DatabaseManager: @unchecked Sendable {
             try Track.fetchOne(
                 db,
                 sql: """
-                    SELECT *
-                    FROM track
-                    WHERE genre IS NOT NULL AND TRIM(genre) <> '' AND LOWER(genre) = LOWER(?)
-                    ORDER BY id
+                    SELECT t.*
+                    FROM track t
+                    JOIN genre g ON t.genre_id = g.id
+                    WHERE LOWER(g.name) = LOWER(?)
+                    ORDER BY t.id
                     LIMIT 1
                 """,
                 arguments: [genre]
@@ -919,9 +1025,10 @@ class DatabaseManager: @unchecked Sendable {
         }
         print("🗃️ Database: Deleted \(deletedCount) track(s)")
 
-        // Clean up orphaned albums and artists after track deletion
+        // Clean up orphaned albums, artists, and genres after track deletion
         try cleanupOrphanedAlbums()
         try cleanupOrphanedArtists()
+        try cleanupOrphanedGenres()
     }
 
     func cleanupOrphanedAlbums() throws {
@@ -947,6 +1054,20 @@ class DatabaseManager: @unchecked Sendable {
                     SELECT DISTINCT artist_id
                     FROM track
                     WHERE artist_id IS NOT NULL
+                )
+            """)
+        }
+    }
+
+    func cleanupOrphanedGenres() throws {
+        try write { db in
+            // Delete genres that have no tracks referencing them
+            try db.execute(sql: """
+                DELETE FROM genre
+                WHERE id NOT IN (
+                    SELECT DISTINCT genre_id
+                    FROM track
+                    WHERE genre_id IS NOT NULL
                 )
             """)
         }

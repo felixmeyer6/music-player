@@ -519,8 +519,6 @@ struct AllSongsScreen: View {
     let tracks: [Track]
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var sortOption: TrackSortOption = .defaultOrder
-    @State private var showBulkPlaylistSheet: Bool = false
-    @State private var bulkSelectedTracks: [Track] = []
 
     private var sortedTracks: [Track] {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: false)
@@ -559,12 +557,7 @@ struct AllSongsScreen: View {
                 onAddToQueue: { track in playerEngine.addToQueue(track) },
                 playlist: nil,
                 activeTrackId: playerEngine.currentTrack?.stableId,
-                isAudioPlaying: playerEngine.isPlaying,
-                supportsBulkSelection: true,
-                onBulkAddToPlaylist: { tracks in
-                    bulkSelectedTracks = tracks
-                    showBulkPlaylistSheet = true
-                }
+                isAudioPlaying: playerEngine.isPlaying
             )
             .padding(.bottom, 90)
         }
@@ -593,13 +586,6 @@ struct AllSongsScreen: View {
             }
         }
         .onAppear { loadSortPreference() }
-        .sheet(isPresented: $showBulkPlaylistSheet) {
-            AddToPlaylistView(
-                trackIds: bulkSelectedTracks.map { $0.stableId },
-                onComplete: { showBulkPlaylistSheet = false },
-                showTrackCount: true
-            )
-        }
     }
 
     private func loadSortPreference() {
