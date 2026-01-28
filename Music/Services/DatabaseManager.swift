@@ -1430,12 +1430,20 @@ class DatabaseManager: @unchecked Sendable {
 
     // MARK: - Play Count Operations
 
-    func incrementPlayCount(trackStableId: String) throws {
+    @discardableResult
+    func incrementPlayCount(trackStableId: String) throws -> Int {
         try write { db in
             try db.execute(
                 sql: "UPDATE track SET play_count = play_count + 1 WHERE stable_id = ?",
                 arguments: [trackStableId]
             )
+            // Fetch and return the updated play count
+            let newCount = try Int.fetchOne(
+                db,
+                sql: "SELECT play_count FROM track WHERE stable_id = ?",
+                arguments: [trackStableId]
+            ) ?? 0
+            return newCount
         }
     }
 

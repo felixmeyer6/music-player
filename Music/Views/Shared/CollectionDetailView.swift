@@ -313,7 +313,8 @@ struct CollectionDetailView: View {
                 },
                 playlist: playlist,
                 showDirectDeleteButton: isEditMode && onDelete != nil,
-                onEnterBulkMode: { enterBulkMode(initialSelection: track.stableId) }
+                onEnterBulkMode: { enterBulkMode(initialSelection: track.stableId) },
+                sortOption: selectedSort
             )
             .equatable()
         }

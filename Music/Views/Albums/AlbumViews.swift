@@ -182,6 +182,9 @@ struct AlbumDetailScreen: View {
             loadAlbumTracks()
             loadAlbumArtwork()
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LibraryNeedsRefresh"))) { _ in
+            loadAlbumTracks()
+        }
     }
 
     private func loadAlbumTracks() {

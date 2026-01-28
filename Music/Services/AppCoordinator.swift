@@ -533,9 +533,25 @@ class AppCoordinator: ObservableObject {
         syncPlaylistsToCloud()
     }
     
-    func removeFromPlaylist(playlistId: Int64, trackStableId: String) throws {
+    func removeFromPlaylist(playlistId: Int64, trackStableId: String, showToast: Bool = true) throws {
+        // Get playlist name before removing
+        var playlistName: String?
+        if showToast {
+            let playlists = try databaseManager.getAllPlaylists()
+            playlistName = playlists.first(where: { $0.id == playlistId })?.title
+        }
+
         try databaseManager.removeFromPlaylist(playlistId: playlistId, trackStableId: trackStableId)
         syncPlaylistsToCloud()
+
+        // Post notification to show removal toast
+        if showToast, let name = playlistName {
+            NotificationCenter.default.post(
+                name: NSNotification.Name("ShowRemovedFromPlaylistToast"),
+                object: nil,
+                userInfo: ["playlistName": name]
+            )
+        }
     }
 
     func reorderPlaylistItems(playlistId: Int64, from sourceIndex: Int, to destinationIndex: Int) throws {

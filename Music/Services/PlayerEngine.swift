@@ -117,8 +117,50 @@ class PlayerEngine: NSObject, ObservableObject {
         // Don't set up volume control immediately - wait until we actually need it
         // setupBasicVolumeControl()
         setupPeriodicStateSaving()
+        setupMetadataUpdateListener()
     }
-    
+
+    private func setupMetadataUpdateListener() {
+        NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("TrackMetadataUpdated"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self = self,
+                  let userInfo = notification.userInfo,
+                  let updatedTrack = userInfo["track"] as? Track else { return }
+            let artistName = userInfo["artistName"] as? String
+            Task { @MainActor in
+                self.handleTrackMetadataUpdate(track: updatedTrack, artistName: artistName)
+            }
+        }
+    }
+
+    private func handleTrackMetadataUpdate(track updatedTrack: Track, artistName: String?) {
+        // Update current track if it matches
+        if currentTrack?.stableId == updatedTrack.stableId {
+            currentTrack = updatedTrack
+
+            // Update artist name if provided
+            if let artistName = artistName {
+                currentArtistName = artistName
+                cachedArtistName = artistName
+                cachedArtistTrackId = updatedTrack.stableId
+            }
+
+            // Update Now Playing info
+            updateNowPlayingInfoEnhanced()
+        }
+
+        // Update track in queue if present
+        if let index = playbackQueue.firstIndex(where: { $0.stableId == updatedTrack.stableId }) {
+            playbackQueue[index] = updatedTrack
+        }
+        if let index = originalQueue.firstIndex(where: { $0.stableId == updatedTrack.stableId }) {
+            originalQueue[index] = updatedTrack
+        }
+    }
+
     private func ensureAudioEngineSetup(with format: AVAudioFormat? = nil) {
         if !hasSetupAudioEngine {
             hasSetupAudioEngine = true
@@ -1721,6 +1763,9 @@ class PlayerEngine: NSObject, ObservableObject {
 
         let targetIndex = playbackQueue.firstIndex(where: { $0.stableId == track.stableId }) ?? 0
 
+        // Increment play count immediately when a track is requested to play
+        incrementPlayCount(for: track)
+
         // If we're already playing something else, try to crossfade instead of hard switching.
         if isPlaying, audioFile != nil, previousTrack?.stableId != track.stableId {
             let config = crossfadeConfiguration()
@@ -1731,17 +1776,14 @@ class PlayerEngine: NSObject, ObservableObject {
         }
 
         currentIndex = targetIndex
-        
+
         // Explicitly set the current track to ensure UI synchronization
         currentTrack = track
         currentArtistName = getCachedArtistName(for: track)
-        
-        normalizeIndexAndTrack()
-        
-        await loadTrack(track)
 
-        // Increment play count
-        incrementPlayCount(for: track)
+        normalizeIndexAndTrack()
+
+        await loadTrack(track)
 
         // Auto-play immediately after loading completes
         DispatchQueue.main.async { [weak self] in
@@ -1752,8 +1794,21 @@ class PlayerEngine: NSObject, ObservableObject {
     private func incrementPlayCount(for track: Track) {
         Task {
             do {
-                try DatabaseManager.shared.incrementPlayCount(trackStableId: track.stableId)
-                print("📊 Play count incremented for: \(track.title)")
+                let newPlayCount = try DatabaseManager.shared.incrementPlayCount(trackStableId: track.stableId)
+                print("📊 Play count incremented for: \(track.title) (now \(newPlayCount))")
+
+                // Update currentTrack if it's the same track
+                await MainActor.run {
+                    if self.currentTrack?.stableId == track.stableId {
+                        self.currentTrack?.playCount = newPlayCount
+                    }
+                    // Post notification for other views
+                    NotificationCenter.default.post(
+                        name: NSNotification.Name("TrackPlayCountUpdated"),
+                        object: nil,
+                        userInfo: ["stableId": track.stableId, "playCount": newPlayCount]
+                    )
+                }
             } catch {
                 print("⚠️ Failed to increment play count: \(error)")
             }
@@ -1766,6 +1821,10 @@ class PlayerEngine: NSObject, ObservableObject {
         let shouldAutoplay = autoplay ?? isPlaying
 
         let nextIndex = (currentIndex + 1) % playbackQueue.count
+        let nextTrackToPlay = playbackQueue[nextIndex]
+
+        // Increment play count for the next track
+        incrementPlayCount(for: nextTrackToPlay)
 
         if shouldAutoplay, audioFile != nil {
             let config = crossfadeConfiguration()
@@ -1776,8 +1835,7 @@ class PlayerEngine: NSObject, ObservableObject {
         }
 
         currentIndex = nextIndex
-        let next = playbackQueue[currentIndex]
-        await loadTrack(next, preservePlaybackTime: false)
+        await loadTrack(nextTrackToPlay, preservePlaybackTime: false)
 
         if shouldAutoplay {
             DispatchQueue.main.async { [weak self] in
@@ -1806,10 +1864,14 @@ class PlayerEngine: NSObject, ObservableObject {
     func previousTrack(autoplay: Bool? = nil) async {
         guard !playbackQueue.isEmpty, !isLoadingTrack else { return }
         normalizeIndexAndTrack()
-        
+
         let wasPlaying = autoplay ?? isPlaying
 
         let prevIndex = currentIndex > 0 ? currentIndex - 1 : playbackQueue.count - 1
+        let prevTrackToPlay = playbackQueue[prevIndex]
+
+        // Increment play count for the previous track
+        incrementPlayCount(for: prevTrackToPlay)
 
         if wasPlaying, audioFile != nil {
             let config = crossfadeConfiguration()
@@ -1820,8 +1882,7 @@ class PlayerEngine: NSObject, ObservableObject {
         }
 
         currentIndex = prevIndex
-        let prev = playbackQueue[currentIndex]
-        await loadTrack(prev, preservePlaybackTime: false)
+        await loadTrack(prevTrackToPlay, preservePlaybackTime: false)
 
         if wasPlaying {
             await MainActor.run {
@@ -2153,14 +2214,11 @@ class PlayerEngine: NSObject, ObservableObject {
     private func handleTrackEnd() async {
         guard !isLoadingTrack else { return }
         guard !isCrossfading else { return }
-        
-        if isLoopingSong, let t = currentTrack {
-            await loadTrack(t)
-            play()
-            return
-        }
-        
+
         if let nextIndex = nextIndexForAutoAdvance() {
+            let nextTrackToPlay = playbackQueue[nextIndex]
+            incrementPlayCount(for: nextTrackToPlay)
+
             let config = crossfadeConfiguration()
             if config.enabled, isPlaying {
                 let didCrossfade = await crossfadeToTrack(at: nextIndex, duration: config.duration, reason: "track end fallback")
@@ -2168,12 +2226,11 @@ class PlayerEngine: NSObject, ObservableObject {
             }
 
             currentIndex = nextIndex
-            let next = playbackQueue[currentIndex]
-            await loadTrack(next, preservePlaybackTime: false)
+            await loadTrack(nextTrackToPlay, preservePlaybackTime: false)
             play()
             return
         }
-        
+
         stop()
     }
     

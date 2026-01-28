@@ -11,7 +11,9 @@ struct PlaylistsScreen: View {
     @State private var showEditDialog = false
     @State private var showDeleteConfirmation = false
     @State private var editPlaylistName = ""
-    
+    @State private var showCreateDialog = false
+    @State private var newPlaylistName = ""
+
     var body: some View {
         ZStack {
             ScreenSpecificBackgroundView(screen: .playlists)
@@ -68,14 +70,23 @@ struct PlaylistsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        withAnimation {
-                            isEditMode.toggle()
+                    HStack(spacing: 16) {
+                        Button {
+                            withAnimation {
+                                isEditMode.toggle()
+                            }
+                        } label: {
+                            Image(systemName: isEditMode ? "checkmark" : "pencil")
                         }
-                    } label: {
-                        Image(systemName: isEditMode ? "checkmark" : "pencil")
+                        .disabled(playlists.isEmpty)
+
+                        Button {
+                            newPlaylistName = ""
+                            showCreateDialog = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
                     }
-                    .disabled(playlists.isEmpty)
                 }
             }
             .alert(Localized.editPlaylist, isPresented: $showEditDialog) {
@@ -101,6 +112,18 @@ struct PlaylistsScreen: View {
                 if let playlist = playlistToDelete {
                     Text(Localized.deletingPlaylistCantBeUndone(playlist.title))
                 }
+            }
+            .alert(Localized.createNewPlaylist, isPresented: $showCreateDialog) {
+                TextField(Localized.playlistNamePlaceholder, text: $newPlaylistName)
+                Button(Localized.create) {
+                    if !newPlaylistName.isEmpty {
+                        createPlaylist(name: newPlaylistName)
+                    }
+                }
+                .disabled(newPlaylistName.isEmpty)
+                Button(Localized.cancel, role: .cancel) { }
+            } message: {
+                Text(Localized.enterPlaylistName)
             }
             .onAppear {
                 loadPlaylists()
@@ -161,6 +184,16 @@ struct PlaylistsScreen: View {
             playlistToDelete = nil
         } catch {
             print("Failed to delete playlist: \(error)")
+        }
+    }
+
+    private func createPlaylist(name: String) {
+        do {
+            _ = try appCoordinator.createPlaylist(title: name)
+            loadPlaylists()
+            newPlaylistName = ""
+        } catch {
+            print("Failed to create playlist: \(error)")
         }
     }
 }
@@ -485,7 +518,7 @@ struct PlaylistDetailScreen: View {
     private func removeFromPlaylist(_ track: Track) {
         guard let playlistId = playlist.id else { return }
         do {
-            try appCoordinator.databaseManager.removeFromPlaylist(
+            try appCoordinator.removeFromPlaylist(
                 playlistId: playlistId,
                 trackStableId: track.stableId
             )

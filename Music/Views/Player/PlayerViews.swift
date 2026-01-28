@@ -123,6 +123,7 @@ struct PlayerView: View {
     @State private var mostRecentPlaylist: Playlist?
     @State private var isTrackInMostRecentPlaylist = false
     @State private var wasAddedByQuickAction = false
+    @State private var showMetadataSheet = false
     
     private var currentArtworkKey: String {
         playerEngine.currentTrack?.stableId ?? "none"
@@ -179,11 +180,21 @@ struct PlayerView: View {
                     await loadPlaylistState()
                 }
             }
-            .sheet(isPresented: $showPlaylistDialog) {
+            .sheet(isPresented: $showPlaylistDialog, onDismiss: {
+                // Reset quick action flag since user used the dialog
+                wasAddedByQuickAction = false
+                // Reload playlist state when sheet is dismissed to update the button
+                Task {
+                    await loadPlaylistState()
+                }
+            }) {
                 playlistSheet
             }
             .sheet(isPresented: $showQueueSheet) {
                 queueSheet
+            }
+            .sheet(isPresented: $showMetadataSheet) {
+                metadataSheet
             }
     }
 
@@ -216,6 +227,14 @@ struct PlayerView: View {
     private var queueSheet: some View {
         QueueManagementView()
             .accentColor(dominantColor)
+    }
+
+    private var metadataSheet: some View {
+        Group {
+            if let currentTrack = playerEngine.currentTrack {
+                MetadataView(track: currentTrack)
+            }
+        }
     }
 
     // MARK: - Artwork Section
@@ -485,6 +504,12 @@ struct PlayerView: View {
                     isTrackInMostRecentPlaylist = true
                     wasAddedByQuickAction = true
                 }
+                // Post notification to show toast
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ShowAddedToPlaylistToast"),
+                    object: nil,
+                    userInfo: ["playlistName": playlist.title]
+                )
             } catch {
                 print("❌ Failed to add to playlist: \(error)")
             }
@@ -651,7 +676,7 @@ struct PlayerView: View {
 
     private var tagButton: some View {
         Button(action: {
-            // TODO: Tag action
+            showMetadataSheet = true
         }) {
             Image(systemName: "tag")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
@@ -1296,6 +1321,7 @@ struct TrackRowView: View, @MainActor Equatable {
     let playlist: Playlist?
     let showDirectDeleteButton: Bool
     let onEnterBulkMode: (() -> Void)?
+    var sortOption: TrackSortOption? = nil
 
     @EnvironmentObject private var appCoordinator: AppCoordinator
 
@@ -1303,6 +1329,7 @@ struct TrackRowView: View, @MainActor Equatable {
     @State private var isPressed = false
     @State private var showPlaylistDialog = false
     @State private var artworkImage: UIImage?
+    @State private var currentPlayCount: Int?
 
     @State private var accentColor: Color = .white
 
@@ -1316,7 +1343,8 @@ struct TrackRowView: View, @MainActor Equatable {
         return lhs.track.stableId == rhs.track.stableId &&
         lhs.activeTrackId == rhs.activeTrackId &&
         lhs.isAudioPlaying == rhs.isAudioPlaying &&
-        lhs.playlist?.id == rhs.playlist?.id
+        lhs.playlist?.id == rhs.playlist?.id &&
+        lhs.sortOption == rhs.sortOption
     }
 
     var body: some View {
@@ -1368,6 +1396,9 @@ struct TrackRowView: View, @MainActor Equatable {
 
                 Spacer()
 
+                // Sort-specific indicator (rating stars or play count)
+                sortIndicatorView
+
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -1406,6 +1437,98 @@ struct TrackRowView: View, @MainActor Equatable {
         }
         .onAppear {
             if artworkImage == nil { loadArtwork() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TrackPlayCountUpdated"))) { notification in
+            if let stableId = notification.userInfo?["stableId"] as? String,
+               let playCount = notification.userInfo?["playCount"] as? Int,
+               stableId == track.stableId {
+                currentPlayCount = playCount
+            }
+        }
+    }
+
+    // MARK: - Sort Indicator View
+    @ViewBuilder
+    private var sortIndicatorView: some View {
+        switch sortOption {
+        case .rating:
+            // Show 5 stars based on track rating (1-5 scale)
+            HStack(spacing: 2) {
+                let rating = track.rating ?? 0
+                ForEach(1...5, id: \.self) { star in
+                    Image(systemName: star <= rating ? "star.fill" : "star")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.trailing, 4)
+        case .playCount:
+            // Show play count with play icon
+            HStack(spacing: 4) {
+                Text("\(currentPlayCount ?? track.playCount)")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                Image(systemName: "play.fill")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.trailing, 4)
+        case .genre:
+            // Show genre with icon
+            if let genre = track.genre, !genre.isEmpty {
+                HStack(spacing: 4) {
+                    Image(systemName: "music.quarternote.3")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(genre)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.trailing, 4)
+            } else {
+                EmptyView()
+            }
+        case .album:
+            // Show album name with icon
+            if let albumId = track.albumId,
+               let album = try? DatabaseManager.shared.read({ db in
+                   try Album.fetchOne(db, key: albumId)
+               }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.stack.fill")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(album.title)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.trailing, 4)
+            } else {
+                EmptyView()
+            }
+        case .artist:
+            // Show artist name with icon
+            if let artistId = track.artistId,
+               let artist = try? DatabaseManager.shared.read({ db in
+                   try Artist.fetchOne(db, key: artistId)
+               }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "person.fill")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                    Text(artist.name)
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.trailing, 4)
+            } else {
+                EmptyView()
+            }
+        default:
+            EmptyView()
         }
     }
 

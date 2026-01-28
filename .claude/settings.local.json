@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /Users/Administrateur/Software/Music\\\\ Player/music-player && swift -parse:*)"
+    ]
+  }
+}

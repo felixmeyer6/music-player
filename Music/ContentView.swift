@@ -175,7 +175,7 @@ struct LifecycleModifier: ViewModifier {
 
 struct OverlayModifier: ViewModifier {
     let appCoordinator: AppCoordinator
-    
+
     func body(content: Content) -> some View {
         content
             .overlay(alignment: .top) {

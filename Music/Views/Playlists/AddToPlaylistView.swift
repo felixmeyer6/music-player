@@ -179,6 +179,7 @@ struct AddToPlaylistView: View {
         do {
             let playlist = try appCoordinator.createPlaylist(title: newPlaylistName)
             playlists.append(playlist)
+            let createdPlaylistName = newPlaylistName
             newPlaylistName = ""
 
             guard let playlistId = playlist.id else {
@@ -188,6 +189,13 @@ struct AddToPlaylistView: View {
             for trackId in trackIds {
                 try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
             }
+
+            // Post notification to show toast
+            NotificationCenter.default.post(
+                name: NSNotification.Name("ShowAddedToPlaylistToast"),
+                object: nil,
+                userInfo: ["playlistName": createdPlaylistName]
+            )
 
             onComplete?()
             dismiss()
@@ -203,13 +211,26 @@ struct AddToPlaylistView: View {
         }
         do {
             if missingCount(in: playlist) == 0 {
+                // Remove tracks - suppress individual toasts for batch operation
                 for trackId in trackIds {
-                    try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: trackId)
+                    try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: trackId, showToast: false)
                 }
+                // Post single toast for batch removal
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ShowRemovedFromPlaylistToast"),
+                    object: nil,
+                    userInfo: ["playlistName": playlist.title]
+                )
             } else {
                 for trackId in trackIds {
                     try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
                 }
+                // Post notification to show toast
+                NotificationCenter.default.post(
+                    name: NSNotification.Name("ShowAddedToPlaylistToast"),
+                    object: nil,
+                    userInfo: ["playlistName": playlist.title]
+                )
             }
             onComplete?()
             dismiss()

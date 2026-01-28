@@ -11,6 +11,7 @@
 		239B247D2EE59BEC009F83F1 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 239B247C2EE59BEC009F83F1 /* WidgetKit.framework */; };
 		239B247F2EE59BEC009F83F1 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 239B247E2EE59BEC009F83F1 /* SwiftUI.framework */; };
 		239B24902EE59BED009F83F1 /* PlayerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 239B247B2EE59BEC009F83F1 /* PlayerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		23A1B7032F29A00100000003 /* ID3TagEditor in Frameworks */ = {isa = PBXBuildFile; productRef = 23A1B7022F29A00100000002 /* ID3TagEditor */; };
 		23AF813F2E71E15D0005527C /* Share.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 23AF81352E71E15D0005527C /* Share.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -120,6 +121,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2312D61A2E6090E4007F756D /* GRDB in Frameworks */,
+				23A1B7032F29A00100000003 /* ID3TagEditor in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +281,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2312D6182E6090E4007F756D /* XCRemoteSwiftPackageReference "GRDB" */,
+				23A1B7012F29A00100000001 /* XCRemoteSwiftPackageReference "ID3TagEditor" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2312D60D2E6090E2007F756D /* Products */;
@@ -707,6 +710,14 @@
 				minimumVersion = 6.29.2;
 			};
 		};
+		23A1B7012F29A00100000001 /* XCRemoteSwiftPackageReference "ID3TagEditor" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/chicio/ID3TagEditor";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.6.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -714,6 +725,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2312D6182E6090E4007F756D /* XCRemoteSwiftPackageReference "GRDB" */;
 			productName = GRDB;
+		};
+		23A1B7022F29A00100000002 /* ID3TagEditor */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 23A1B7012F29A00100000001 /* XCRemoteSwiftPackageReference "ID3TagEditor" */;
+			productName = ID3TagEditor;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

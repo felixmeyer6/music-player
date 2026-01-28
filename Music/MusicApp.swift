@@ -11,7 +11,8 @@ import AVFoundation
 @main
 struct MusicApp: App {
     @StateObject private var appCoordinator = AppCoordinator.shared
-    
+    @StateObject private var toastManager = ToastManager.shared
+
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -32,6 +33,24 @@ struct MusicApp: App {
                 .onOpenURL { url in
                     handleOpenURL(url)
                 }
+                .onAppear {
+                    setupToastWindow()
+                }
+        }
+    }
+
+    private func setupToastWindow() {
+        // Create a toast window that sits above all other content including sheets
+        DispatchQueue.main.async {
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
+
+            let toastWindow = ToastWindow(windowScene: windowScene)
+            toastWindow.rootViewController = UIHostingController(rootView: GlobalToastOverlay())
+            toastWindow.rootViewController?.view.backgroundColor = .clear
+            toastWindow.isHidden = false
+
+            // Keep a reference to prevent deallocation
+            ToastWindowHolder.shared.window = toastWindow
         }
     }
     

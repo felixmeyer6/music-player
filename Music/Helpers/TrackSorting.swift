@@ -6,20 +6,27 @@
 //
 
 import Foundation
+import GRDB
 
-/// Unified sort options for track lists (4 options)
+/// Unified sort options for track lists
 enum TrackSortOption: String, CaseIterable {
     case defaultOrder
     case rating
     case playCount
+    case genre
+    case album
+    case artist
     case date
 
     var localizedString: String {
         switch self {
         case .defaultOrder: return "Default"
         case .rating: return "Rating"
-        case .playCount: return "Play Count"
-        case .date: return "Date Added"
+        case .playCount: return "Plays"
+        case .genre: return "Genre"
+        case .album: return "Album"
+        case .artist: return "Artist"
+        case .date: return "Date"
         }
     }
 }
@@ -48,9 +55,70 @@ struct TrackSorting {
         case .playCount:
             // Most played first
             return tracks.sorted { $0.playCount > $1.playCount }
+        case .genre:
+            // Alphabetically by genre name
+            return tracks.sorted { ($0.genre ?? "").localizedCaseInsensitiveCompare($1.genre ?? "") == .orderedAscending }
+        case .album:
+            // Alphabetically by album title
+            let albumNames = fetchAlbumNames(for: tracks)
+            return tracks.sorted {
+                let name1 = albumNames[$0.albumId ?? -1] ?? ""
+                let name2 = albumNames[$1.albumId ?? -1] ?? ""
+                return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+            }
+        case .artist:
+            // Alphabetically by artist name
+            let artistNames = fetchArtistNames(for: tracks)
+            return tracks.sorted {
+                let name1 = artistNames[$0.artistId ?? -1] ?? ""
+                let name2 = artistNames[$1.artistId ?? -1] ?? ""
+                return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+            }
         case .date:
             // Newest first (using id as proxy for insertion date)
             return tracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
         }
+    }
+
+    /// Fetch album names for a set of tracks (batch lookup for efficiency)
+    private static func fetchAlbumNames(for tracks: [Track]) -> [Int64: String] {
+        let albumIds = Set(tracks.compactMap { $0.albumId })
+        guard !albumIds.isEmpty else { return [:] }
+
+        var result: [Int64: String] = [:]
+        do {
+            try DatabaseManager.shared.read { db in
+                let albums = try Album.filter(albumIds.contains(Column("id"))).fetchAll(db)
+                for album in albums {
+                    if let id = album.id {
+                        result[id] = album.title
+                    }
+                }
+            }
+        } catch {
+            print("⚠️ Failed to fetch album names for sorting: \(error)")
+        }
+        return result
+    }
+
+    /// Fetch artist names for a set of tracks (batch lookup for efficiency)
+    private static func fetchArtistNames(for tracks: [Track]) -> [Int64: String] {
+        let artistIds = Set(tracks.compactMap { $0.artistId })
+        guard !artistIds.isEmpty else { return [:] }
+
+        var result: [Int64: String] = [:]
+        do {
+            try DatabaseManager.shared.read { db in
+                let artists = try Artist.filter(artistIds.contains(Column("id"))).fetchAll(db)
+                for artist in artists {
+                    if let id = artist.id {
+                        result[id] = artist.name
+                    }
+                }
+            }
+        } catch {
+            print("⚠️ Failed to fetch artist names for sorting: \(error)")
+        }
+        return result
     }
 }

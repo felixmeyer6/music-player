@@ -1,5 +1,5 @@
 {
-  "originHash" : "d77223ea3cadaebd2154378ec5005b6ebefcef3b34a4dafa368b0c4f16c0561c",
+  "originHash" : "15666f1779da90d2f231bafca5799d069c749cc0c41ee4db94dd6509aeff9609",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "2cf6c756e1e5ef6901ebae16576a7e4e4b834622",
         "version" : "6.29.3"
+      }
+    },
+    {
+      "identity" : "id3tageditor",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/chicio/ID3TagEditor",
+      "state" : {
+        "revision" : "3ccc31eafae0ded1fea8c9acd5e7ef7dfdbf1e8e",
+        "version" : "4.6.0"
       }
     }
   ],
