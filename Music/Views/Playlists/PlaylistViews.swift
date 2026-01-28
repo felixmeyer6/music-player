@@ -1,7 +1,4 @@
 import SwiftUI
-import GRDB
-import PhotosUI
-import WidgetKit
 import UIKit
 
 
@@ -18,7 +15,7 @@ struct PlaylistsScreen: View {
     var body: some View {
         ZStack {
             ScreenSpecificBackgroundView(screen: .playlists)
-            
+
             VStack {
                 if playlists.isEmpty {
                     VStack(spacing: 16) {
@@ -71,10 +68,12 @@ struct PlaylistsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(isEditMode ? Localized.done : Localized.edit) {
+                    Button {
                         withAnimation {
                             isEditMode.toggle()
                         }
+                    } label: {
+                        Image(systemName: isEditMode ? "checkmark" : "pencil")
                     }
                     .disabled(playlists.isEmpty)
                 }
@@ -91,7 +90,7 @@ struct PlaylistsScreen: View {
             } message: {
                 Text(Localized.enterNewName)
             }
-            .alert(Localized.deletePlaylist, isPresented: $showDeleteConfirmation) {
+            .alert(Localized.areYouSure, isPresented: $showDeleteConfirmation) {
                 Button(Localized.delete, role: .destructive) {
                     if let playlist = playlistToDelete {
                         deletePlaylist(playlist)
@@ -100,7 +99,7 @@ struct PlaylistsScreen: View {
                 Button(Localized.cancel, role: .cancel) { }
             } message: {
                 if let playlist = playlistToDelete {
-                    Text(Localized.deletePlaylistConfirmation(playlist.title))
+                    Text(Localized.deletingPlaylistCantBeUndone(playlist.title))
                 }
             }
             .onAppear {
@@ -110,6 +109,7 @@ struct PlaylistsScreen: View {
                 loadPlaylists()
             }
         }
+        .ignoresSafeArea(.keyboard)
     }
     
     private func getAllPlaylistTracks(_ playlist: Playlist) -> [Track] {
@@ -131,7 +131,12 @@ struct PlaylistsScreen: View {
     
     private func loadPlaylists() {
         do {
-            playlists = try appCoordinator.databaseManager.getAllPlaylists()
+            playlists = try appCoordinator.databaseManager.getAllPlaylists().sorted { lhs, rhs in
+                if lhs.updatedAt != rhs.updatedAt {
+                    return lhs.updatedAt > rhs.updatedAt
+                }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
         } catch {
             print("Failed to load playlists: \(error)")
         }
@@ -170,8 +175,6 @@ struct PlaylistCardView: View {
     @StateObject private var artworkManager = ArtworkManager.shared
     @State private var artworks: [UIImage] = []
     @State private var customCoverImage: UIImage?
-    @State private var showingImagePicker = false
-    @State private var selectedPhotoItem: PhotosPickerItem?
 
     init(playlist: Playlist, allTracks: [Track], isEditMode: Bool = false, onEdit: (() -> Void)? = nil, onDelete: (() -> Void)? = nil) {
         self.playlist = playlist
@@ -200,11 +203,7 @@ struct PlaylistCardView: View {
                                     .font(.title2)
                                     .foregroundColor(.black)
                                     .frame(width: 36, height: 36)
-                                    .background(.ultraThinMaterial, in: Circle())
-                                    .overlay(
-                                        Circle()
-                                            .stroke(.black.opacity(0.3), lineWidth: 1)
-                                    )
+                                    .background(Color.white, in: Circle())
                             }
                             .buttonStyle(PlainButtonStyle())
 
@@ -215,29 +214,12 @@ struct PlaylistCardView: View {
                             }) {
                                 Image(systemName: "trash")
                                     .font(.title2)
-                                    .foregroundColor(.red)
+                                    .foregroundColor(.black)
                                     .frame(width: 36, height: 36)
-                                    .background(.ultraThinMaterial, in: Circle())
-                                    .overlay(
-                                        Circle()
-                                            .stroke(.red.opacity(0.3), lineWidth: 1)
-                                    )
+                                    .background(Color.red, in: Circle())
                             }
                             .buttonStyle(PlainButtonStyle())
                         }
-                        Spacer()
-
-                        // Centered photo icon for changing cover
-                        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                            Image(systemName: "photo")
-                                .font(.system(size: 32, weight: .light))
-                                .foregroundColor(.black)
-                                .frame(width: 64, height: 64)
-                                .background(Color.black.opacity(0.6))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(PlainButtonStyle())
-
                         Spacer()
                     }
                     .padding(8)
@@ -298,14 +280,6 @@ struct PlaylistCardView: View {
             await loadCustomCover()
             await loadArtworks()
         }
-        .onChange(of: selectedPhotoItem) { newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    await saveCustomCover(image)
-                }
-            }
-        }
     }
     
     @ViewBuilder
@@ -362,54 +336,6 @@ struct PlaylistCardView: View {
             }
         }
     }
-
-    @MainActor
-    private func saveCustomCover(_ image: UIImage) async {
-        guard let playlistId = playlist.id else { return }
-
-        // Get shared container
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player"
-        ) else {
-            print("❌ Failed to get shared container URL")
-            return
-        }
-
-        // Create unique filename for this playlist cover
-        let filename = "playlist_cover_\(playlistId).jpg"
-        let fileURL = containerURL.appendingPathComponent(filename)
-
-        // Convert image to JPEG data with compression
-        guard let jpegData = image.jpegData(compressionQuality: 0.8) else {
-            print("❌ Failed to convert image to JPEG")
-            return
-        }
-
-        do {
-            // Save image to shared container
-            try jpegData.write(to: fileURL)
-            print("✅ Saved custom cover to \(filename)")
-
-            // Update database with custom cover path
-            try DatabaseManager.shared.updatePlaylistCustomCover(
-                playlistId: playlistId,
-                imagePath: filename
-            )
-
-            // Update UI
-            customCoverImage = image
-
-            // Notify widgets to refresh
-            WidgetCenter.shared.reloadAllTimelines()
-
-            // Refresh the playlist list
-            NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
-
-            print("✅ Custom cover saved and database updated")
-        } catch {
-            print("❌ Failed to save custom cover: \(error)")
-        }
-    }
 }
 
 struct PlaylistDetailScreen: View {
@@ -418,487 +344,180 @@ struct PlaylistDetailScreen: View {
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var tracks: [Track] = []
     @State private var isEditMode: Bool = false
-    @State private var artworks: [UIImage] = []
-    @State private var settings = DeleteSettings.load()
-    @State private var sortOption: TrackSortOption = .playlistOrder
-    @State private var showSortMenu = false
-    @State private var recentlyActedTracks: Set<String> = []
-    @StateObject private var artworkManager = ArtworkManager.shared
-    @State private var showingImagePicker = false
-    @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var customCoverImage: UIImage?
-    @State private var showCoverOptions = false
-    private let headerArtworkSize: CGFloat = 140
-    private let mashupSpacing: CGFloat = 2
-
-    private var mashupCellSize: CGFloat {
-        (headerArtworkSize - mashupSpacing) / 2
-    }
-
-    private var headerTextTopOffset: CGFloat {
-        headerArtworkSize * 0.15
-    }
-
-    @ViewBuilder
-    private func swipeIcon(systemName: String) -> some View {
-        if let icon = UIImage(systemName: systemName)?
-            .withTintColor(.black, renderingMode: .alwaysOriginal) {
-            Image(uiImage: icon)
-        } else {
-            Image(systemName: systemName)
-                .foregroundColor(.black)
-        }
-    }
-
-    private func markAsActed(_ trackId: String) {
-        recentlyActedTracks.insert(trackId)
-        // Remove after 1 second so user can swipe again if needed
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            recentlyActedTracks.remove(trackId)
-        }
-    }
+    @State private var sortOption: TrackSortOption = .defaultOrder
+    @State private var artworkImage: UIImage?
 
     private var sortedTracks: [Track] {
-        switch sortOption {
-        case .playlistOrder:
-            // Respect the playlist position order (tracks are already loaded in position order)
-            return tracks
-        case .dateNewest:
-            return tracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
-        case .dateOldest:
-            return tracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
-        case .nameAZ:
-            return tracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
-        case .nameZA:
-            return tracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
-        case .artistAZ:
-            // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: tracks)
-            return tracks.sorted { track1, track2 in
-                let artist1 = artistCache[track1.artistId ?? -1] ?? ""
-                let artist2 = artistCache[track2.artistId ?? -1] ?? ""
-                return artist1.lowercased() < artist2.lowercased()
-            }
-        case .artistZA:
-            // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: tracks)
-            return tracks.sorted { track1, track2 in
-                let artist1 = artistCache[track1.artistId ?? -1] ?? ""
-                let artist2 = artistCache[track2.artistId ?? -1] ?? ""
-                return artist1.lowercased() > artist2.lowercased()
-            }
-        case .sizeLargest:
-            return tracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
-        case .sizeSmallest:
-            return tracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
-        }
-    }
-
-    private func buildArtistCache(for tracks: [Track]) -> [Int64: String] {
-        // Get unique artist IDs
-        let artistIds = Set(tracks.compactMap { $0.artistId })
-
-        // Fetch all artists in one query
-        var cache: [Int64: String] = [:]
-        do {
-            try DatabaseManager.shared.read { db in
-                let artists = try Artist.filter(artistIds.contains(Column("id"))).fetchAll(db)
-                for artist in artists {
-                    if let id = artist.id {
-                        cache[id] = artist.name
-                    }
-                }
-            }
-        } catch {
-            print("Failed to build artist cache: \(error)")
-        }
-        return cache
+        TrackSorting.sort(tracks, by: sortOption, isPlaylist: true)
     }
 
     var body: some View {
         ZStack {
             ScreenSpecificBackgroundView(screen: .playlistDetail)
 
-            List {
-                // Header section with artwork and buttons
-                Section {
-                    VStack(spacing: 16) {
-                        HStack(alignment: .top, spacing: 16) {
-                            // Four-track grid artwork
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(Color.gray.opacity(0.2))
-                                    .frame(width: headerArtworkSize, height: headerArtworkSize)
-
-                                // Show custom cover if available, otherwise show auto-generated mashup
-                                if let customCover = customCoverImage {
-                                    Image(uiImage: customCover)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fill)
-                                        .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                                } else if tracks.count >= 4 {
-                                    // 2x2 mashup for 4+ tracks
-                                    VStack(spacing: mashupSpacing) {
-                                        HStack(spacing: mashupSpacing) {
-                                            artworkView(at: 0, size: mashupCellSize)
-                                            artworkView(at: 1, size: mashupCellSize)
-                                        }
-                                        HStack(spacing: mashupSpacing) {
-                                            artworkView(at: 2, size: mashupCellSize)
-                                            artworkView(at: 3, size: mashupCellSize)
-                                        }
-                                    }
-                                    .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                                } else if !tracks.isEmpty {
-                                    // Single artwork for 1-3 tracks
-                                    artworkView(at: 0, size: headerArtworkSize)
-                                } else {
-                                    // Default icon for empty playlist
-                                    Image(systemName: "music.note.list")
-                                        .font(.system(size: 40))
-                                        .foregroundColor(.secondary)
-                                }
-
-                                // Edit mode: Show centered photo icon
-                                if isEditMode {
-                                    VStack {
-                                        Spacer()
-                                        HStack {
-                                            Spacer()
-                                            Button(action: {
-                                                showCoverOptions = true
-                                            }) {
-                                                Image(systemName: "photo")
-                                                    .font(.system(size: 36, weight: .light))
-                                                    .foregroundColor(.white)
-                                                    .frame(width: 72, height: 72)
-                                                    .background(Color.black.opacity(0.6))
-                                                    .clipShape(Circle())
-                                            }
-                                            .buttonStyle(PlainButtonStyle())
-                                            Spacer()
-                                        }
-                                        Spacer()
-                                    }
-                                    .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                }
+            CollectionDetailView(
+                title: playlist.title,
+                subtitle: Localized.songsCountOnly(tracks.count),
+                artwork: artworkImage,
+                displayTracks: sortedTracks,
+                sortOptions: TrackSortOption.allCases,
+                selectedSort: sortOption,
+                onSelectSort: { newSort in
+                    sortOption = newSort
+                    saveSortPreference()
+                },
+                onPlay: { tracks in
+                    if let first = tracks.first {
+                        Task {
+                            if let playlistId = playlist.id {
+                                try? appCoordinator.updatePlaylistAccessed(playlistId: playlistId)
+                                try? appCoordinator.updatePlaylistLastPlayed(playlistId: playlistId)
                             }
-                            .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Spacer()
-                                    .frame(height: headerTextTopOffset)
-
-                                Text(playlist.title)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                    .multilineTextAlignment(.leading)
-
-                                Text(Localized.songsCount(tracks.count))
-                                    .font(.body)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.leading)
-
-                                Spacer(minLength: 0)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                        // Play and Shuffle buttons
-                        HStack(spacing: 12) {
-                            Button {
-                                if let first = sortedTracks.first {
-                                    Task {
-                                        await playerEngine.playTrack(first, queue: sortedTracks)
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "play.fill")
-                                    Text(Localized.play)
-                                }
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(.black)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.white)
-                                .cornerRadius(28)
-                            }
-                            .disabled(tracks.isEmpty)
-
-                            Button {
-                                guard !sortedTracks.isEmpty else { return }
-                                var shuffled = sortedTracks
-                                let startIndex = Int.random(in: 0..<shuffled.count)
-                                let startTrack = shuffled.remove(at: startIndex)
-                                shuffled.shuffle()
-                                shuffled.insert(startTrack, at: 0)
-                                Task {
-                                    await playerEngine.playTrack(startTrack, queue: shuffled)
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "shuffle")
-                                    Text(Localized.shuffle)
-                                }
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(Color.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(28)
-                            }
-                            .disabled(tracks.isEmpty)
-                        }
-                        .padding(.horizontal, 8)
-                    }
-                    .padding(.vertical)
-                    .padding(.horizontal)
-                }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets())
-
-                // Track list section
-                if !sortedTracks.isEmpty {
-                    HStack {
-                        Text(Localized.songs)
-                            .font(.title3.weight(.bold))
-                            .foregroundColor(.primary)
-                        Spacer()
-
-                        // Sort menu button
-                        Menu {
-                            ForEach(TrackSortOption.allCases, id: \.self) { option in
-                                Button(action: {
-                                    sortOption = option
-                                    saveSortPreference()
-                                }) {
-                                    HStack {
-                                        Text(option.localizedString)
-                                        if sortOption == option {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "arrow.up.arrow.down")
-                                .foregroundColor(Color.white)
+                            await playerEngine.playTrack(first, queue: tracks)
                         }
                     }
-                    .textCase(nil)
-                    .padding(.horizontal, 16)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets())
-
-                    ForEach(sortedTracks, id: \.stableId) { track in
-                        TrackRowView(
-                            track: track,
-                            activeTrackId: playerEngine.currentTrack?.stableId,
-                            isAudioPlaying: playerEngine.isPlaying,
-                            onTap: {
-                                Task {
-                                    guard let playlistId = playlist.id else { return }
-                                    try? appCoordinator.updatePlaylistAccessed(playlistId: playlistId)
-                                    try? appCoordinator.updatePlaylistLastPlayed(playlistId: playlistId)
-                                    await playerEngine.playTrack(track, queue: sortedTracks)
-                                }
-                            },
-                            playlist: playlist,
-                            showDirectDeleteButton: isEditMode,
-                            onEnterBulkMode: nil
-                        )
-                        .equatable()
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial).opacity(0.7))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if !recentlyActedTracks.contains(track.stableId) {
-                                Button {
-                                    playerEngine.insertNext(track)
-                                    markAsActed(track.stableId)
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        swipeIcon(systemName: "text.line.first.and.arrowtriangle.forward")
-                                        Text(Localized.playNext)
-                                    }
-                                    .foregroundColor(.black)
-                                }
-                                .tint(.white)
-                            }
+                },
+                onShuffle: { tracks in
+                    guard !tracks.isEmpty else { return }
+                    var shuffled = tracks
+                    let startIndex = Int.random(in: 0..<shuffled.count)
+                    let startTrack = shuffled.remove(at: startIndex)
+                    shuffled.shuffle()
+                    shuffled.insert(startTrack, at: 0)
+                    Task {
+                        if let playlistId = playlist.id {
+                            try? appCoordinator.updatePlaylistAccessed(playlistId: playlistId)
+                            try? appCoordinator.updatePlaylistLastPlayed(playlistId: playlistId)
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            if !recentlyActedTracks.contains(track.stableId) {
-                                Button {
-                                    playerEngine.addToQueue(track)
-                                    markAsActed(track.stableId)
-                                } label: {
-                                    HStack(spacing: 8) {
-                                        swipeIcon(systemName: "text.append")
-                                        Text(Localized.addToQueue)
-                                    }
-                                    .foregroundColor(.black)
-                                }
-                                .tint(.white)
-                            }
-                        }
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets())
+                        await playerEngine.playTrack(startTrack, queue: shuffled)
                     }
-                    .onMove(perform: sortOption == .playlistOrder ? { source, destination in
-                        guard let playlistId = playlist.id else { return }
-                        do {
-                            // Calculate actual destination index
-                            let sourceIndex = source.first ?? 0
-                            let destinationIndex = sourceIndex < destination ? destination - 1 : destination
-
-                            try appCoordinator.reorderPlaylistItems(
-                                playlistId: playlistId,
-                                from: sourceIndex,
-                                to: destinationIndex
-                            )
-
-                            // Reload tracks from database to reflect new order
-                            loadPlaylistTracks()
-                        } catch {
-                            print("Failed to reorder tracks: \(error)")
+                },
+                onTrackTap: { track, queue in
+                    Task {
+                        if let playlistId = playlist.id {
+                            try? appCoordinator.updatePlaylistAccessed(playlistId: playlistId)
+                            try? appCoordinator.updatePlaylistLastPlayed(playlistId: playlistId)
                         }
-                    } : nil)
-                } else {
-                    Section {
-                        VStack(spacing: 16) {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 40))
-                                .foregroundColor(.secondary)
-
-                            Text(Localized.noSongsFound)
-                                .font(.headline)
-
-                            Text(Localized.yourMusicWillAppearHere)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 40)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                        await playerEngine.playTrack(track, queue: queue)
                     }
-                }
-            }
-            .listStyle(PlainListStyle())
-            .scrollContentBackground(.hidden)
-            .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
+                },
+                onPlayNext: { track in playerEngine.insertNext(track) },
+                onAddToQueue: { track in playerEngine.addToQueue(track) },
+                playlist: playlist,
+                activeTrackId: playerEngine.currentTrack?.stableId,
+                isAudioPlaying: playerEngine.isPlaying,
+                isEditMode: isEditMode,
+                onDelete: { track in
+                    removeFromPlaylist(track)
+                },
+                onMove: sortOption == .defaultOrder ? { source, dest in
+                    reorderPlaylistItems(from: source, to: dest)
+                } : nil
+            )
+            .padding(.bottom, 90)
         }
+        .navigationTitle(playlist.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(isEditMode ? Localized.done : Localized.edit) {
-                    withAnimation {
-                        isEditMode.toggle()
+                HStack(spacing: 16) {
+                    Menu {
+                        ForEach(TrackSortOption.allCases, id: \.self) { option in
+                            Button {
+                                sortOption = option
+                                saveSortPreference()
+                            } label: {
+                                HStack {
+                                    Text(option.localizedString)
+                                    if sortOption == option {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                            .foregroundColor(.white)
                     }
+
+                    Button {
+                        withAnimation { isEditMode.toggle() }
+                    } label: {
+                        Image(systemName: isEditMode ? "checkmark" : "pencil")
+                    }
+                    .disabled(tracks.isEmpty)
                 }
-                .disabled(tracks.isEmpty)
             }
         }
         .onAppear {
             loadPlaylistTracks()
             loadSortPreference()
-            loadCustomCover()
+            loadArtwork()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LibraryNeedsRefresh"))) { _ in
             loadPlaylistTracks()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundColorChanged"))) { _ in
-            settings = DeleteSettings.load()
-        }
-        .confirmationDialog("Playlist Cover", isPresented: $showCoverOptions) {
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                Text("Change Cover Image")
-            }
-
-            if customCoverImage != nil {
-                Button("Remove Custom Cover", role: .destructive) {
-                    removeCustomCover()
-                }
-            }
-
-            Button("Cancel", role: .cancel) { }
-        }
-        .onChange(of: selectedPhotoItem) { newItem in
-            Task {
-                if let data = try? await newItem?.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
-                    await saveCustomCover(image)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func artworkView(at index: Int, size: CGFloat) -> some View {
-        if index < artworks.count {
-            Image(uiImage: artworks[index])
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(width: size, height: size)
-                .clipped()
-        } else if index < tracks.count {
-            RoundedRectangle(cornerRadius: 0)
-                .fill(Color.gray.opacity(0.3))
-                .frame(width: size, height: size)
-                .overlay(
-                    Image(systemName: "music.note")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: size/4))
-                )
+            loadArtwork()
         }
     }
 
     private func loadPlaylistTracks() {
         guard let playlistId = playlist.id else { return }
-
         do {
             let playlistItems = try appCoordinator.databaseManager.getPlaylistItems(playlistId: playlistId)
             let allTracks = try appCoordinator.getAllTracks()
-
             tracks = playlistItems.compactMap { item in
                 allTracks.first { $0.stableId == item.trackStableId }
-            }
-
-            // Load artworks for the first 4 tracks
-            Task {
-                await loadArtworks()
             }
         } catch {
             print("Failed to load playlist tracks: \(error)")
         }
     }
 
-    private func loadArtworks() async {
-        var loadedArtworks: [UIImage] = []
-        let tracksToLoad = Array(tracks.prefix(4))
-
-        for track in tracksToLoad {
-            if let artwork = await artworkManager.getArtwork(for: track) {
-                loadedArtworks.append(artwork)
+    private func loadArtwork() {
+        guard let firstTrack = tracks.first else { return }
+        Task {
+            let image = await ArtworkManager.shared.getArtwork(for: firstTrack)
+            await MainActor.run {
+                artworkImage = image
             }
-        }
-
-        await MainActor.run {
-            artworks = loadedArtworks
         }
     }
 
-    private func loadSortPreference() {
+    private func removeFromPlaylist(_ track: Track) {
         guard let playlistId = playlist.id else { return }
-        let key = "sortPreference_playlist_\(playlistId)"
+        do {
+            try appCoordinator.databaseManager.removeFromPlaylist(
+                playlistId: playlistId,
+                trackStableId: track.stableId
+            )
+            loadPlaylistTracks()
+        } catch {
+            print("Failed to remove track from playlist: \(error)")
+        }
+    }
+
+    private func reorderPlaylistItems(from source: IndexSet, to destination: Int) {
+        guard let playlistId = playlist.id else { return }
+        do {
+            let sourceIndex = source.first ?? 0
+            let destinationIndex = sourceIndex < destination ? destination - 1 : destination
+            try appCoordinator.reorderPlaylistItems(
+                playlistId: playlistId,
+                from: sourceIndex,
+                to: destinationIndex
+            )
+            loadPlaylistTracks()
+        } catch {
+            print("Failed to reorder tracks: \(error)")
+        }
+    }
+
+    private func sortPreferenceKey() -> String {
+        "sortPreference_playlist_\(playlist.id ?? 0)"
+    }
+
+    private func loadSortPreference() {
+        let key = sortPreferenceKey()
         if let savedRawValue = UserDefaults.standard.string(forKey: key),
            let saved = TrackSortOption(rawValue: savedRawValue) {
             sortOption = saved
@@ -906,165 +525,7 @@ struct PlaylistDetailScreen: View {
     }
 
     private func saveSortPreference() {
-        guard let playlistId = playlist.id else { return }
-        let key = "sortPreference_playlist_\(playlistId)"
-        UserDefaults.standard.set(sortOption.rawValue, forKey: key)
-    }
-
-    private func loadCustomCover() {
-        // Check if playlist has a custom cover path
-        guard let customPath = playlist.customCoverImagePath,
-              !customPath.isEmpty else { return }
-
-        // Load image from shared container
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player"
-        ) else {
-            print("❌ Failed to get shared container URL")
-            return
-        }
-
-        let fileURL = containerURL.appendingPathComponent(customPath)
-        if let data = try? Data(contentsOf: fileURL),
-           let image = UIImage(data: data) {
-            customCoverImage = image
-            print("✅ Loaded custom playlist cover from \(customPath)")
-        }
-    }
-
-    @MainActor
-    private func saveCustomCover(_ image: UIImage) async {
-        guard let playlistId = playlist.id else { return }
-
-        // Get shared container
-        guard let containerURL = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player"
-        ) else {
-            print("❌ Failed to get shared container URL")
-            return
-        }
-
-        // Create unique filename for this playlist cover
-        let filename = "playlist_cover_\(playlistId).jpg"
-        let fileURL = containerURL.appendingPathComponent(filename)
-
-        // Convert image to JPEG data with compression
-        guard let jpegData = image.jpegData(compressionQuality: 0.8) else {
-            print("❌ Failed to convert image to JPEG")
-            return
-        }
-
-        do {
-            // Save image to shared container
-            try jpegData.write(to: fileURL)
-            print("✅ Saved custom cover to \(filename)")
-
-            // Update database with custom cover path
-            try appCoordinator.databaseManager.updatePlaylistCustomCover(
-                playlistId: playlistId,
-                imagePath: filename
-            )
-
-            // Update UI
-            customCoverImage = image
-
-            // Notify widgets to refresh
-            WidgetCenter.shared.reloadAllTimelines()
-
-            print("✅ Custom cover saved and database updated")
-        } catch {
-            print("❌ Failed to save custom cover: \(error)")
-        }
-    }
-
-    private func removeCustomCover() {
-        guard let playlistId = playlist.id else { return }
-
-        // Remove from database
-        do {
-            try appCoordinator.databaseManager.updatePlaylistCustomCover(
-                playlistId: playlistId,
-                imagePath: nil
-            )
-
-            // Remove file from shared container if it exists
-            if let customPath = playlist.customCoverImagePath,
-               !customPath.isEmpty,
-               let containerURL = FileManager.default.containerURL(
-                forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player"
-               ) {
-                let fileURL = containerURL.appendingPathComponent(customPath)
-                try? FileManager.default.removeItem(at: fileURL)
-                print("✅ Removed custom cover file")
-            }
-
-            // Update UI
-            customCoverImage = nil
-
-            // Notify widgets to refresh
-            WidgetCenter.shared.reloadAllTimelines()
-
-            print("✅ Custom cover removed")
-        } catch {
-            print("❌ Failed to remove custom cover: \(error)")
-        }
-    }
-}
-
-struct PlaylistListView: View {
-    let playlists: [Playlist]
-    let onPlaylistTap: (Playlist) -> Void
-    
-    var body: some View {
-        if playlists.isEmpty {
-            VStack(spacing: 16) {
-                Image(systemName: "music.note.list")
-                    .font(.system(size: 40))
-                    .foregroundColor(.secondary)
-                
-                Text("No playlists yet")
-                    .font(.headline)
-                
-                Text("Create playlists by adding tracks to them from the library")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            List(playlists, id: \.id) { playlist in
-                HStack {
-                    Image(systemName: "music.note.list")
-                        .foregroundColor(.green)
-                        .frame(width: 24, height: 24)
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(playlist.title)
-                            .font(.headline)
-                        
-                        Text(Localized.playlist)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                }
-                .frame(height: 66)
-                .padding(.horizontal, 8)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    onPlaylistTap(playlist)
-                }
-                .listRowSeparator(.hidden)
-                .listRowInsets(EdgeInsets())
-            }
-            .listStyle(PlainListStyle())
-        }
+        UserDefaults.standard.set(sortOption.rawValue, forKey: sortPreferenceKey())
     }
 }
 

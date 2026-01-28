@@ -56,7 +56,8 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var fileSize: Int64?
     var hasEmbeddedArt: Bool = false
     var waveformData: String?
-    
+    var playCount: Int = 0
+
     static let databaseTableName = "track"
     
     nonisolated(unsafe) static let artist = belongsTo(Artist.self)
@@ -75,6 +76,7 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
         case channels, fileSize = "file_size"
         case hasEmbeddedArt = "has_embedded_art"
         case waveformData = "waveform_data"
+        case playCount = "play_count"
     }
 }
 
@@ -85,16 +87,6 @@ struct GenreSummary: FetchableRecord, Decodable, Hashable {
     enum CodingKeys: String, CodingKey {
         case name
         case trackCount = "track_count"
-    }
-}
-
-struct Favorite: Codable, FetchableRecord, PersistableRecord {
-    var trackStableId: String
-    
-    static let databaseTableName = "favorite"
-    
-    enum CodingKeys: String, CodingKey {
-        case trackStableId = "track_stable_id"
     }
 }
 

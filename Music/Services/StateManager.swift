@@ -2,7 +2,7 @@
 //  StateManager.swift
 //  Cosmos Music Player
 //
-//  Manages JSON state files for favorites and playlists in iCloud Drive
+//  Manages JSON state files for playlists in iCloud Drive
 //
 
 import Foundation
@@ -33,139 +33,6 @@ class StateManager: @unchecked Sendable {
             try FileManager.default.createDirectory(at: appFolderURL, 
                                                  withIntermediateDirectories: true, 
                                                  attributes: nil)
-        }
-    }
-    
-    // MARK: - Favorites
-    
-    func saveFavorites(_ favorites: [String]) throws {
-        print("💾 StateManager: Saving \(favorites.count) favorites - \(favorites)")
-        let favoritesState = FavoritesState(favorites: favorites)
-        
-        // Always save to local Documents first (survives app reinstall)
-        try saveToLocalDocuments(favoritesState)
-        
-        // Also try to save to iCloud Drive if available
-        do {
-            try createAppFolderIfNeeded()
-            guard let appFolderURL = getAppFolderURL() else {
-                print("⚠️ iCloud not available, favorites saved locally only")
-                return
-            }
-            
-            let favoritesURL = appFolderURL.appendingPathComponent("favorites.json")
-            try saveJSONAtomically(favoritesState, to: favoritesURL)
-            print("✅ Favorites saved to both local and iCloud")
-        } catch {
-            print("⚠️ Failed to save to iCloud, but local save succeeded: \(error)")
-        }
-    }
-    
-    private func saveToLocalDocuments(_ favoritesState: FavoritesState) throws {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localFavoritesURL = documentsURL.appendingPathComponent("cosmos-favorites.json")
-        try saveJSONAtomically(favoritesState, to: localFavoritesURL)
-        print("📱 Favorites saved locally to: \(localFavoritesURL.path)")
-    }
-    
-    func loadFavorites() throws -> [String] {
-        print("📂 StateManager: Loading favorites...")
-        
-        // Try loading from local Documents first (survives app reinstall)
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localFavoritesURL = documentsURL.appendingPathComponent("cosmos-favorites.json")
-        
-        print("📂 StateManager: Checking local file at: \(localFavoritesURL.path)")
-        
-        if FileManager.default.fileExists(atPath: localFavoritesURL.path) {
-            do {
-                let data = try Data(contentsOf: localFavoritesURL)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                let favoritesState = try decoder.decode(FavoritesState.self, from: data)
-                print("📱 Loaded favorites from local storage: \(favoritesState.favorites.count) items - \(favoritesState.favorites)")
-                
-                // If local file exists but has no favorites, still try iCloud as fallback
-                // (this handles the case where a new app installation created an empty local file)
-                if favoritesState.favorites.isEmpty {
-                    print("📂 Local file has 0 favorites, checking iCloud for any existing favorites...")
-                    // Don't return here - continue to iCloud fallback
-                } else {
-                    return favoritesState.favorites
-                }
-            } catch {
-                print("⚠️ Failed to load local favorites: \(error)")
-            }
-        } else {
-            print("📂 StateManager: Local file does not exist")
-        }
-        
-        // Fallback to iCloud Drive if local doesn't exist
-        guard let appFolderURL = getAppFolderURL() else {
-            print("📭 No favorites found (neither local nor iCloud)")
-            return []
-        }
-        
-        let favoritesURL = appFolderURL.appendingPathComponent("favorites.json")
-        print("📂 StateManager: Checking iCloud file at: \(favoritesURL.path)")
-        
-        guard FileManager.default.fileExists(atPath: favoritesURL.path) else {
-            print("📭 No iCloud favorites file found")
-            return []
-        }
-        
-        do {
-            // Check if this is an iCloud file and ensure it's downloaded
-            let resourceValues = try favoritesURL.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
-            
-            if let isUbiquitous = resourceValues.isUbiquitousItem, isUbiquitous {
-                print("☁️ iCloud favorites file detected, checking download status...")
-                
-                if let downloadingStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                    print("📊 iCloud favorites download status: \(downloadingStatus)")
-                    
-                    if downloadingStatus == .notDownloaded {
-                        print("🔽 iCloud favorites file needs downloading, starting download...")
-                        try FileManager.default.startDownloadingUbiquitousItem(at: favoritesURL)
-                        
-                        // Wait a moment for download to start
-                        Thread.sleep(forTimeInterval: 0.5)
-                    }
-                }
-            }
-            
-            // Use NSFileCoordinator for proper iCloud file access
-            var coordinatorError: NSError?
-            var data: Data?
-            
-            let coordinator = NSFileCoordinator()
-            coordinator.coordinate(readingItemAt: favoritesURL, options: .withoutChanges, error: &coordinatorError) { (url) in
-                do {
-                    data = try Data(contentsOf: url)
-                    print("☁️ Successfully read favorites from iCloud via NSFileCoordinator")
-                } catch {
-                    print("❌ Failed to read iCloud favorites via coordinator: \(error)")
-                }
-            }
-            
-            if let coordinatorError = coordinatorError {
-                print("❌ NSFileCoordinator error: \(coordinatorError)")
-                return []
-            }
-            
-            guard let favoritesData = data else {
-                print("❌ No data read from iCloud favorites file")
-                return []
-            }
-            
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let favoritesState = try decoder.decode(FavoritesState.self, from: favoritesData)
-            print("☁️ Loaded favorites from iCloud: \(favoritesState.favorites.count) items - \(favoritesState.favorites)")
-            return favoritesState.favorites
-        } catch {
-            print("❌ Failed to load favorites from iCloud: \(error)")
-            return []
         }
     }
     

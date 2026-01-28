@@ -1,5 +1,4 @@
 import SwiftUI
-import GRDB
 import UniformTypeIdentifiers
 import Combine
 import UIKit
@@ -224,18 +223,6 @@ struct LibraryView: View {
                             .buttonStyle(PlainButtonStyle())
                             
                             NavigationLink {
-                                LikedSongsScreen(allTracks: tracks)
-                            } label: {
-                                LibrarySectionRowView(
-                                    title: Localized.likedSongs,
-                                    subtitle: Localized.yourFavorites,
-                                    icon: "heart.fill",
-                                    color: .red
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            
-                            NavigationLink {
                                 PlaylistsScreen()
                             } label: {
                                 LibrarySectionRowView(
@@ -254,7 +241,7 @@ struct LibraryView: View {
                                     title: Localized.artists,
                                     subtitle: Localized.browseByArtist,
                                     icon: "person.2.fill",
-                                    color: .purple
+                                    color: .red
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -266,7 +253,7 @@ struct LibraryView: View {
                                     title: Localized.genre,
                                     subtitle: Localized.browseByGenre,
                                     icon: "music.quarternote.3",
-                                    color: .teal
+                                    color: .blue
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -278,7 +265,7 @@ struct LibraryView: View {
                                     title: Localized.albums,
                                     subtitle: Localized.browseByAlbum,
                                     icon: "rectangle.stack.fill",
-                                    color: .orange
+                                    color: .yellow
                                 )
                             }
                             .buttonStyle(PlainButtonStyle())
@@ -530,485 +517,102 @@ struct LibrarySectionRowView: View {
 
 struct AllSongsScreen: View {
     let tracks: [Track]
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    @State private var settings = DeleteSettings.load()
-    
-    var body: some View {
-        TrackListView(tracks: tracks, listIdentifier: "all_songs")
-            .background(ScreenSpecificBackgroundView(screen: .allSongs))
-            .navigationTitle(Localized.allSongs)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        shuffleAllSongs()
-                    } label: {
-                        Image(systemName: "shuffle")
-                            .foregroundColor(Color.white)
-                    }
-                    .disabled(tracks.isEmpty)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-                settings = DeleteSettings.load()
-            }
-    }
-    
-    private func shuffleAllSongs() {
-        guard !tracks.isEmpty else { return }
-        let shuffled = tracks.shuffled()
-        Task {
-            await appCoordinator.playTrack(shuffled[0], queue: shuffled)
-        }
-    }
-}
+    @StateObject private var playerEngine = PlayerEngine.shared
+    @State private var sortOption: TrackSortOption = .defaultOrder
+    @State private var showBulkPlaylistSheet: Bool = false
+    @State private var bulkSelectedTracks: [Track] = []
 
-struct LikedSongsScreen: View {
-    let allTracks: [Track]
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    @State private var likedTracks: [Track] = []
-    @State private var settings = DeleteSettings.load()
-    
-    var body: some View {
-        TrackListView(tracks: likedTracks, listIdentifier: "liked_songs", isLikedSongsScreen: true)
-            .background(ScreenSpecificBackgroundView(screen: .likedSongs))
-            .navigationTitle(Localized.likedSongs)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text(Localized.likedSongs)
-                        .font(.headline)
-                        .foregroundColor(Color.white)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button {
-                        shuffleLikedSongs()
-                    } label: {
-                        Image(systemName: "shuffle")
-                            .foregroundColor(Color.white)
-                    }
-                    .disabled(likedTracks.isEmpty)
-                }
-            }
-            .onAppear {
-                loadLikedTracks()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LibraryNeedsRefresh"))) { _ in
-                loadLikedTracks()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-                settings = DeleteSettings.load()
-            }
-    }
-    
-    private func shuffleLikedSongs() {
-        guard !likedTracks.isEmpty else { return }
-        let shuffled = likedTracks.shuffled()
-        Task {
-            await appCoordinator.playTrack(shuffled[0], queue: shuffled)
-        }
-    }
-    
-    private func loadLikedTracks() {
-        do {
-            let favoriteIds = try appCoordinator.getFavorites()
-            likedTracks = allTracks.filter { favoriteIds.contains($0.stableId) }
-        } catch {
-            print("Failed to load liked tracks: \(error)")
-        }
-    }
-}
-
-enum TrackSortOption: String, CaseIterable {
-    case playlistOrder
-    case dateNewest
-    case dateOldest
-    case nameAZ
-    case nameZA
-    case artistAZ
-    case artistZA
-    case sizeLargest
-    case sizeSmallest
-    
-    var localizedString: String {
-        switch self {
-        case .playlistOrder: return "Manual Order"
-        case .dateNewest: return Localized.sortDateNewest
-        case .dateOldest: return Localized.sortDateOldest
-        case .nameAZ: return Localized.sortNameAZ
-        case .nameZA: return Localized.sortNameZA
-        case .artistAZ: return "Artist A-Z"
-        case .artistZA: return "Artist Z-A"
-        case .sizeLargest: return Localized.sortSizeLargest
-        case .sizeSmallest: return Localized.sortSizeSmallest
-        }
-    }
-}
-
-struct TrackListView: View {
-    let tracks: [Track]
-    let playlist: Playlist?
-    let isEditMode: Bool
-    let listIdentifier: String?
-    let isLikedSongsScreen: Bool
-    
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    
-    // Local State
-    @State private var sortOption: TrackSortOption = .dateNewest
-    @State private var recentlyActedTracks: Set<String> = []
-    
-    // Bulk selection state
-    @State private var isBulkMode = false
-    @State private var selectedTracks: Set<String> = []
-    @State private var showBulkPlaylistDialog = false
-    @State private var showBulkDeleteConfirmation = false
-    @State private var settings = DeleteSettings.load()
-    
-    init(tracks: [Track], playlist: Playlist? = nil, isEditMode: Bool = false, listIdentifier: String? = nil, isLikedSongsScreen: Bool = false) {
-        self.tracks = tracks
-        self.playlist = playlist
-        self.isEditMode = isEditMode
-        self.listIdentifier = listIdentifier
-        self.isLikedSongsScreen = isLikedSongsScreen
-    }
-    
-    // Sorting logic stays here
     private var sortedTracks: [Track] {
-        switch sortOption {
-        case .playlistOrder: return tracks
-        case .dateNewest: return tracks.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
-        case .dateOldest: return tracks.sorted { ($0.id ?? 0) < ($1.id ?? 0) }
-        case .nameAZ: return tracks.sorted { $0.title.lowercased() < $1.title.lowercased() }
-        case .nameZA: return tracks.sorted { $0.title.lowercased() > $1.title.lowercased() }
-        case .artistAZ:
-            // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: tracks)
-            return tracks.sorted { track1, track2 in
-                let artist1 = artistCache[track1.artistId ?? -1] ?? ""
-                let artist2 = artistCache[track2.artistId ?? -1] ?? ""
-                return artist1.lowercased() < artist2.lowercased()
-            }
-        case .artistZA:
-            // Pre-fetch all artist names for performance
-            let artistCache = buildArtistCache(for: tracks)
-            return tracks.sorted { track1, track2 in
-                let artist1 = artistCache[track1.artistId ?? -1] ?? ""
-                let artist2 = artistCache[track2.artistId ?? -1] ?? ""
-                return artist1.lowercased() > artist2.lowercased()
-            }
-        case .sizeLargest: return tracks.sorted { ($0.fileSize ?? 0) > ($1.fileSize ?? 0) }
-        case .sizeSmallest: return tracks.sorted { ($0.fileSize ?? 0) < ($1.fileSize ?? 0) }
-        }
+        TrackSorting.sort(tracks, by: sortOption, isPlaylist: false)
     }
-    
-    private func buildArtistCache(for tracks: [Track]) -> [Int64: String] {
-        // Get unique artist IDs
-        let artistIds = Set(tracks.compactMap { $0.artistId })
-        
-        // Fetch all artists in one query
-        var cache: [Int64: String] = [:]
-        do {
-            try DatabaseManager.shared.read { db in
-                let artists = try Artist.filter(artistIds.contains(Column("id"))).fetchAll(db)
-                for artist in artists {
-                    if let id = artist.id {
-                        cache[id] = artist.name
+
+    var body: some View {
+        ZStack {
+            ScreenSpecificBackgroundView(screen: .allSongs)
+
+            CollectionDetailView(
+                title: nil,
+                subtitle: nil,
+                artwork: nil,
+                displayTracks: sortedTracks,
+                sortOptions: TrackSortOption.allCases,
+                selectedSort: sortOption,
+                onSelectSort: { newSort in
+                    sortOption = newSort
+                    saveSortPreference()
+                },
+                onPlay: { tracks in
+                    if let first = tracks.first {
+                        Task { await playerEngine.playTrack(first, queue: tracks) }
                     }
+                },
+                onShuffle: { tracks in
+                    let shuffled = tracks.shuffled()
+                    if let first = shuffled.first {
+                        Task { await playerEngine.playTrack(first, queue: shuffled) }
+                    }
+                },
+                onTrackTap: { track, queue in
+                    Task { await playerEngine.playTrack(track, queue: queue) }
+                },
+                onPlayNext: { track in playerEngine.insertNext(track) },
+                onAddToQueue: { track in playerEngine.addToQueue(track) },
+                playlist: nil,
+                activeTrackId: playerEngine.currentTrack?.stableId,
+                isAudioPlaying: playerEngine.isPlaying,
+                supportsBulkSelection: true,
+                onBulkAddToPlaylist: { tracks in
+                    bulkSelectedTracks = tracks
+                    showBulkPlaylistSheet = true
+                }
+            )
+            .padding(.bottom, 90)
+        }
+        .navigationTitle(Localized.allSongs)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    ForEach(TrackSortOption.allCases, id: \.self) { option in
+                        Button {
+                            sortOption = option
+                            saveSortPreference()
+                        } label: {
+                            HStack {
+                                Text(option.localizedString)
+                                if sortOption == option {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .foregroundColor(.white)
                 }
             }
-        } catch {
-            print("Failed to build artist cache: \(error)")
         }
-        return cache
-    }
-    
-    // Bulk Helpers
-    private func enterBulkMode(initialSelection: String? = nil) {
-        isBulkMode = true
-        if let trackId = initialSelection { selectedTracks.insert(trackId) }
-    }
-    
-    private func exitBulkMode() {
-        isBulkMode = false
-        selectedTracks.removeAll()
-    }
-    
-    private func selectAll() {
-        selectedTracks = Set(sortedTracks.map { $0.stableId })
-    }
-    
-    private func bulkAddToLikedSongs() {
-        for trackId in selectedTracks {
-            if let track = sortedTracks.first(where: { $0.stableId == trackId }) {
-                try? appCoordinator.toggleFavorite(trackStableId: track.stableId)
-            }
-        }
-        exitBulkMode()
-    }
-    
-    private func bulkDelete() {
-        Task {
-            for trackId in selectedTracks {
-                if let track = sortedTracks.first(where: { $0.stableId == trackId }) {
-                    try? FileManager.default.removeItem(at: URL(fileURLWithPath: track.path))
-                    try? DatabaseManager.shared.deleteTrack(byStableId: track.stableId)
-                }
-            }
-            NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
-            exitBulkMode()
+        .onAppear { loadSortPreference() }
+        .sheet(isPresented: $showBulkPlaylistSheet) {
+            AddToPlaylistView(
+                trackIds: bulkSelectedTracks.map { $0.stableId },
+                onComplete: { showBulkPlaylistSheet = false },
+                showTrackCount: true
+            )
         }
     }
-    
-    // Persistence
+
     private func loadSortPreference() {
-        guard let identifier = listIdentifier else { return }
-        if let savedRawValue = UserDefaults.standard.string(forKey: "sortPreference_\(identifier)"),
+        if let savedRawValue = UserDefaults.standard.string(forKey: "sortPreference_all_songs"),
            let saved = TrackSortOption(rawValue: savedRawValue) {
             sortOption = saved
         }
     }
-    
+
     private func saveSortPreference() {
-        guard let identifier = listIdentifier else { return }
-        UserDefaults.standard.set(sortOption.rawValue, forKey: "sortPreference_\(identifier)")
+        UserDefaults.standard.set(sortOption.rawValue, forKey: "sortPreference_all_songs")
     }
-    
-    var body: some View {
-        // We pass the sorted tracks and state bindings to the Inner View.
-        // The Inner View observes PlayerEngine, so IT updates, but THIS view (and the Toolbar) remains stable.
-        TrackListContentView(
-            tracks: sortedTracks,
-            playlist: playlist,
-            isEditMode: isEditMode,
-            isBulkMode: $isBulkMode,
-            selectedTracks: $selectedTracks,
-            recentlyActedTracks: $recentlyActedTracks,
-            onEnterBulkMode: { id in enterBulkMode(initialSelection: id) }
-        )
-        // MARK: - TOOLBAR
-        // Since PlayerEngine is not observed in this view, this Toolbar will not rebuild on every frame.
-        .toolbar {
-            if isBulkMode {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(Localized.cancel) { exitBulkMode() }
-                        .foregroundColor(Color.white)
-                }
-                
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Button(action: { selectAll() }) {
-                            Label(Localized.selectAll, systemImage: "checkmark.circle")
-                        }
-                        Divider()
-                        Button(action: { bulkAddToLikedSongs() }) {
-                            Label(isLikedSongsScreen ? Localized.removeFromLiked : Localized.addToLiked, systemImage: "heart.fill")
-                        }
-                        .disabled(selectedTracks.isEmpty)
-                        
-                        Button(action: { showBulkPlaylistDialog = true }) {
-                            Label(Localized.addToPlaylist, systemImage: "music.note.list")
-                        }
-                        .disabled(selectedTracks.isEmpty)
-                        Divider()
-                        Button(role: .destructive, action: { showBulkDeleteConfirmation = true }) {
-                            Label(Localized.deleteFiles, systemImage: "trash")
-                        }
-                        .disabled(selectedTracks.isEmpty)
-                    } label: {
-                        Image(systemName: "ellipsis.circle")
-                            .font(.title3)
-                            .foregroundColor(Color.white)
-                        // Increase hit area
-                            .padding(4)
-                            .contentShape(Rectangle())
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.plain)
-                }
-            } else {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        ForEach(TrackSortOption.allCases, id: \.self) { option in
-                            Button(action: {
-                                sortOption = option
-                                saveSortPreference()
-                            }) {
-                                HStack {
-                                    Text(option.localizedString)
-                                    if sortOption == option { Image(systemName: "checkmark") }
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down.circle")
-                            .font(.title3)
-                            .foregroundColor(Color.white)
-                            .padding(4)
-                            .contentShape(Rectangle())
-                    }
-                }
-            }
-        }
-        .sheet(isPresented: $showBulkPlaylistDialog) {
-            BulkPlaylistSelectionView(trackIds: Array(selectedTracks), onComplete: { exitBulkMode() })
-                .accentColor(Color.white)
-        }
-        .alert(Localized.deleteFilesConfirmation, isPresented: $showBulkDeleteConfirmation) {
-            Button(Localized.delete, role: .destructive) { bulkDelete() }
-            Button(Localized.cancel, role: .cancel) { }
-        } message: {
-            Text(Localized.deleteFilesConfirmationMessage(selectedTracks.count))
-        }
-        .onAppear { loadSortPreference() }
-    }
-}
 
-struct TrackListContentView: View {
-    let tracks: [Track]
-    let playlist: Playlist?
-    let isEditMode: Bool
-    
-    // Bindings to parent state
-    @Binding var isBulkMode: Bool
-    @Binding var selectedTracks: Set<String>
-    @Binding var recentlyActedTracks: Set<String>
-    let onEnterBulkMode: (String?) -> Void
-    
-    // Only THIS view updates when the track progresses
-    @StateObject private var playerEngine = PlayerEngine.shared
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    @State private var settings = DeleteSettings.load()
-
-    @ViewBuilder
-    private func swipeIcon(systemName: String) -> some View {
-        if let icon = UIImage(systemName: systemName)?
-            .withTintColor(.black, renderingMode: .alwaysOriginal) {
-            Image(uiImage: icon)
-        } else {
-            Image(systemName: systemName)
-                .foregroundColor(.black)
-        }
-    }
-    
-    private func toggleSelection(for track: Track) {
-        if selectedTracks.contains(track.stableId) {
-            selectedTracks.remove(track.stableId)
-        } else {
-            selectedTracks.insert(track.stableId)
-        }
-    }
-    
-    private func markAsActed(_ trackId: String) {
-        recentlyActedTracks.insert(trackId)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            recentlyActedTracks.remove(trackId)
-        }
-    }
-    
-    var body: some View {
-        if tracks.isEmpty {
-            VStack(spacing: 16) {
-                Image(systemName: "music.note").font(.system(size: 40)).foregroundColor(.secondary)
-                Text(Localized.noSongsFound).font(.headline)
-                Text(Localized.yourMusicWillAppearHere).font(.subheadline).foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            List(tracks, id: \.stableId) { track in
-                ZStack(alignment: .leading) {
-                    HStack(spacing: 0) {
-                        if isBulkMode {
-                            Image(systemName: selectedTracks.contains(track.stableId) ? "checkmark.circle.fill" : "circle")
-                                .font(.title2)
-                                .foregroundColor(selectedTracks.contains(track.stableId) ? Color.white : .secondary)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                                .onTapGesture { toggleSelection(for: track) }
-                        }
-                        
-                        TrackRowView(
-                            track: track,
-                            activeTrackId: playerEngine.currentTrack?.stableId,
-                            isAudioPlaying: playerEngine.isPlaying,
-                            onTap: {
-                                if isBulkMode {
-                                    toggleSelection(for: track)
-                                } else {
-                                    Task {
-                                        if let playlist = playlist, let playlistId = playlist.id {
-                                            try? appCoordinator.updatePlaylistAccessed(playlistId: playlistId)
-                                            try? appCoordinator.updatePlaylistLastPlayed(playlistId: playlistId)
-                                        }
-                                        await appCoordinator.playTrack(track, queue: tracks)
-                                    }
-                                }
-                            },
-                            playlist: playlist,
-                            showDirectDeleteButton: playlist != nil && isEditMode,
-                            onEnterBulkMode: { onEnterBulkMode(track.stableId) }
-                        )
-                        .equatable() // Crucial for performance
-                        .onLongPressGesture(minimumDuration: 0.5) {
-                            if !isBulkMode { onEnterBulkMode(track.stableId) }
-                        }
-                    }
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    if !isBulkMode && !recentlyActedTracks.contains(track.stableId) {
-                        Button {
-                            playerEngine.insertNext(track)
-                            markAsActed(track.stableId)
-                        } label: {
-                            HStack(spacing: 8) {
-                                swipeIcon(systemName: "text.line.first.and.arrowtriangle.forward")
-                                Text(Localized.playNext)
-                            }
-                            .foregroundColor(.black)
-                        }
-                        .tint(.white)
-                    }
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if !isBulkMode && !recentlyActedTracks.contains(track.stableId) {
-                        Button {
-                            playerEngine.addToQueue(track)
-                            markAsActed(track.stableId)
-                        } label: {
-                            HStack(spacing: 8) {
-                                swipeIcon(systemName: "text.append")
-                                Text(Localized.addToQueue)
-                            }
-                            .foregroundColor(.black)
-                        }
-                        .tint(.white)
-                    }
-                }
-                .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial).opacity(0.7))
-                .padding(.horizontal, 8).padding(.vertical, 4)
-                .listRowSeparator(.hidden).listRowInsets(EdgeInsets())
-                .listRowBackground(Color.clear)
-            }
-            .listStyle(PlainListStyle())
-            .scrollContentBackground(.hidden)
-            .contentMargins(.bottom, 100, for: .scrollContent)
-        }
-    }
-}
-
-// MARK: - Bulk Selection Components
-
-struct BulkPlaylistSelectionView: View {
-    let trackIds: [String]
-    let onComplete: () -> Void
-    
-    var body: some View {
-        AddToPlaylistView(
-            trackIds: trackIds,
-            onComplete: onComplete,
-            showTrackCount: true
-        )
-    }
 }
 
 // MARK: - Search View

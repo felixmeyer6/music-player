@@ -45,7 +45,6 @@ struct Localized {
     
     // MARK: - General UI strings
     static let allSongs = "all_songs".localized
-    static let likedSongs = "liked_songs".localized
     static let addSongs = "add_songs".localized
     static let importMusicFiles = "import_music_files".localized
     static let openFolder = "open_folder".localized
@@ -106,10 +105,6 @@ struct Localized {
     static let useSimpleIcons = "use_simple_icons".localized
     static let overrideSystemAppearance = "override_system_appearance".localized
     
-    // MARK: - Liked Actions
-    static let addToLikedSongs = "add_to_liked_songs".localized
-    static let removeFromLikedSongs = "remove_from_liked_songs".localized
-    
     // MARK: - Search Categories
     static let all = "all".localized
     
@@ -154,7 +149,6 @@ struct Localized {
     static let waitingColon = "waiting_colon".localized
     
     // MARK: - Subtitles and descriptions
-    static let yourFavorites = "your_favorites".localized
     static let yourPlaylists = "your_playlists".localized
     static let browseByArtist = "browse_by_artist".localized
     static let browseByAlbum = "browse_by_album".localized
@@ -177,6 +171,12 @@ struct Localized {
     
     static func deletePlaylistConfirmation(_ playlistName: String) -> String {
         return "delete_playlist_confirmation".localized(with: playlistName)
+    }
+
+    static let areYouSure = "are_you_sure".localized
+
+    static func deletingPlaylistCantBeUndone(_ playlistName: String) -> String {
+        return "deleting_playlist_cant_be_undone".localized(with: playlistName)
     }
     
     static func deleteFileConfirmation(_ fileName: String) -> String {
@@ -296,8 +296,6 @@ struct Localized {
     // MARK: - Bulk Selection
     static let select = "select".localized
     static let selectAll = "select_all".localized
-    static let addToLiked = "add_to_liked".localized
-    static let removeFromLiked = "remove_from_liked".localized
     static let deleteFiles = "delete_files".localized
     static let deleteFilesConfirmation = "delete_files_confirmation".localized
 

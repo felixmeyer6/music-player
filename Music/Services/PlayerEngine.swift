@@ -1739,13 +1739,27 @@ class PlayerEngine: NSObject, ObservableObject {
         normalizeIndexAndTrack()
         
         await loadTrack(track)
-        
+
+        // Increment play count
+        incrementPlayCount(for: track)
+
         // Auto-play immediately after loading completes
         DispatchQueue.main.async { [weak self] in
             self?.play()
         }
     }
-    
+
+    private func incrementPlayCount(for track: Track) {
+        Task {
+            do {
+                try DatabaseManager.shared.incrementPlayCount(trackStableId: track.stableId)
+                print("📊 Play count incremented for: \(track.title)")
+            } catch {
+                print("⚠️ Failed to increment play count: \(error)")
+            }
+        }
+    }
+
     func nextTrack(autoplay: Bool? = nil) async {
         guard !playbackQueue.isEmpty, !isLoadingTrack else { return }
         normalizeIndexAndTrack()

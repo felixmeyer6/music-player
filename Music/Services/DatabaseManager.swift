@@ -159,12 +159,6 @@ class DatabaseManager: @unchecked Sendable {
             """)
             
             try db.execute(sql: """
-                CREATE TABLE IF NOT EXISTS favorite (
-                    track_stable_id TEXT PRIMARY KEY
-                )
-            """)
-            
-            try db.execute(sql: """
                 CREATE TABLE IF NOT EXISTS playlist (
                     id INTEGER PRIMARY KEY,
                     slug TEXT NOT NULL UNIQUE,
@@ -265,6 +259,14 @@ class DatabaseManager: @unchecked Sendable {
 
     private func migrateDatabaseIfNeeded() throws {
         try write { db in
+            // Migration: Remove favorites table (feature removed)
+            do {
+                try db.execute(sql: "DROP TABLE IF EXISTS favorite")
+                print("✅ Database: Removed favorite table")
+            } catch {
+                print("ℹ️ Database migration: favorite table removal failed: \(error)")
+            }
+
             // Migration: Add folder sync columns to playlist table
             do {
                 try db.execute(sql: "ALTER TABLE playlist ADD COLUMN folder_path TEXT")
@@ -370,12 +372,6 @@ class DatabaseManager: @unchecked Sendable {
                     print("✅ Keeping track ID \(keep.id ?? 0): \(keep.title)")
 
                     for duplicate in remove {
-                        // Transfer favorites to the kept track
-                        try db.execute(
-                            sql: "UPDATE OR IGNORE favorite SET track_stable_id = ? WHERE track_stable_id = ?",
-                            arguments: [keep.stableId, duplicate.stableId]
-                        )
-
                         // Transfer playlist items to the kept track
                         try db.execute(
                             sql: "UPDATE OR IGNORE playlist_item SET track_stable_id = ? WHERE track_stable_id = ?",
@@ -383,10 +379,6 @@ class DatabaseManager: @unchecked Sendable {
                         )
 
                         // Delete remaining orphaned references
-                        try db.execute(
-                            sql: "DELETE FROM favorite WHERE track_stable_id = ?",
-                            arguments: [duplicate.stableId]
-                        )
                         try db.execute(
                             sql: "DELETE FROM playlist_item WHERE track_stable_id = ?",
                             arguments: [duplicate.stableId]
@@ -429,12 +421,6 @@ class DatabaseManager: @unchecked Sendable {
                             arguments: [newStableId, track.id]
                         )
 
-                        // Update favorites references
-                        try db.execute(
-                            sql: "UPDATE favorite SET track_stable_id = ? WHERE track_stable_id = ?",
-                            arguments: [newStableId, track.stableId]
-                        )
-
                         // Update playlist item references
                         try db.execute(
                             sql: "UPDATE playlist_item SET track_stable_id = ? WHERE track_stable_id = ?",
@@ -462,6 +448,15 @@ class DatabaseManager: @unchecked Sendable {
             } catch {
                 print("⚠️ Database migration: Failed to create UNIQUE index on stable_id: \(error)")
             }
+
+            // Migration: Add play_count column to track table
+            do {
+                try db.execute(sql: "ALTER TABLE track ADD COLUMN play_count INTEGER DEFAULT 0")
+                print("✅ Database: Added play_count column to track table")
+            } catch {
+                // Column may already exist, which is fine
+                print("ℹ️ Database migration: play_count column already exists or migration failed: \(error)")
+            }
         }
     }
 
@@ -483,11 +478,7 @@ class DatabaseManager: @unchecked Sendable {
             if !duplicates.isEmpty {
                 print("⚠️ Found \(duplicates.count) duplicate(s) for path: \(track.path)")
                 for duplicate in duplicates {
-                    // Transfer favorites and playlist items to the new stable_id
-                    try db.execute(
-                        sql: "UPDATE favorite SET track_stable_id = ? WHERE track_stable_id = ?",
-                        arguments: [track.stableId, duplicate.stableId]
-                    )
+                    // Transfer playlist items to the new stable_id
                     try db.execute(
                         sql: "UPDATE playlist_item SET track_stable_id = ? WHERE track_stable_id = ?",
                         arguments: [track.stableId, duplicate.stableId]
@@ -798,39 +789,6 @@ class DatabaseManager: @unchecked Sendable {
         }
     }
 
-    // MARK: - Favorites operations
-    
-    func addToFavorites(trackStableId: String) throws {
-        print("🗃️ Database: Adding to favorites - \(trackStableId)")
-        try write { db in
-            let favorite = Favorite(trackStableId: trackStableId)
-            try favorite.insert(db)
-            print("🗃️ Database: Successfully inserted favorite")
-        }
-    }
-    
-    func removeFromFavorites(trackStableId: String) throws {
-        print("🗃️ Database: Removing from favorites - \(trackStableId)")
-        let deletedCount = try write { db in
-            return try Favorite.filter(Column("track_stable_id") == trackStableId).deleteAll(db)
-        }
-        print("🗃️ Database: Deleted \(deletedCount) favorite(s)")
-    }
-    
-    func isFavorite(trackStableId: String) throws -> Bool {
-        return try read { db in
-            return try Favorite.filter(Column("track_stable_id") == trackStableId).fetchOne(db) != nil
-        }
-    }
-    
-    func getFavorites() throws -> [String] {
-        let favorites = try read { db in
-            return try Favorite.fetchAll(db).map { $0.trackStableId }
-        }
-        print("🗃️ Database: Retrieved \(favorites.count) favorites - \(favorites)")
-        return favorites
-    }
-
     func deduplicatePlaylistItems() throws {
         print("🔍 Checking for duplicate playlist items...")
 
@@ -950,12 +908,6 @@ class DatabaseManager: @unchecked Sendable {
             let playlistItemsDeleted = try PlaylistItem.filter(Column("track_stable_id") == stableId).deleteAll(db)
             if playlistItemsDeleted > 0 {
                 print("🗑️ Removed track from \(playlistItemsDeleted) playlist position(s)")
-            }
-
-            // Remove from favorites if it exists
-            let favoritesDeleted = try Favorite.filter(Column("track_stable_id") == stableId).deleteAll(db)
-            if favoritesDeleted > 0 {
-                print("🗃️ Database: Removed \(favoritesDeleted) favorite entries for track")
             }
 
             if playlistItemsDeleted > 0 {
@@ -1146,15 +1098,25 @@ class DatabaseManager: @unchecked Sendable {
             let playlistItem = PlaylistItem(playlistId: playlistId, position: maxPosition + 1, trackStableId: trackStableId)
             print("🎵 Creating playlist item with position \(maxPosition + 1)")
             try playlistItem.insert(db)
+            let now = Int64(Date().timeIntervalSince1970)
+            _ = try Playlist
+                .filter(Column("id") == playlistId)
+                .updateAll(db, Column("updated_at").set(to: now))
             print("✅ Successfully added track to playlist")
         }
     }
     
     func removeFromPlaylist(playlistId: Int64, trackStableId: String) throws {
         try write { db in
-            _ = try PlaylistItem
+            let deletedCount = try PlaylistItem
                 .filter(Column("playlist_id") == playlistId && Column("track_stable_id") == trackStableId)
                 .deleteAll(db)
+            if deletedCount > 0 {
+                let now = Int64(Date().timeIntervalSince1970)
+                _ = try Playlist
+                    .filter(Column("id") == playlistId)
+                    .updateAll(db, Column("updated_at").set(to: now))
+            }
         }
     }
 
@@ -1343,6 +1305,17 @@ class DatabaseManager: @unchecked Sendable {
                 )
         }
         print("🎨 Database: Updated \(updatedCount) playlist(s) custom cover")
+    }
+
+    // MARK: - Play Count Operations
+
+    func incrementPlayCount(trackStableId: String) throws {
+        try write { db in
+            try db.execute(
+                sql: "UPDATE track SET play_count = play_count + 1 WHERE stable_id = ?",
+                arguments: [trackStableId]
+            )
+        }
     }
 
     // MARK: - EQ Operations

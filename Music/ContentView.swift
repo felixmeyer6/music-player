@@ -38,36 +38,36 @@ struct ContentView: View {
     }
     
     private var mainContent: some View {
-        ZStack(alignment: .bottom) {
-            LibraryView(
-                tracks: tracks, 
-                showTutorial: $showTutorial, 
-                showPlaylistManagement: $showPlaylistManagement, 
-                showSettings: $showSettings,
-                onRefresh: performRefresh,
-                onManualSync: performManualSync
-            )
-            
-            // Fade the content toward black at the device bottom.
-            if playerEngine.currentTrack != nil {
-                LinearGradient(
-                    colors: [
-                        Color.clear,
-                        Color.black.opacity(0.7)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                LibraryView(
+                    tracks: tracks, 
+                    showTutorial: $showTutorial, 
+                    showPlaylistManagement: $showPlaylistManagement, 
+                    showSettings: $showSettings,
+                    onRefresh: performRefresh,
+                    onManualSync: performManualSync
                 )
-                .frame(height: 180)
-                .ignoresSafeArea(edges: .bottom)
-                .allowsHitTesting(false)
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 0) {
+                
+                // Fade the content toward black at the device bottom.
+                if playerEngine.currentTrack != nil {
+                    LinearGradient(
+                        colors: [
+                            Color.clear,
+                            Color.black.opacity(0.7)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 180 + proxy.safeAreaInsets.bottom)
+                    .allowsHitTesting(false)
+                }
+                
                 MiniPlayerView()
+                    .padding(.bottom, proxy.safeAreaInsets.bottom)
+                    .offset(y: 24)
             }
-            .background(.clear)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LibraryNeedsRefresh"))) { _ in
             Task {

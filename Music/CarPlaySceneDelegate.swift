@@ -16,11 +16,10 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
         // Create tab bar template with top tabs
         let allSongsTemplate = createAllSongsTab(tracks: allTracks)
-        let favoritesTemplate = createFavoritesTab(tracks: allTracks)
         let playlistsTemplate = createPlaylistsTab()
         let searchTemplate = createSearchTab(tracks: allTracks)
 
-        let tabBarTemplate = CPTabBarTemplate(templates: [allSongsTemplate, favoritesTemplate, playlistsTemplate, searchTemplate])
+        let tabBarTemplate = CPTabBarTemplate(templates: [allSongsTemplate, playlistsTemplate, searchTemplate])
 
         interfaceController.setRootTemplate(tabBarTemplate, animated: true, completion: nil)
 
@@ -71,49 +70,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         template.tabImage = UIImage(systemName: "music.note")
 
         // Add Now Playing button to trailing bar
-        if let nowPlayingImage = UIImage(systemName: "play.circle.fill") {
-            let nowPlayingButton = CPBarButton(image: nowPlayingImage) { [weak self] _ in
-                self?.showNowPlaying()
-            }
-            template.trailingNavigationBarButtons = [nowPlayingButton]
-        }
-
-        return template
-    }
-
-    private func createFavoritesTab(tracks: [Track]) -> CPListTemplate {
-        let favoriteIds = (try? AppCoordinator.shared.getFavorites()) ?? []
-        let likedTracks = tracks.filter { favoriteIds.contains($0.stableId) }
-
-        let songItems: [CPListItem] = likedTracks.map { track in
-            let artistName = getArtistName(for: track)
-            let item = CPListItem(text: track.title, detailText: artistName)
-
-            // Load cached artwork asynchronously
-            Task { @MainActor in
-                if let artwork = await ArtworkManager.shared.getArtwork(for: track) {
-                    let resizedImage = resizeImageForCarPlay(artwork, rounded: true)
-                    item.setImage(resizedImage)
-                } else {
-                    let placeholder = createPlaceholderImage()
-                    item.setImage(placeholder)
-                }
-            }
-
-            item.handler = { _, completion in
-                Task {
-                    await AppCoordinator.shared.playTrack(track, queue: likedTracks)
-                }
-                completion()
-            }
-            return item
-        }
-
-        let section = CPListSection(items: songItems)
-        let template = CPListTemplate(title: Localized.likedSongs, sections: [section])
-        template.tabImage = UIImage(systemName: "heart.fill")
-
-        // Add Now Playing button
         if let nowPlayingImage = UIImage(systemName: "play.circle.fill") {
             let nowPlayingButton = CPBarButton(image: nowPlayingImage) { [weak self] _ in
                 self?.showNowPlaying()
@@ -223,27 +179,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
         let section = CPListSection(items: songItems)
         let listTemplate = CPListTemplate(title: Localized.allSongs, sections: [section])
-        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
-    }
-
-    private func showLikedSongs(tracks: [Track]) {
-        let favoriteIds = (try? AppCoordinator.shared.getFavorites()) ?? []
-        let likedTracks = tracks.filter { favoriteIds.contains($0.stableId) }
-
-        let songItems: [CPListItem] = likedTracks.map { track in
-            let artistName = getArtistName(for: track)
-            let item = CPListItem(text: track.title, detailText: artistName)
-            item.handler = { _, completion in
-                Task {
-                    await AppCoordinator.shared.playTrack(track, queue: likedTracks)
-                }
-                completion()
-            }
-            return item
-        }
-
-        let section = CPListSection(items: songItems)
-        let listTemplate = CPListTemplate(title: Localized.likedSongs, sections: [section])
         interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
     }
 

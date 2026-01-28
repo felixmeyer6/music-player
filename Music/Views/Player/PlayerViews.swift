@@ -114,7 +114,6 @@ struct PlayerView: View {
     @State private var isArtworkHidden = false
     @State private var suppressDragAnimation = false
     @State private var allTracks: [Track] = []
-    @State private var isFavorite = false
     @State private var showPlaylistDialog = false
     @State private var showQueueSheet = false
     @State private var dominantColor: Color = .white
@@ -165,14 +164,12 @@ struct PlayerView: View {
                 currentArtwork = nil
                 Task {
                     await loadAllArtworks()
-                    checkFavoriteStatus()
                 }
             }
             .onAppear {
                 Task {
                     await loadAllArtworks()
                     await loadTracks()
-                    checkFavoriteStatus()
                 }
             }
             .sheet(isPresented: $showPlaylistDialog) {
@@ -368,11 +365,6 @@ struct PlayerView: View {
             }
 
             Spacer()
-
-            HStack(spacing: UIScreen.main.scale < UIScreen.main.nativeScale ? 16 : 20) {
-                likeButton
-                addToPlaylistButton
-            }
         }
         .padding(.horizontal, 8)
     }
@@ -441,22 +433,12 @@ struct PlayerView: View {
         }
     }
 
-    private var likeButton: some View {
-        Button(action: {
-            toggleFavorite()
-        }) {
-            Image(systemName: isFavorite ? "heart.fill" : "heart")
-                .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title3 : .title2)
-                .foregroundColor(isFavorite ? dominantColor : .primary)
-        }
-    }
-
     private var addToPlaylistButton: some View {
         Button(action: {
             showPlaylistDialog = true
         }) {
             Image(systemName: "plus.circle")
-                .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title3 : .title2)
+                .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
                 .foregroundColor(.primary)
         }
     }
@@ -553,7 +535,7 @@ struct PlayerView: View {
             previousButton
             playPauseButton
             nextButton
-            loopButton
+            addToPlaylistButton
         }
         .padding(.horizontal, min(21, UIScreen.main.bounds.width * 0.055))
         .padding(.vertical, 21)
@@ -607,26 +589,6 @@ struct PlayerView: View {
         }) {
             Image(systemName: "forward.fill")
                 .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
-        }
-    }
-
-    private var loopButton: some View {
-        Button(action: {
-            playerEngine.cycleLoopMode()
-        }) {
-            Group {
-                if playerEngine.isLoopingSong {
-                    Image(systemName: "repeat.1.circle.fill")
-                        .foregroundColor(dominantColor)
-                } else if playerEngine.isRepeating {
-                    Image(systemName: "repeat.circle.fill")
-                        .foregroundColor(dominantColor)
-                } else {
-                    Image(systemName: "repeat.circle")
-                        .foregroundColor(.primary)
-                }
-            }
-            .font(UIScreen.main.scale < UIScreen.main.nativeScale ? .title2 : .title)
         }
     }
 
@@ -756,31 +718,6 @@ struct PlayerView: View {
         let minutes = Int(time) / 60
         let seconds = Int(time) % 60
         return String(format: "%d:%02d", minutes, seconds)
-    }
-    
-    private func checkFavoriteStatus() {
-        guard let currentTrack = playerEngine.currentTrack else {
-            isFavorite = false
-            return
-        }
-        
-        do {
-            isFavorite = try DatabaseManager.shared.isFavorite(trackStableId: currentTrack.stableId)
-        } catch {
-            print("Failed to check favorite status: \(error)")
-            isFavorite = false
-        }
-    }
-    
-    private func toggleFavorite() {
-        guard let currentTrack = playerEngine.currentTrack else { return }
-        
-        do {
-            try appCoordinator.toggleFavorite(trackStableId: currentTrack.stableId)
-            isFavorite.toggle()
-        } catch {
-            print("Failed to toggle favorite: \(error)")
-        }
     }
     
     private func showAirPlayPicker() {
@@ -1251,11 +1188,9 @@ struct TrackRowView: View, @MainActor Equatable {
     @EnvironmentObject private var appCoordinator: AppCoordinator
     
     // Internal state only (does not trigger external redraws)
-    @State private var isFavorite = false
     @State private var isPressed = false
     @State private var showPlaylistDialog = false
     @State private var artworkImage: UIImage?
-    @State private var showDeleteConfirmation = false
 
     @State private var accentColor: Color = .white
     
@@ -1269,7 +1204,6 @@ struct TrackRowView: View, @MainActor Equatable {
         return lhs.track.stableId == rhs.track.stableId &&
         lhs.activeTrackId == rhs.activeTrackId &&
         lhs.isAudioPlaying == rhs.isAudioPlaying &&
-        lhs.isFavorite == rhs.isFavorite &&
         lhs.playlist?.id == rhs.playlist?.id
     }
     
@@ -1322,19 +1256,6 @@ struct TrackRowView: View, @MainActor Equatable {
                 
                 Spacer()
                 
-                // Equalizer uses passed params
-                if isCurrentlyPlaying {
-                    let eqKey = "\(isAudioPlaying && isCurrentlyPlaying)-\(activeTrackId ?? "")"
-                    
-                    EqualizerBarsExact(
-                        color: accentColor,
-                        isActive: isAudioPlaying && isCurrentlyPlaying,
-                        isLarge: true,
-                        trackId: activeTrackId
-                    )
-                    .id(eqKey)
-                    .padding(.trailing, 8)
-                }
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -1355,50 +1276,6 @@ struct TrackRowView: View, @MainActor Equatable {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.leading, 8)
-            } else {
-                Menu {
-                    if let onEnterBulkMode = onEnterBulkMode {
-                        Button(action: { onEnterBulkMode() }) {
-                            Label(Localized.select, systemImage: "checkmark.circle")
-                        }
-                    }
-                    
-                    Button(action: {
-                        do {
-                            try appCoordinator.toggleFavorite(trackStableId: track.stableId)
-                            isFavorite.toggle()
-                        } catch { print("Failed to toggle favorite: \(error)") }
-                    }) {
-                        HStack {
-                            Image(systemName: isFavorite ? "heart.slash" : "heart")
-                            Text(isFavorite ? Localized.removeFromLikedSongs : Localized.addToLikedSongs)
-                        }
-                    }
-                    
-                    if let artistId = track.artistId,
-                       let artist = try? DatabaseManager.shared.read({ db in try Artist.fetchOne(db, key: artistId) }),
-                       let allArtistTracks = try? DatabaseManager.shared.read({ db in try Track.filter(Column("artist_id") == artistId).fetchAll(db) }) {
-                        NavigationLink(destination: ArtistDetailScreen(artist: artist, allTracks: allArtistTracks)) {
-                            Label(Localized.showArtistPage, systemImage: "person.circle")
-                        }
-                    }
-                    
-                    Button(action: { showPlaylistDialog = true }) {
-                        Label(Localized.addToPlaylistEllipsis, systemImage: "rectangle.stack.badge.plus")
-                    }
-                    
-                    Button(action: { showDeleteConfirmation = true }) {
-                        Label(Localized.deleteFile, systemImage: "trash")
-                    }
-                    .foregroundColor(.red)
-                    
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .foregroundColor(.secondary)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(PlainButtonStyle())
             }
         }
         .frame(height: 80)
@@ -1415,14 +1292,7 @@ struct TrackRowView: View, @MainActor Equatable {
             PlaylistSelectionView(track: track)
                 .accentColor(accentColor)
         }
-        .alert(Localized.deleteFile, isPresented: $showDeleteConfirmation) {
-            Button("Delete", role: .destructive) { deleteFile() }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text(Localized.deleteFileConfirmation(track.title))
-        }
         .onAppear {
-            isFavorite = (try? appCoordinator.isFavorite(trackStableId: track.stableId)) ?? false
             if artworkImage == nil { loadArtwork() }
         }
     }
@@ -1438,17 +1308,6 @@ struct TrackRowView: View, @MainActor Equatable {
                     accentColor = .white
                 }
             }
-        }
-    }
-    
-    private func deleteFile() {
-        Task {
-            do {
-                let url = URL(fileURLWithPath: track.path)
-                try FileManager.default.removeItem(at: url)
-                try DatabaseManager.shared.deleteTrack(byStableId: track.stableId)
-                NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
-            } catch { print("❌ Failed to delete file: \(error)") }
         }
     }
     

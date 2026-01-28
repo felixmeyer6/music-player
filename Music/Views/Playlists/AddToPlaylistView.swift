@@ -37,16 +37,16 @@ struct AddToPlaylistView: View {
             let lhsMissing = missingCount(in: lhs)
             let rhsMissing = missingCount(in: rhs)
 
-            // Prefer playlists that still need tracks added.
-            let lhsNeedsAdd = lhsMissing > 0
-            let rhsNeedsAdd = rhsMissing > 0
-            if lhsNeedsAdd != rhsNeedsAdd {
-                return lhsNeedsAdd && !rhsNeedsAdd
+            // Show playlists that already contain all selected tracks first.
+            let lhsHasAll = lhsMissing == 0
+            let rhsHasAll = rhsMissing == 0
+            if lhsHasAll != rhsHasAll {
+                return lhsHasAll && !rhsHasAll
             }
 
-            // Then sort by most recently played, then by title.
-            if lhs.lastPlayedAt != rhs.lastPlayedAt {
-                return lhs.lastPlayedAt > rhs.lastPlayedAt
+            // Then sort by last modified date (updated_at), then by title.
+            if lhs.updatedAt != rhs.updatedAt {
+                return lhs.updatedAt > rhs.updatedAt
             }
             return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
         }
@@ -55,7 +55,7 @@ struct AddToPlaylistView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                Color(.systemGray5)
+                Color(red: 24.0 / 255.0, green: 24.0 / 255.0, blue: 24.0 / 255.0)
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
@@ -70,6 +70,7 @@ struct AddToPlaylistView: View {
                                 .foregroundColor(.secondary)
                         }
                         .padding(.bottom, 12)
+                        .padding(.horizontal)
                     }
 
                     if playlists.isEmpty {
@@ -86,6 +87,7 @@ struct AddToPlaylistView: View {
                                 .foregroundColor(.secondary)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.horizontal)
                     } else {
                         List {
                             ForEach(sortedPlaylists, id: \.id) { playlist in
@@ -120,15 +122,16 @@ struct AddToPlaylistView: View {
                         }
                         .frame(maxHeight: .infinity)
                         .scrollContentBackground(.hidden)
-                        .background(Color(.systemGray5))
+                        .scrollIndicators(.hidden)
+                        .contentMargins(.vertical, 6, for: .scrollContent)
+                        .background(Color(red: 24.0 / 255.0, green: 24.0 / 255.0, blue: 24.0 / 255.0))
                     }
                 }
-                .padding()
             }
             .navigationTitle(Localized.addToPlaylist)
             .navigationBarTitleDisplayMode(.inline)
             // Force a consistent navigation bar style regardless of the presenting screen's toolbar settings.
-            .toolbarBackground(Color.black.opacity(0.8), for: .navigationBar)
+            .toolbarBackground(Color(red: 24.0 / 255.0, green: 24.0 / 255.0, blue: 24.0 / 255.0), for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .tint(.white)
@@ -205,8 +208,14 @@ struct AddToPlaylistView: View {
             return
         }
         do {
-            for trackId in trackIds {
-                try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
+            if missingCount(in: playlist) == 0 {
+                for trackId in trackIds {
+                    try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: trackId)
+                }
+            } else {
+                for trackId in trackIds {
+                    try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
+                }
             }
             onComplete?()
             dismiss()

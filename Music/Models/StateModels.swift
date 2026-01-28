@@ -2,22 +2,10 @@
 //  StateModels.swift
 //  Cosmos Music Player
 //
-//  JSON state models for favorites and playlists sync
+//  JSON state models for playlists sync
 //
 
 import Foundation
-
-struct FavoritesState: Codable {
-    let version: Int
-    let updatedAt: Date
-    let favorites: [String]
-    
-    init(favorites: [String]) {
-        self.version = 1
-        self.updatedAt = Date()
-        self.favorites = favorites
-    }
-}
 
 struct PlaylistState: Codable {
     let version: Int

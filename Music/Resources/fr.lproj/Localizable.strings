@@ -9,6 +9,8 @@
 "enter_playlist_name" = "Entrez un nom pour votre nouvelle playlist";
 "delete_playlist" = "Supprimer la playlist";
 "delete_playlist_confirmation" = "Êtes-vous sûr de vouloir supprimer '%@' ? Cette action ne peut pas être annulée.";
+"are_you_sure" = "Êtes-vous sûr ?";
+"deleting_playlist_cant_be_undone" = "Supprimer %@ est irréversible.";
 "delete" = "Supprimer";
 "cancel" = "Annuler";
 "create" = "Créer";
@@ -28,7 +30,6 @@
 
 /* General UI strings */
 "all_songs" = "Vos musiques";
-"liked_songs" = "Favoris";
 "add_songs" = "Ouvrir Fichiers";
 "import_music_files" = "Importer des musiques";
 "open_folder" = "Ouvrir un dossier";
@@ -97,10 +98,6 @@
 "background_color" = "Couleur d'arrière-plan";
 "choose_color_theme" = "Choisissez le thème de couleur pour les effets d'arrière-plan sur tous les écrans.";
 
-/* Liked Actions */
-"add_to_liked_songs" = "Ajouter aux favoris";
-"remove_from_liked_songs" = "Retirer des favoris";
-
 /* Search Categories */
 "all" = "Tout";
 
@@ -114,10 +111,10 @@
 /* Tutorial/Onboarding */
 "welcome_to_cosmos" = "Bienvenue dans Musique";
 "sign_in_to_apple_id" = "Se connecter à l'identifiant Apple";
-"sign_in_message" = "Pour synchroniser votre musique et vos favoris sur tous vos appareils, assurez-vous d'être connecté à votre identifiant Apple.";
+"sign_in_message" = "Pour synchroniser votre musique sur tous vos appareils, assurez-vous d'être connecté à votre identifiant Apple.";
 "if_signed_in_continue" = "Si vous êtes connecté, vous pouvez continuer";
 "enable_icloud_drive" = "Activer iCloud Drive";
-"icloud_drive_message" = "iCloud Drive vous permet d'accéder à vos fichiers musicaux depuis n'importe quel appareil et garde vos favoris synchronisés.";
+"icloud_drive_message" = "iCloud Drive vous permet d'accéder à vos fichiers musicaux depuis n'importe quel appareil et garde votre bibliothèque synchronisée.";
 "if_icloud_enabled_continue" = "Si iCloud Drive est activé, vous pouvez continuer";
 "add_your_music" = "Ajoutez votre musique";
 "how_to_add_music" = "Vous pouvez ajouter vos musiques soit dans iCloud (synchronisé sur vos appareils) ou localement :";
@@ -148,12 +145,11 @@
 
 /* Subtitles and descriptions */
 "songs_count" = "%d musiques";
-"your_favorites" = "Vos favoris";
 "your_playlists" = "Vos listes de lecture";
 "browse_by_artist" = "Parcourir par artiste";
 "browse_by_genre" = "Parcourir par genre";
 "browse_by_album" = "Parcourir par album";
-"genre" = "Genre";
+"genre" = "Genres";
 "no_genres_found" = "Aucun genre trouvé";
 "genres_will_appear" = "Les genres apparaîtront ici une fois que votre musique inclura des métadonnées de genre";
 "unknown_album" = "Album inconnu";
@@ -261,8 +257,6 @@
 "select" = "Sélectionner";
 "select_all" = "Tout sélectionner";
 "bulk_actions" = "Actions";
-"add_to_liked" = "Ajouter aux favoris";
-"remove_from_liked" = "Retirer des favoris";
 "delete_files" = "Supprimer les fichiers";
 "delete_files_confirmation" = "Supprimer les fichiers";
 "selected_count_singular" = "%d sélectionné";

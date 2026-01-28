@@ -11,7 +11,6 @@ enum ScreenType {
     case playlists
     case playlistDetail
     case allSongs
-    case likedSongs
     case player
     case miniPlayer
 }

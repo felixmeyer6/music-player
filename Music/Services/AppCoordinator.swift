@@ -46,8 +46,6 @@ class AppCoordinator: ObservableObject {
 
     @Published var showSyncAlert = false
     
-    private var isInitialSyncCompleted = false
-    
     let databaseManager = DatabaseManager.shared
     let stateManager = StateManager.shared
     let libraryIndexer = LibraryIndexer.shared
@@ -86,7 +84,6 @@ class AppCoordinator: ObservableObject {
         case .available:
             isiCloudAvailable = true
             await forceiCloudFolderCreation()
-            await syncFavorites()
 
             // Only auto-scan if it's been a while or never scanned
             if shouldAutoScan {
@@ -209,63 +206,6 @@ class AppCoordinator: ObservableObject {
         }
     }
     
-    private func syncFavorites() async {
-        print("🔄 Starting favorites sync...")
-        do {
-            print("📂 Loading saved favorites from storage...")
-            let savedFavorites = try stateManager.loadFavorites()
-            print("🗃️ Getting favorites from database...")
-            let databaseFavorites = try databaseManager.getFavorites()
-            
-            print("📊 Favorites sync - Saved: \(savedFavorites.count), Database: \(databaseFavorites.count)")
-            print("📊 Saved favorites: \(savedFavorites)")
-            print("📊 Database favorites: \(databaseFavorites)")
-            
-            // Only sync if we actually have saved favorites to restore
-            if !savedFavorites.isEmpty {
-                print("🔄 Restoring saved favorites to database...")
-                // Restore any favorites that exist in saved but not in database
-                for favorite in savedFavorites {
-                    if !databaseFavorites.contains(favorite) {
-                        try databaseManager.addToFavorites(trackStableId: favorite)
-                        print("✅ Restored favorite: \(favorite)")
-                    } else {
-                        print("⚡ Favorite already in database: \(favorite)")
-                    }
-                }
-                
-                // Get final state after restoration
-                print("🔍 Getting final state after restoration...")
-                let finalFavorites = try databaseManager.getFavorites()
-                print("📊 Final favorites count: \(finalFavorites.count)")
-                print("📊 Final favorites list: \(finalFavorites)")
-                
-                // Only save if there were actual changes
-                if finalFavorites != savedFavorites {
-                    print("💾 Saving updated favorites...")
-                    try stateManager.saveFavorites(finalFavorites)
-                    print("💾 Updated saved favorites")
-                } else {
-                    print("✅ Favorites already in sync")
-                }
-            } else if !databaseFavorites.isEmpty {
-                // If no saved favorites but database has some, save them
-                print("💾 No saved favorites, saving database favorites to storage...")
-                try stateManager.saveFavorites(databaseFavorites)
-                print("💾 Saved database favorites to storage")
-            } else {
-                print("📭 No favorites to sync")
-            }
-            
-        } catch {
-            print("❌ Failed to sync favorites: \(error)")
-        }
-        
-        // Mark initial sync as completed to allow future saves
-        isInitialSyncCompleted = true
-        print("✅ Initial favorites sync completed")
-    }
-    
     private func startLibraryIndexing() async {
         libraryIndexer.start()
     }
@@ -320,19 +260,6 @@ class AppCoordinator: ObservableObject {
     
     private func onIndexingCompleted() async {
         do {
-            let favorites = try databaseManager.getFavorites()
-
-            // Only save to iCloud if we actually have favorites AND initial sync is completed
-            // This prevents overwriting existing iCloud favorites with an empty array during startup
-            if !favorites.isEmpty && isInitialSyncCompleted {
-                try stateManager.saveFavorites(favorites)
-                print("Saved \(favorites.count) favorites to iCloud")
-            } else if !isInitialSyncCompleted {
-                print("Skipping iCloud save - initial sync not completed yet")
-            } else {
-                print("Skipping iCloud save - no favorites to save (prevents overwriting existing iCloud data)")
-            }
-
             // Restore playlists from iCloud after indexing is complete
             await restorePlaylistsFromiCloud()
 
@@ -368,7 +295,7 @@ class AppCoordinator: ObservableObject {
             await fileCleanupManager.checkForOrphanedFiles()
             print("🔄 AppCoordinator: Orphaned files check completed")
         } catch {
-            print("Failed to save favorites after indexing: \(error)")
+            print("❌ Failed to complete post-indexing tasks: \(error)")
         }
     }
     
@@ -597,56 +524,6 @@ class AppCoordinator: ObservableObject {
     
     func getAllAlbums() throws -> [Album] {
         return try databaseManager.getAllAlbums()
-    }
-    
-    func toggleFavorite(trackStableId: String) throws {
-        print("🔄 Toggle favorite for track: \(trackStableId)")
-        
-        let wasLiked = try databaseManager.isFavorite(trackStableId: trackStableId)
-        print("📊 Track was liked before toggle: \(wasLiked)")
-        
-        if wasLiked {
-            try databaseManager.removeFromFavorites(trackStableId: trackStableId)
-            print("❌ Removed from favorites: \(trackStableId)")
-        } else {
-            try databaseManager.addToFavorites(trackStableId: trackStableId)
-            print("❤️ Added to favorites: \(trackStableId)")
-        }
-
-        // Notify observers that favorites changed
-        NotificationCenter.default.post(name: NSNotification.Name("FavoritesChanged"), object: nil)
-
-        // Verify the database operation worked
-        let isNowLiked = try databaseManager.isFavorite(trackStableId: trackStableId)
-        print("📊 Track is now liked after toggle: \(isNowLiked)")
-        
-        // Get current favorites count from database
-        let currentFavorites = try databaseManager.getFavorites()
-        print("📊 Total favorites in database after toggle: \(currentFavorites.count)")
-        
-        // Always save favorites (both locally and to iCloud if available)
-        Task {
-            do {
-                let favorites = try databaseManager.getFavorites()
-                print("📊 Favorites to save: \(favorites.count) - \(favorites)")
-                try stateManager.saveFavorites(favorites)
-                print("💾 Favorites saved: \(favorites.count) total")
-                
-                // Verify save worked by loading back
-                let loadedFavorites = try stateManager.loadFavorites()
-                print("📊 Loaded favorites after save: \(loadedFavorites.count) - \(loadedFavorites)")
-            } catch {
-                print("❌ Failed to save favorites: \(error)")
-            }
-        }
-    }
-    
-    func isFavorite(trackStableId: String) throws -> Bool {
-        return try databaseManager.isFavorite(trackStableId: trackStableId)
-    }
-    
-    func getFavorites() throws -> [String] {
-        return try databaseManager.getFavorites()
     }
     
     // MARK: - Playlist operations

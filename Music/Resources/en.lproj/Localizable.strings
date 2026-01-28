@@ -9,6 +9,8 @@
 "enter_playlist_name" = "Enter a name for your new playlist";
 "delete_playlist" = "Delete Playlist";
 "delete_playlist_confirmation" = "Are you sure you want to delete '%@'? This action cannot be undone.";
+"are_you_sure" = "Are you sure?";
+"deleting_playlist_cant_be_undone" = "Deleting %@ can't be undone.";
 "delete" = "Delete";
 "cancel" = "Cancel";
 "create" = "Create";
@@ -28,7 +30,6 @@
 
 /* General UI strings */
 "all_songs" = "Tracks";
-"liked_songs" = "Liked";
 "add_songs" = "Open Files";
 "import_music_files" = "Import music files";
 "open_folder" = "Open Folder";
@@ -97,10 +98,6 @@
 "background_color" = "Background Color";
 "choose_color_theme" = "Choose the color theme for background effects across all screens.";
 
-/* Liked Actions */
-"add_to_liked_songs" = "Add to Liked";
-"remove_from_liked_songs" = "Remove from Liked";
-
 /* Search Categories */
 "all" = "All";
 
@@ -114,10 +111,10 @@
 /* Tutorial/Onboarding */
 "welcome_to_cosmos" = "Welcome to Music";
 "sign_in_to_apple_id" = "Sign in to Apple ID";
-"sign_in_message" = "To sync your music and favorites across devices, please make sure you're signed in to your Apple ID.";
+"sign_in_message" = "To sync your music across devices, please make sure you're signed in to your Apple ID.";
 "if_signed_in_continue" = "If you're signed in, you can continue";
 "enable_icloud_drive" = "Enable iCloud Drive";
-"icloud_drive_message" = "iCloud Drive lets you access your music files from any device and keeps your favorites synced.";
+"icloud_drive_message" = "iCloud Drive lets you access your music files from any device and keeps your library synced.";
 "if_icloud_enabled_continue" = "If iCloud Drive is enabled, you can continue";
 "add_your_music" = "Add Your Music";
 "how_to_add_music" = "You can add music files to either iCloud Drive (syncs across devices) or locally (this device only):";
@@ -148,12 +145,11 @@
 
 /* Subtitles and descriptions */
 "songs_count" = "%d tracks";
-"your_favorites" = "Your favorites";
 "your_playlists" = "Your playlists";
 "browse_by_artist" = "Browse by artist";
 "browse_by_genre" = "Browse by genre";
 "browse_by_album" = "Browse by album";
-"genre" = "Genre";
+"genre" = "Genres";
 "no_genres_found" = "No genres found";
 "genres_will_appear" = "Genres will appear here once your music includes genre metadata";
 "unknown_album" = "Unknown Album";
@@ -261,8 +257,6 @@
 "select" = "Select";
 "select_all" = "Select All";
 "bulk_actions" = "Actions";
-"add_to_liked" = "Add to Liked";
-"remove_from_liked" = "Remove from Liked";
 "delete_files" = "Delete Files";
 "delete_files_confirmation" = "Delete Files";
 "selected_count_singular" = "%d selected";

@@ -134,209 +134,53 @@ private struct AlbumCardView: View {
     }
 }
 
-// Album detail view reconstructed
+// Album detail view using CollectionDetailView
 struct AlbumDetailScreen: View {
     let album: Album
     let allTracks: [Track]
     @EnvironmentObject private var appCoordinator: AppCoordinator
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var artworkImage: UIImage?
-    @State private var settings = DeleteSettings.load()
     @State private var albumTracks: [Track] = []
-    private let headerArtworkSize: CGFloat = 140
-    private var headerTextTopOffset: CGFloat { headerArtworkSize * 0.15 }
 
-    private var filteredAlbumTracks: [Track] {
-        return albumTracks
-    }
-
-    private var groupedByDisc: [(discNumber: Int, tracks: [Track])] {
-        let grouped = Dictionary(grouping: filteredAlbumTracks) { track in
-            track.discNo ?? 1
-        }
-        return grouped.sorted(by: { $0.key < $1.key }).map { (discNumber: $0.key, tracks: $0.value) }
-    }
-
-    private var hasMultipleDiscs: Bool {
-        return groupedByDisc.count > 1
-    }
-    
-    private var albumArtist: String {
-        if let artistId = album.artistId,
-           let artist = try? DatabaseManager.shared.read({ db in
-               try Artist.fetchOne(db, key: artistId)
-           }) {
-            return artist.name
-        }
-        return Localized.unknownArtist
-    }
-    
     var body: some View {
         ZStack {
             ScreenSpecificBackgroundView(screen: .albumDetail)
-            
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Artwork + info
-                    VStack(spacing: 16) {
-                        HStack(alignment: .top, spacing: 16) {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.gray.opacity(0.2))
-                                .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                .overlay {
-                                    if let image = artworkImage {
-                                        Image(uiImage: image)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fill)
-                                            .frame(width: headerArtworkSize, height: headerArtworkSize)
-                                            .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    } else {
-                                        Image(systemName: "music.note")
-                                            .font(.system(size: 40))
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-                                .shadow(color: .black.opacity(0.1), radius: 10, x: 0, y: 5)
 
-                            VStack(alignment: .leading, spacing: 6) {
-                                Spacer()
-                                    .frame(height: headerTextTopOffset)
-
-                                Text(album.title)
-                                    .font(.title2)
-                                    .fontWeight(.bold)
-                                    .multilineTextAlignment(.leading)
-
-                                Text(Localized.songsCount(filteredAlbumTracks.count))
-                                    .font(.body)
-                                    .foregroundColor(.secondary)
-                                    .multilineTextAlignment(.leading)
-
-                                NavigationLink {
-                                    ArtistDetailScreenWrapper(artistName: albumArtist, allTracks: allTracks)
-                                } label: {
-                                    Text(albumArtist)
-                                        .font(.body)
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.leading)
-                                }
-                                .buttonStyle(.plain)
-
-                                Spacer(minLength: 0)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        
-                        HStack(spacing: 12) {
-                            Button {
-                                if let first = filteredAlbumTracks.first {
-                                    Task {
-                                        await playerEngine.playTrack(first, queue: filteredAlbumTracks)
-                                    }
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "play.fill")
-                                    Text(Localized.play)
-                                }
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(.black)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.white)
-                                .cornerRadius(28)
-                            }
-
-                            Button {
-                                guard !filteredAlbumTracks.isEmpty else { return }
-                                let shuffled = filteredAlbumTracks.shuffled()
-                                Task {
-                                    await playerEngine.playTrack(shuffled[0], queue: shuffled)
-                                }
-                            } label: {
-                                HStack {
-                                    Image(systemName: "shuffle")
-                                    Text(Localized.shuffle)
-                                }
-                                .font(.title3.weight(.semibold))
-                                .foregroundColor(Color.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 56)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(28)
-                            }
-                        }
-                        .padding(.horizontal, 8)
+            CollectionDetailView(
+                title: album.title,
+                subtitle: Localized.songsCount(albumTracks.count),
+                artwork: artworkImage,
+                displayTracks: albumTracks,  // Already sorted by disc/track from DB
+                sortOptions: [],  // No sorting for albums
+                selectedSort: .defaultOrder,
+                onSelectSort: { _ in },
+                onPlay: { tracks in
+                    if let first = tracks.first {
+                        Task { await playerEngine.playTrack(first, queue: tracks) }
                     }
-                    .padding(.horizontal)
-                    
-                    // Track list
-                    VStack(alignment: .leading, spacing: 0) {
-                        HStack {
-                            Text(Localized.songs)
-                                .font(.title3.weight(.bold))
-                            Spacer()
-                            Text(Localized.songsCount(filteredAlbumTracks.count))
-                                .font(.body)
-                                .foregroundColor(.secondary)
-                        }
-                        .padding(.horizontal)
-                        .padding(.bottom, 12)
-
-                        LazyVStack(spacing: 0) {
-                            ForEach(groupedByDisc, id: \.discNumber) { disc in
-                                // Disc header (only show if multiple discs)
-                                if hasMultipleDiscs {
-                                    HStack {
-                                        Text("Disc \(disc.discNumber)")
-                                            .font(.headline)
-                                            .foregroundColor(.secondary)
-                                        Spacer()
-                                    }
-                                    .padding(.horizontal)
-                                    .padding(.top, disc.discNumber > 1 ? 16 : 0)
-                                    .padding(.bottom, 8)
-                                }
-
-                                // Tracks for this disc
-                                ForEach(disc.tracks, id: \.stableId) { track in
-                                    TrackRowView(
-                                        track: track,
-                                        activeTrackId: playerEngine.currentTrack?.stableId,
-                                        isAudioPlaying: playerEngine.isPlaying,
-                                        onTap: {
-                                            Task { await playerEngine.playTrack(track, queue: filteredAlbumTracks) }
-                                        },
-                                        playlist: nil,
-                                        showDirectDeleteButton: false,
-                                        onEnterBulkMode: nil
-                                    )
-                                    .equatable()
-                                    .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial).opacity(0.7))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 4)
-                                }
-                            }
-                        }
+                },
+                onShuffle: { tracks in
+                    let shuffled = tracks.shuffled()
+                    if let first = shuffled.first {
+                        Task { await playerEngine.playTrack(first, queue: shuffled) }
                     }
-                }
-                .padding(.bottom, 100) // Add padding for mini player
-            }
+                },
+                onTrackTap: { track, queue in
+                    Task { await playerEngine.playTrack(track, queue: queue) }
+                },
+                onPlayNext: { track in playerEngine.insertNext(track) },
+                onAddToQueue: { track in playerEngine.addToQueue(track) },
+                playlist: nil,
+                activeTrackId: playerEngine.currentTrack?.stableId,
+                isAudioPlaying: playerEngine.isPlaying
+            )
+            .padding(.bottom, 90)
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadAlbumTracks()
             loadAlbumArtwork()
-        }
-        .task {
-            // Ensure data loads even if onAppear doesn't trigger
-            if albumTracks.isEmpty {
-                loadAlbumTracks()
-            }
-            if artworkImage == nil {
-                loadAlbumArtwork()
-            }
         }
     }
 
@@ -350,13 +194,11 @@ struct AlbumDetailScreen: View {
     }
 
     private func loadAlbumArtwork() {
-        guard let first = filteredAlbumTracks.first else { return }
+        guard let first = albumTracks.first else { return }
         Task {
-            do {
-                let image = await ArtworkManager.shared.getArtwork(for: first)
-                await MainActor.run {
-                    artworkImage = image
-                }
+            let image = await ArtworkManager.shared.getArtwork(for: first)
+            await MainActor.run {
+                artworkImage = image
             }
         }
     }
