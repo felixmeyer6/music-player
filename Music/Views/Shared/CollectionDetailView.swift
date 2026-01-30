@@ -622,13 +622,13 @@ private struct FilterDropdown: View {
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
 
+                Spacer(minLength: 4)
+
                 if !selectedOptions.isEmpty && isAvailable {
-                    Text("(\(selectedOptions.count))")
-                        .font(.caption)
+                    Text("\(selectedOptions.count)")
+                        .font(.caption.weight(.semibold))
                         .foregroundColor(.secondary)
                 }
-
-                Spacer(minLength: 4)
 
                 Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                     .font(.caption2)
