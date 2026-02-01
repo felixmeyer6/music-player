@@ -208,7 +208,6 @@ struct Localized {
     // Manual EQ Presets
     static let manualEQPresets = "manual_eq_presets".localized
     static let noManualPresetsCreated = "no_manual_presets_created".localized
-    static let createManualEQDescription = "create_manual_eq_description".localized
     static let createManual16BandEQ = "create_manual_16band_eq".localized
     static let manual16BandEQ = "manual_16band_eq".localized
     static let manual16BandDescription = "manual_16band_description".localized
@@ -280,6 +279,13 @@ struct Localized {
     static let crossfadeEnabled = "crossfade_enabled".localized
     static let crossfadeDuration = "crossfade_duration".localized
     static let secondsShort = "seconds_short".localized
+
+    // MARK: - Player
+    static let player = "player".localized
+    static let weightedShuffle = "weighted_shuffle".localized
+    static let enableWeightedShuffle = "enable_weighted_shuffle".localized
+    static let ratingWeights = "rating_weights".localized
+    static let weightedShuffleDescription = "weighted_shuffle_description".localized
 
     // MARK: - Sort Options
     static let sortDateNewest = "sort_date_newest".localized

@@ -775,11 +775,11 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
         
-        Task {
+        Task { @MainActor in
             // Get artwork
             let artwork = await ArtworkManager.shared.getArtwork(for: track)
             let artworkData = artwork?.pngData()
-            
+
             // Get artist name
             let artistName: String
             if let artistId = track.artistId,
@@ -790,10 +790,10 @@ class PlayerEngine: NSObject, ObservableObject {
             } else {
                 artistName = Localized.unknownArtist
             }
-            
+
             // Get theme color (white)
             let colorHex = "FFFFFF"
-            
+
             let widgetData = WidgetTrackData(
                 trackId: track.stableId,
                 title: track.title,
@@ -801,7 +801,7 @@ class PlayerEngine: NSObject, ObservableObject {
                 isPlaying: isPlaying,
                 backgroundColorHex: colorHex
             )
-            
+
             WidgetDataManager.shared.saveCurrentTrack(widgetData, artworkData: artworkData)
             WidgetCenter.shared.reloadAllTimelines()
         }
@@ -1741,6 +1741,36 @@ class PlayerEngine: NSObject, ObservableObject {
     
     // MARK: - Queue Management
     
+    func shuffleAndPlay(_ tracks: [Track], beforePlay: (() async -> Void)? = nil) async {
+        guard !tracks.isEmpty else { return }
+
+        let settings = WeightedShuffleSettings.load()
+
+        var kept: [Track]
+        if settings.isEnabled {
+            kept = tracks.filter { track in
+                guard let rating = track.rating, rating >= 1, rating <= 5 else {
+                    return true // unrated tracks always included
+                }
+                let probability = settings.ratingWeights[rating - 1]
+                return Double.random(in: 0..<1.0) < probability
+            }
+            if kept.isEmpty { kept = tracks }
+        } else {
+            kept = tracks
+        }
+
+        let startIndex = Int.random(in: 0..<kept.count)
+        let startTrack = kept[startIndex]
+        var shuffled = kept
+        shuffled.remove(at: startIndex)
+        shuffled.shuffle()
+        shuffled.insert(startTrack, at: 0)
+
+        await beforePlay?()
+        await playTrack(startTrack, queue: shuffled)
+    }
+
     func playTrack(_ track: Track, queue: [Track] = []) async {
         print("🎵 Playing track: \(track.title)")
         // An explicit play request should not trigger state restoration, which can

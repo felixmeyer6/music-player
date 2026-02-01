@@ -172,7 +172,6 @@
 /* Manual EQ Presets */
 "manual_eq_presets" = "Préréglages Manuels 6 Bandes";
 "no_manual_presets_created" = "Aucun préréglage manuel créé";
-"create_manual_eq_description" = "Créez un préréglage d'égaliseur 6 bandes personnalisé avec des curseurs ajustables";
 "create_manual_16band_eq" = "Créer un EQ Manuel 6 Bandes";
 "manual_16band_eq" = "EQ Manuel 6 Bandes";
 "manual_16band_description" = "Crée un égaliseur 6 bandes à 50, 125, 250, 500, 2K et 16K Hz";
@@ -240,6 +239,15 @@
 "crossfade_enabled" = "Activer le fondu";
 "crossfade_duration" = "Durée du fondu";
 "seconds_short" = "s";
+
+/* Player */
+"player" = "Lecteur";
+
+/* Weighted Shuffle */
+"weighted_shuffle" = "Lecture aléatoire pondérée";
+"enable_weighted_shuffle" = "Activer la lecture pondérée";
+"rating_weights" = "Poids par note";
+"weighted_shuffle_description" = "Ajustez la probabilité d'inclusion de chaque note lors de la lecture aléatoire. Les pistes sans note sont toujours incluses.";
 
 /* Sort Options */
 "sort_date_newest" = "Date d'ajout (Plus récent)";

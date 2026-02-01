@@ -124,7 +124,8 @@ struct PlayerView: View {
     @State private var isTrackInMostRecentPlaylist = false
     @State private var wasAddedByQuickAction = false
     @State private var showMetadataSheet = false
-    
+    @State private var isDragHorizontal: Bool? = nil
+
     private var currentArtworkKey: String {
         playerEngine.currentTrack?.stableId ?? "none"
     }
@@ -256,6 +257,18 @@ struct PlayerView: View {
                     .onTapGesture {
                         NotificationCenter.default.post(name: NSNotification.Name("MinimizePlayer"), object: nil)
                     }
+                    .onLongPressGesture {
+                        guard let track = playerEngine.currentTrack else { return }
+                        let tracksSnapshot = allTracks
+                        var userInfo: [String: Any] = ["allTracks": tracksSnapshot]
+                        if let genre = track.genre, !genre.isEmpty {
+                            userInfo["genre"] = genre
+                        }
+                        if let albumId = track.albumId {
+                            userInfo["albumId"] = albumId
+                        }
+                        NotificationCenter.default.post(name: NSNotification.Name("NavigateToFilteredTracksFromPlayer"), object: nil, userInfo: userInfo)
+                    }
             }
             .frame(width: artworkSize, height: artworkSize)
             .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
@@ -264,7 +277,7 @@ struct PlayerView: View {
         .frame(maxWidth: .infinity)
         .clipped()
         .shadow(radius: 8)
-        .gesture(artworkDragGesture)
+        .simultaneousGesture(artworkDragGesture)
     }
 
     private func currentArtworkView(size: CGFloat) -> some View {
@@ -293,13 +306,29 @@ struct PlayerView: View {
     }
 
     private var artworkDragGesture: some Gesture {
-        DragGesture()
+        DragGesture(minimumDistance: 15)
             .onChanged { value in
                 if !isAnimating {
-                    dragOffset = value.translation.width
+                    // Determine direction on first significant movement
+                    if isDragHorizontal == nil {
+                        let horizontal = abs(value.translation.width)
+                        let vertical = abs(value.translation.height)
+                        if horizontal > 5 || vertical > 5 {
+                            isDragHorizontal = horizontal > vertical
+                        }
+                    }
+                    // Only update offset for horizontal drags
+                    if isDragHorizontal == true {
+                        dragOffset = value.translation.width
+                    }
                 }
             }
             .onEnded { value in
+                defer { isDragHorizontal = nil }
+                guard isDragHorizontal == true else {
+                    dragOffset = 0
+                    return
+                }
                 let threshold: CGFloat = 80
                 let velocity = value.predictedEndTranslation.width - value.translation.width
 
@@ -749,10 +778,10 @@ struct PlayerView: View {
     private func loadCurrentArtwork() async {
         if let track = playerEngine.currentTrack {
             // Load album name
-            let albumName: String? = await Task.detached(priority: .userInitiated) {
+            let albumName: String? = await Task.detached(priority: .userInitiated) { () -> String? in
                 guard let albumId = track.albumId else { return nil }
                 return try? DatabaseManager.shared.read { db in
-                    try Album.fetchOne(db, key: albumId)?.title
+                    try Album.fetchOne(db, key: albumId)?.name
                 }
             }.value
 
@@ -880,7 +909,14 @@ struct WaveformScrubber: View {
     var barWidth: CGFloat = 2
     var barSpacing: CGFloat = 1
     var barCornerRadius: CGFloat = 1
-    var totalBars: Int = 150
+
+    private static let barsPerMinute = 50
+
+    private var totalBars: Int {
+        guard let ms = track?.durationMs, ms > 0 else { return 50 }
+        let minutes = Double(ms) / 60_000.0
+        return max(20, Int(ceil(minutes * Double(Self.barsPerMinute))))
+    }
 
     @State private var isDragging = false
     @State private var dragStartProgress: Double = 0
@@ -1298,6 +1334,12 @@ struct MiniPlayerView: View {
                         dragOffset = 0
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToFilteredTracksFromPlayer"))) { _ in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        isExpanded = false
+                        dragOffset = 0
+                    }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("MinimizePlayer"))) { _ in
                     // Minimize the player when artwork is tapped
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
@@ -1499,7 +1541,7 @@ struct TrackRowView: View, @MainActor Equatable {
                     Image(systemName: "square.stack.fill")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text(album.title)
+                    Text(album.name)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -1551,7 +1593,7 @@ struct TrackRowView: View, @MainActor Equatable {
         Task {
             do {
                 try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: track.stableId)
-                NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
+                NotificationCenter.default.post(name: .libraryNeedsRefresh, object: nil)
             } catch { print("❌ Failed to remove from playlist: \(error)") }
         }
     }

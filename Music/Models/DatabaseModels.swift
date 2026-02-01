@@ -15,7 +15,6 @@ struct Artist: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "artist"
 
     nonisolated(unsafe) static let tracks = hasMany(Track.self)
-    nonisolated(unsafe) static let albums = hasMany(Album.self)
 }
 
 struct Genre: Codable, FetchableRecord, PersistableRecord {
@@ -29,21 +28,11 @@ struct Genre: Codable, FetchableRecord, PersistableRecord {
 
 struct Album: Codable, FetchableRecord, PersistableRecord {
     var id: Int64?
-    var artistId: Int64?
-    var title: String
-    var year: Int?
-    var albumArtist: String?
-    
+    var name: String
+
     static let databaseTableName = "album"
-    
-    nonisolated(unsafe) static let artist = belongsTo(Artist.self)
+
     nonisolated(unsafe) static let tracks = hasMany(Track.self)
-    
-    enum CodingKeys: String, CodingKey {
-        case id, title, year
-        case artistId = "artist_id"
-        case albumArtist = "album_artist"
-    }
 }
 
 struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
@@ -92,16 +81,6 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     }
 }
 
-struct GenreSummary: FetchableRecord, Decodable, Hashable {
-    let name: String
-    let trackCount: Int
-
-    enum CodingKeys: String, CodingKey {
-        case name
-        case trackCount = "track_count"
-    }
-}
-
 struct Playlist: Codable, FetchableRecord, PersistableRecord {
     var id: Int64?
     var slug: String
@@ -109,9 +88,6 @@ struct Playlist: Codable, FetchableRecord, PersistableRecord {
     var createdAt: Int64
     var updatedAt: Int64
     var lastPlayedAt: Int64
-    var folderPath: String? // Path to the folder this playlist syncs with
-    var isFolderSynced: Bool // Whether this playlist is synced with a folder
-    var lastFolderSync: Int64? // Last time folder sync was performed
     var customCoverImagePath: String? // Custom user-selected cover image
 
     static let databaseTableName = "playlist"
@@ -123,9 +99,6 @@ struct Playlist: Codable, FetchableRecord, PersistableRecord {
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case lastPlayedAt = "last_played_at"
-        case folderPath = "folder_path"
-        case isFolderSynced = "is_folder_synced"
-        case lastFolderSync = "last_folder_sync"
         case customCoverImagePath = "custom_cover_image_path"
     }
 }

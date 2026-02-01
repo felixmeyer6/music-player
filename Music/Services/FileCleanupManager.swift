@@ -123,7 +123,7 @@ class FileCleanupManager: ObservableObject {
                 }
                 
                 // Notify UI to refresh since we made database changes
-                NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
+                NotificationCenter.default.post(name: .libraryNeedsRefresh, object: nil)
             }
             
             print("🧹 No additional cleanup needed")

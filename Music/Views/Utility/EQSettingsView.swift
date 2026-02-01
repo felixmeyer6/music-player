@@ -76,15 +76,9 @@ struct EQSettingsView: View {
                         }
                     }
                 } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(Localized.noManualPresetsCreated)
-                            .foregroundColor(.secondary)
-                            .italic()
-
-                        Text(Localized.createManualEQDescription)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
+                    Text(Localized.noManualPresetsCreated)
+                        .foregroundColor(.secondary)
+                        .italic()
                 }
 
                 Button(Localized.createManual16BandEQ) {

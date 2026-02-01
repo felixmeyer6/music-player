@@ -47,6 +47,16 @@ class TrackFilterState {
     }
 }
 
+// MARK: - Filter Configuration
+
+struct TrackFilterConfiguration {
+    var showGenre: Bool = true
+    var showAlbum: Bool = true
+    var showRating: Bool = true
+
+    static let all = TrackFilterConfiguration()
+}
+
 // MARK: - Track Filtering
 
 struct TrackFiltering {
@@ -70,10 +80,14 @@ struct TrackFiltering {
     }
 
     /// Check if there are any filter options available
-    static func hasFilterOptions(tracks: [Track], albumLookup: [Int64: String]) -> Bool {
-        !availableGenres(from: tracks).isEmpty ||
-        !availableAlbums(from: tracks, albumLookup: albumLookup).isEmpty ||
-        !availableRatings(from: tracks).isEmpty
+    static func hasFilterOptions(
+        tracks: [Track],
+        albumLookup: [Int64: String],
+        filterConfig: TrackFilterConfiguration = .all
+    ) -> Bool {
+        (filterConfig.showGenre && !availableGenres(from: tracks).isEmpty) ||
+        (filterConfig.showAlbum && !availableAlbums(from: tracks, albumLookup: albumLookup).isEmpty) ||
+        (filterConfig.showRating && !availableRatings(from: tracks).isEmpty)
     }
 
     /// Filters tracks based on filter state
@@ -81,21 +95,29 @@ struct TrackFiltering {
     static func filter(
         tracks: [Track],
         with state: TrackFilterState,
-        albumLookup: [Int64: String]
+        albumLookup: [Int64: String],
+        filterConfig: TrackFilterConfiguration = .all
     ) -> [Track] {
         guard state.isFilterVisible else { return tracks }
 
-        // If no filters selected, show nothing (per requirements)
-        if state.selectedGenres.isEmpty && state.selectedAlbums.isEmpty && state.selectedRatings.isEmpty {
+        let hasSelectedGenres = filterConfig.showGenre && !state.selectedGenres.isEmpty
+        let hasSelectedAlbums = filterConfig.showAlbum && !state.selectedAlbums.isEmpty
+        let hasSelectedRatings = filterConfig.showRating && !state.selectedRatings.isEmpty
+
+        // If no relevant filters selected, show nothing (per requirements)
+        if !(hasSelectedGenres || hasSelectedAlbums || hasSelectedRatings) {
             return []
         }
 
         return tracks.filter { track in
-            let genreMatch = state.selectedGenres.isEmpty ||
+            let genreMatch = !filterConfig.showGenre ||
+                state.selectedGenres.isEmpty ||
                 (track.genre.map { state.selectedGenres.contains($0) } ?? false)
-            let albumMatch = state.selectedAlbums.isEmpty ||
+            let albumMatch = !filterConfig.showAlbum ||
+                state.selectedAlbums.isEmpty ||
                 (track.albumId.map { state.selectedAlbums.contains($0) } ?? false)
-            let ratingMatch = state.selectedRatings.isEmpty ||
+            let ratingMatch = !filterConfig.showRating ||
+                state.selectedRatings.isEmpty ||
                 (track.rating.map { state.selectedRatings.contains($0) } ?? false)
             return genreMatch && albumMatch && ratingMatch
         }

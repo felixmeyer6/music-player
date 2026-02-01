@@ -14,6 +14,18 @@ struct SettingsView: View {
     var body: some View {
         NavigationView {
             Form {
+                Section(Localized.appearance) {
+                    Toggle(Localized.minimalistLibraryIcons, isOn: $deleteSettings.minimalistIcons)
+                        .onChange(of: deleteSettings.minimalistIcons) { _, _ in
+                            deleteSettings.save()
+                        }
+
+                    Toggle(Localized.forceDarkMode, isOn: $deleteSettings.forceDarkMode)
+                        .onChange(of: deleteSettings.forceDarkMode) { _, _ in
+                            deleteSettings.save()
+                        }
+                }
+                
                 Section(Localized.library) {
                     Button {
                         guard !isImporting else { return }
@@ -46,7 +58,7 @@ struct SettingsView: View {
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: "folder.fill")
-                                .foregroundColor(.orange)
+                                .foregroundColor(.blue)
                                 .font(.system(size: 20))
 
                             VStack(alignment: .leading, spacing: 2) {
@@ -65,19 +77,6 @@ struct SettingsView: View {
                     }
                     .disabled(isImporting)
                 }
-
-                Section(Localized.appearance) {
-                    Toggle(Localized.minimalistLibraryIcons, isOn: $deleteSettings.minimalistIcons)
-                        .onChange(of: deleteSettings.minimalistIcons) { _, _ in
-                            deleteSettings.save()
-                        }
-
-                    Toggle(Localized.forceDarkMode, isOn: $deleteSettings.forceDarkMode)
-                        .onChange(of: deleteSettings.forceDarkMode) { _, _ in
-                            deleteSettings.save()
-                        }
-                }
-                
                 
                 Section(Localized.audioSettings) {
                     NavigationLink(destination: EQSettingsView()) {
@@ -88,9 +87,7 @@ struct SettingsView: View {
                             Text(Localized.graphicEqualizer)
                         }
                     }
-                }
 
-                Section(Localized.crossfade) {
                     Toggle(Localized.crossfadeEnabled, isOn: $deleteSettings.crossfadeEnabled)
                         .onChange(of: deleteSettings.crossfadeEnabled) { _, _ in
                             deleteSettings.save()
@@ -111,6 +108,17 @@ struct SettingsView: View {
                         )
                         .onChange(of: deleteSettings.crossfadeDuration) { _, _ in
                             deleteSettings.save()
+                        }
+                    }
+                }
+
+                Section(Localized.player) {
+                    NavigationLink(destination: WeightedShuffleSettingsView()) {
+                        HStack {
+                            Image(systemName: "shuffle")
+                                .foregroundColor(.blue)
+                                .font(.system(size: 20))
+                            Text(Localized.weightedShuffle)
                         }
                     }
                 }

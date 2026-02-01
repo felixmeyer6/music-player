@@ -143,7 +143,7 @@ struct MusicApp: App {
                 // Navigate to playlist
                 if let playlistIdInt = Int64(playlistId) {
                     do {
-                        let playlists = try appCoordinator.databaseManager.getAllPlaylists()
+                        let playlists = try DatabaseManager.shared.getAllPlaylists()
                         if let playlist = playlists.first(where: { $0.id == playlistIdInt }) {
                             // Post notification to navigate to playlist
                             NotificationCenter.default.post(

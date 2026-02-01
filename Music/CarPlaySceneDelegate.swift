@@ -291,8 +291,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
         let albumItems: [CPListItem] = albums.map { album in
             let albumTracks = tracks.filter { $0.albumId == album.id }
-            let artistName = getArtistNameForAlbum(album)
-            let item = CPListItem(text: album.title, detailText: artistName)
+            let item = CPListItem(text: album.name, detailText: nil)
             item.handler = { [weak self] _, completion in
                 self?.showAlbumDetail(album: album, tracks: albumTracks)
                 completion()
@@ -343,7 +342,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         }
 
         let section = CPListSection(items: songItems)
-        let listTemplate = CPListTemplate(title: album.title, sections: [section])
+        let listTemplate = CPListTemplate(title: album.name, sections: [section])
         interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
     }
 
@@ -363,19 +362,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         return ""
     }
 
-    private func getArtistNameForAlbum(_ album: Album) -> String {
-        guard let artistId = album.artistId else { return "" }
-        do {
-            if let artist = try DatabaseManager.shared.read({ db in
-                try Artist.fetchOne(db, key: artistId)
-            }) {
-                return artist.name
-            }
-        } catch {
-            print("Failed to fetch artist for album: \(error)")
-        }
-        return ""
-    }
 }
 
 
@@ -412,7 +398,7 @@ extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
                let album = try? DatabaseManager.shared.read({ db in
                    try Album.fetchOne(db, key: albumId)
                }),
-               album.title.lowercased().contains(lowercasedQuery) {
+               album.name.lowercased().contains(lowercasedQuery) {
                 return true
             }
 
@@ -462,27 +448,12 @@ extension CarPlaySceneDelegate: CPSearchTemplateDelegate {
         // Search albums
         if let allAlbums = try? AppCoordinator.shared.getAllAlbums() {
             let matchingAlbums = allAlbums.filter { album in
-                // Search by album title
-                if album.title.lowercased().contains(lowercasedQuery) {
-                    return true
-                }
-
-                // Search by artist name
-                if let artistId = album.artistId,
-                   let artist = try? DatabaseManager.shared.read({ db in
-                       try Artist.fetchOne(db, key: artistId)
-                   }),
-                   artist.name.lowercased().contains(lowercasedQuery) {
-                    return true
-                }
-
-                return false
+                album.name.lowercased().contains(lowercasedQuery)
             }
 
             for album in matchingAlbums {
                 let albumTracks = allTracks.filter { $0.albumId == album.id }
-                let artistName = getArtistNameForAlbum(album)
-                let item = CPListItem(text: "💿 \(album.title)", detailText: artistName)
+                let item = CPListItem(text: "💿 \(album.name)", detailText: nil)
                 item.handler = { [weak self] _, completion in
                     self?.showAlbumDetail(album: album, tracks: albumTracks)
                     completion()

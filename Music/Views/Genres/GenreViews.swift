@@ -1,134 +1,6 @@
 import SwiftUI
 import UIKit
 
-struct GenresScreen: View {
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    @State private var genres: [GenreSummary] = []
-
-    var body: some View {
-        ZStack {
-            ScreenSpecificBackgroundView(screen: .genres)
-
-            VStack {
-                if genres.isEmpty {
-                    EmptyGenresView()
-                } else {
-                    ScrollView {
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: 20),
-                                GridItem(.flexible())
-                            ],
-                            spacing: 16
-                        ) {
-                            ForEach(genres, id: \.name) { genre in
-                                NavigationLink {
-                                    GenreDetailScreen(genreName: genre.name)
-                                } label: {
-                                    GenreCardView(genre: genre)
-                                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(16)
-                        .padding(.bottom, 100) // Add padding for mini player
-                    }
-                }
-            }
-            .navigationTitle(Localized.genre)
-            .navigationBarTitleDisplayMode(.inline)
-            .onAppear(perform: loadGenres)
-            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LibraryNeedsRefresh"))) { _ in
-                loadGenres()
-            }
-        }
-    }
-
-    private func loadGenres() {
-        do {
-            genres = try appCoordinator.databaseManager.getAllGenres()
-        } catch {
-            print("Failed to load genres: \(error)")
-        }
-    }
-}
-
-private struct EmptyGenresView: View {
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "music.quarternote.3")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary)
-            Text(Localized.noGenresFound)
-                .font(.headline)
-            Text(Localized.genresWillAppear)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct GenreCardView: View {
-    let genre: GenreSummary
-    @State private var artworkImage: UIImage?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GeometryReader { geometry in
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.15))
-                    .overlay {
-                        if let image = artworkImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: geometry.size.width, height: geometry.size.width)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        } else {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 36))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-            }
-            .aspectRatio(1, contentMode: .fit)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(genre.name)
-                    .font(.headline)
-                    .lineLimit(2)
-
-                Text(Localized.songsCount(genre.trackCount))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .task {
-            if artworkImage == nil {
-                loadGenreArtwork()
-            }
-        }
-    }
-
-    private func loadGenreArtwork() {
-        Task {
-            do {
-                guard let firstTrack = try DatabaseManager.shared.getFirstTrackByGenre(genre.name) else { return }
-                let image = await ArtworkManager.shared.getArtwork(for: firstTrack)
-                await MainActor.run {
-                    artworkImage = image
-                }
-            } catch {
-                print("Failed to load genre artwork: \(error)")
-            }
-        }
-    }
-}
-
 struct GenreDetailScreen: View {
     let genreName: String
     @EnvironmentObject private var appCoordinator: AppCoordinator
@@ -168,10 +40,7 @@ struct GenreDetailScreen: View {
                     }
                 },
                 onShuffle: { tracks in
-                    let shuffled = tracks.shuffled()
-                    if let first = shuffled.first {
-                        Task { await playerEngine.playTrack(first, queue: shuffled) }
-                    }
+                    Task { await playerEngine.shuffleAndPlay(tracks) }
                 },
                 onTrackTap: { track, queue in
                     Task { await playerEngine.playTrack(track, queue: queue) }
@@ -184,36 +53,23 @@ struct GenreDetailScreen: View {
                 albumLookup: albumLookup,
                 filterState: filterState
             )
-            .padding(.bottom, 90)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
         }
         .navigationTitle(genreName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    // Filter button
-                    if hasFilterOptions {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                filterState.toggleFilter()
-                            }
-                        } label: {
-                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                                .foregroundColor(.white)
-                        }
-                    }
-
-                    // Sort button (rightmost)
-                    SortMenuView(selection: $sortOption, onSelectionChanged: saveSortPreference)
-                }
-            }
-        }
+        .modifier(CollectionDetailToolbar(
+            hasFilterOptions: hasFilterOptions,
+            filterState: filterState,
+            sortOption: $sortOption,
+            onSortChanged: saveSortPreference,
+            isEditMode: .constant(false)
+        ))
         .onAppear {
             loadTracks()
             loadSortPreference()
             loadArtwork()
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LibraryNeedsRefresh"))) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .libraryNeedsRefresh)) { _ in
             loadTracks()
             loadArtwork()
         }
@@ -221,7 +77,7 @@ struct GenreDetailScreen: View {
 
     private func loadTracks() {
         do {
-            tracks = try appCoordinator.databaseManager.getTracksByGenre(genreName)
+            tracks = try DatabaseManager.shared.getTracksByGenre(genreName)
             loadAlbumLookup()
         } catch {
             print("Failed to load genre tracks: \(error)")
@@ -230,11 +86,7 @@ struct GenreDetailScreen: View {
 
     private func loadAlbumLookup() {
         do {
-            let albums = try appCoordinator.databaseManager.getAllAlbums()
-            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
-                guard let id = album.id else { return nil }
-                return (id, album.title)
-            })
+            albumLookup = try DatabaseManager.shared.getAlbumLookup()
         } catch {
             print("Failed to load album lookup: \(error)")
         }
@@ -243,7 +95,7 @@ struct GenreDetailScreen: View {
     private func loadArtwork() {
         Task {
             do {
-                guard let firstTrack = try appCoordinator.databaseManager.getFirstTrackByGenre(genreName) else { return }
+                guard let firstTrack = try DatabaseManager.shared.getFirstTrackByGenre(genreName) else { return }
                 let image = await ArtworkManager.shared.getArtwork(for: firstTrack)
                 await MainActor.run {
                     artworkImage = image
@@ -254,19 +106,15 @@ struct GenreDetailScreen: View {
         }
     }
 
-    private func sortPreferenceKey() -> String {
-        "sortPreference_genre_\(genreName.lowercased())"
+    private var sortStore: SortPreferenceStore {
+        SortPreferenceStore(keyPrefix: "genre", entityId: genreName.lowercased())
     }
 
     private func loadSortPreference() {
-        let key = sortPreferenceKey()
-        if let savedRawValue = UserDefaults.standard.string(forKey: key),
-           let saved = TrackSortOption(rawValue: savedRawValue) {
-            sortOption = saved
-        }
+        if let saved = sortStore.load() { sortOption = saved }
     }
 
     private func saveSortPreference() {
-        UserDefaults.standard.set(sortOption.rawValue, forKey: sortPreferenceKey())
+        sortStore.save(sortOption)
     }
 }

@@ -162,80 +162,6 @@ struct CollectionDetailView: View {
         }
     }
 
-    // MARK: - Sort Toolbar
-    @ToolbarContentBuilder
-    func sortToolbarContent() -> some ToolbarContent {
-        if !sortOptions.isEmpty && !isBulkMode {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                SortMenuView(
-                    selection: Binding(
-                        get: { selectedSort },
-                        set: { onSelectSort($0) }
-                    ),
-                    options: sortOptions
-                )
-            }
-        }
-    }
-
-    // MARK: - Filter Toolbar
-    @ToolbarContentBuilder
-    func filterToolbarContent() -> some ToolbarContent {
-        if let state = filterState, hasAnyFilterOptions && !isBulkMode {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        state.toggleFilter()
-                    }
-                } label: {
-                    Image(systemName: state.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                        .foregroundColor(.white)
-                }
-            }
-        }
-    }
-
-    // MARK: - Bulk Selection Toolbar
-    @ToolbarContentBuilder
-    func bulkToolbarContent() -> some ToolbarContent {
-        if isBulkMode {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(Localized.cancel) { exitBulkMode() }
-                    .foregroundColor(Color.white)
-            }
-
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button(action: { selectAll() }) {
-                        Label(Localized.selectAll, systemImage: "checkmark.circle")
-                    }
-                    Divider()
-                    Button(action: { showAddToPlaylistSheet = true }) {
-                        Label(Localized.addToPlaylist, systemImage: "music.note.list")
-                    }
-                    .disabled(selectedTracks.isEmpty)
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundColor(Color.white)
-                        .padding(4)
-                        .contentShape(Rectangle())
-                }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    // MARK: - Bulk Selection State Access (for parent views)
-    var bulkModeBinding: Binding<Bool> {
-        Binding(get: { isBulkMode }, set: { isBulkMode = $0 })
-    }
-
-    var selectedTracksBinding: Binding<Set<String>> {
-        Binding(get: { selectedTracks }, set: { selectedTracks = $0 })
-    }
-
     // MARK: - Header Content
     @ViewBuilder
     private var headerContent: some View {
@@ -265,7 +191,7 @@ struct CollectionDetailView: View {
                 VStack(spacing: 10) {
                     // Play Button
                     Button {
-                        onPlay(displayTracks)
+                        onPlay(filteredTracks)
                     } label: {
                         HStack {
                             Image(systemName: "play.fill")
@@ -278,11 +204,11 @@ struct CollectionDetailView: View {
                         .background(Color.white)
                         .cornerRadius(26)
                     }
-                    .disabled(displayTracks.isEmpty)
+                    .disabled(filteredTracks.isEmpty)
 
                     // Shuffle Button
                     Button {
-                        onShuffle(displayTracks)
+                        onShuffle(filteredTracks)
                     } label: {
                         HStack {
                             Image(systemName: "shuffle")
@@ -295,7 +221,7 @@ struct CollectionDetailView: View {
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(26)
                     }
-                    .disabled(displayTracks.isEmpty)
+                    .disabled(filteredTracks.isEmpty)
 
                     // Subtitle (track count) centered below buttons
                     if let subtitle = subtitle {
@@ -318,7 +244,7 @@ struct CollectionDetailView: View {
         HStack(spacing: 12) {
             // Play Button
             Button {
-                onPlay(displayTracks)
+                onPlay(filteredTracks)
             } label: {
                 HStack {
                     Image(systemName: "play.fill")
@@ -331,11 +257,11 @@ struct CollectionDetailView: View {
                 .background(Color.white)
                 .cornerRadius(28)
             }
-            .disabled(displayTracks.isEmpty)
+            .disabled(filteredTracks.isEmpty)
 
             // Shuffle Button
             Button {
-                onShuffle(displayTracks)
+                onShuffle(filteredTracks)
             } label: {
                 HStack {
                     Image(systemName: "shuffle")
@@ -348,7 +274,7 @@ struct CollectionDetailView: View {
                 .background(Color.white.opacity(0.1))
                 .cornerRadius(28)
             }
-            .disabled(displayTracks.isEmpty)
+            .disabled(filteredTracks.isEmpty)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 8)
@@ -378,7 +304,7 @@ struct CollectionDetailView: View {
                     if isBulkMode {
                         toggleSelection(for: track)
                     } else {
-                        onTrackTap(track, displayTracks)
+                        onTrackTap(track, filteredTracks)
                     }
                 },
                 playlist: playlist,

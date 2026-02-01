@@ -360,7 +360,7 @@ struct MetadataView: View {
                             showAlbumEdit = false
                         }) {
                             HStack {
-                                Text(album.title)
+                                Text(album.name)
                                     .foregroundColor(.primary)
                                 Spacer()
                                 if selectedAlbumId == album.id {
@@ -514,8 +514,8 @@ struct MetadataView: View {
                 }
             }.value
             await MainActor.run {
-                albumName = album?.title
-                originalAlbumName = album?.title
+                albumName = album?.name
+                originalAlbumName = album?.name
             }
         }
 
@@ -574,7 +574,7 @@ struct MetadataView: View {
 
         // Update displayed album name
         if let album = allAlbums.first(where: { $0.id == albumId }) {
-            albumName = album.title
+            albumName = album.name
         }
         checkForChanges()
     }
@@ -631,7 +631,7 @@ struct MetadataView: View {
                     "artistName": currentArtistName as Any
                 ]
             )
-            NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
+            NotificationCenter.default.post(name: .libraryNeedsRefresh, object: nil)
         }
     }
 
@@ -698,7 +698,7 @@ struct MetadataView: View {
                         "artistName": artistNameToSave as Any
                     ]
                 )
-                NotificationCenter.default.post(name: NSNotification.Name("LibraryNeedsRefresh"), object: nil)
+                NotificationCenter.default.post(name: .libraryNeedsRefresh, object: nil)
             }
         }
     }

@@ -139,14 +139,14 @@ struct AppleIDStepView: View {
                                 viewModel.openAppleIDSettings()
                             }
                             .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .controlSize(.large)
                             
                             Button(Localized.imSignedIn) {
                                 viewModel.isSignedIntoAppleID = true
                                 viewModel.appleIDDetectionFailed = false
                             }
                             .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
+                            .controlSize(.large)
                         }
                     }
                 }
@@ -157,8 +157,11 @@ struct AppleIDStepView: View {
             HStack {
                 Spacer()
                 
-                Button(Localized.continue) {
+                Button(action: {
                     viewModel.nextStep()
+                }) {
+                    Text(Localized.continue)
+                        .foregroundColor(.black) // Sets the text to black
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
@@ -261,14 +264,14 @@ struct iCloudDriveStepView: View {
                                 viewModel.openiCloudSettings()
                             }
                             .buttonStyle(.bordered)
-                            .controlSize(.small)
+                            .controlSize(.large)
                             
                             Button(Localized.itsEnabled) {
                                 viewModel.isiCloudDriveEnabled = true
                                 viewModel.iCloudDetectionFailed = false
                             }
                             .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
+                            .controlSize(.large)
                         }
                     }
                 }
@@ -285,10 +288,14 @@ struct iCloudDriveStepView: View {
                 
                 Spacer()
                 
-                Button(Localized.continue) {
+                Button(action: {
                     viewModel.nextStep()
+                }) {
+                    Text(Localized.continue)
+                        .foregroundColor(.black) // Sets the text to black
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(!viewModel.canProceedFromiCloud)
             }
             .padding(.horizontal, 30)
@@ -311,10 +318,10 @@ struct MusicFilesStepView: View {
     @State private var settings = DeleteSettings.load()
     
     var body: some View {
-        ScrollView {
+        VStack(spacing: 0) {
+            Spacer() // Flexible top space
+            
             VStack(spacing: 25) {
-                Spacer(minLength: 20)
-                
                 Image(systemName: "music.note")
                     .font(.system(size: 70))
                     .foregroundColor(Color.white)
@@ -332,68 +339,39 @@ struct MusicFilesStepView: View {
                 }
                 
                 VStack(alignment: .leading, spacing: 16) {
-                    InstructionRow(
-                        step: "1",
-                        title: Localized.openFilesApp,
-                        description: Localized.findOpenFilesApp
-                    )
-                    
-                    InstructionRow(
-                        step: "2",
-                        title: Localized.navigateToIcloudDrive,
-                        description: Localized.tapIcloudDriveSidebar
-                    )
-                    
-                    InstructionRow(
-                        step: "3",
-                        title: Localized.findCosmosPlayerFolder,
-                        description: Localized.lookForCosmosFolder
-                    )
-                    
-                    InstructionRow(
-                        step: "4",
-                        title: Localized.addYourMusicInstruction,
-                        description: Localized.copyMusicFiles
-                    )
+                    InstructionRow(step: "1", title: Localized.openFilesApp, description: Localized.findOpenFilesApp)
+                    InstructionRow(step: "2", title: Localized.navigateToIcloudDrive, description: Localized.tapIcloudDriveSidebar)
+                    InstructionRow(step: "3", title: Localized.findCosmosPlayerFolder, description: Localized.lookForCosmosFolder)
+                    InstructionRow(step: "4", title: Localized.addYourMusicInstruction, description: Localized.copyMusicFiles)
                 }
                 .padding(.horizontal, 20)
-                
-                Spacer(minLength: 20)
             }
-        }
-        .overlay(alignment: .bottom) {
-            VStack(spacing: 0) {
-                // Gradient overlay to separate content from buttons
-                LinearGradient(
-                    colors: [Color(.systemBackground).opacity(0), Color(.systemBackground)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(height: 20)
-                
-                HStack {
-                    Button(Localized.back) {
-                        viewModel.previousStep()
-                    }
-                    .font(.body)
-                    .foregroundColor(Color.white)
-                    
-                    Spacer()
-                    
-                    Button(Localized.getStarted) {
-                        print("🎯 Get Started button tapped")
-                        viewModel.completeTutorial()
-                        print("🎯 About to dismiss tutorial")
-                        onComplete?()
-                        dismiss()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+            
+            Spacer() // Flexible bottom space - ensures vertical centering
+            
+            // Footer integrated into the main VStack for consistent alignment
+            HStack {
+                Button(Localized.back) {
+                    viewModel.previousStep()
                 }
-                .padding(.horizontal, 30)
-                .padding(.bottom, 40)
-                .background(Color(.systemBackground))
+                .font(.body)
+                .foregroundColor(Color.white)
+                
+                Spacer()
+                
+                Button(action: {
+                    viewModel.completeTutorial()
+                    onComplete?()
+                    dismiss()
+                }) {
+                    Text(Localized.getStarted)
+                        .foregroundColor(.black) // Sets the text to black
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
+            .padding(.horizontal, 30)
+            .padding(.bottom, 40)
         }
     }
 }
@@ -409,7 +387,7 @@ struct InstructionRow: View {
             Text(step)
                 .font(.headline)
                 .fontWeight(.semibold)
-                .foregroundColor(.white)
+                .foregroundColor(.black)
                 .frame(width: 28, height: 28)
                 .background(Circle().fill(Color.white))
             

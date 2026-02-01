@@ -28,7 +28,13 @@ class LibraryIndexer: NSObject, ObservableObject {
     private let metadataQuery = NSMetadataQuery()
     private let databaseManager = DatabaseManager.shared
     private let stateManager = StateManager.shared
-    private let waveformBars = 150
+    private static let barsPerMinute = 50
+
+    private static func waveformBars(forDurationMs ms: Int?) -> Int {
+        guard let ms, ms > 0 else { return 50 }
+        let minutes = Double(ms) / 60_000.0
+        return max(20, Int(ceil(minutes * Double(barsPerMinute))))
+    }
     
     override init() {
         super.init()
@@ -163,19 +169,13 @@ class LibraryIndexer: NSObject, ObservableObject {
             let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             let fileSize = Int64(resourceValues.fileSize ?? 0)
             let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
-            let waveformMeta = Self.makeWaveformMeta(
-                totalBars: waveformBars,
-                fileSize: fileSize,
-                contentModificationTime: contentModificationTime
-            )
 
             print("🎶 Parsing external audio file: \(fileURL.lastPathComponent)")
             let track = try await parseAudioFile(
                 at: fileURL,
                 stableId: stableId,
                 fileSize: fileSize,
-                contentModificationTime: contentModificationTime,
-                waveformMeta: waveformMeta
+                contentModificationTime: contentModificationTime
             )
             print("✅ External audio file parsed successfully: \(track.title)")
 
@@ -330,78 +330,8 @@ class LibraryIndexer: NSObject, ObservableObject {
         
         isIndexing = false
         print("✅ Direct scan completed. Found \(tracksFound) tracks from both iCloud and local folders.")
-
-        // Process folder playlists after scan completion
-        await processFolderPlaylists(allMusicFiles: allMusicFiles)
     }
 
-    private func processFolderPlaylists(allMusicFiles: [URL]) async {
-        print("📁 Processing folder playlists...")
-
-        // Group music files by their parent directory
-        var folderGroups: [String: [URL]] = [:]
-
-        for fileURL in allMusicFiles {
-            let parentFolder = fileURL.deletingLastPathComponent()
-            let folderPath = parentFolder.path
-
-            // Skip if it's directly in Documents or iCloud root
-            let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!.path
-            let iCloudMusicPath = stateManager.getMusicFolderURL()?.path
-
-            if folderPath == documentsPath || folderPath == iCloudMusicPath {
-                continue
-            }
-
-            if folderGroups[folderPath] == nil {
-                folderGroups[folderPath] = []
-            }
-            folderGroups[folderPath]?.append(fileURL)
-        }
-
-        print("📁 Found \(folderGroups.count) folders with music files")
-
-        for (folderPath, musicFiles) in folderGroups {
-            await processFolderPlaylist(folderPath: folderPath, musicFiles: musicFiles)
-        }
-
-        print("✅ Folder playlist processing completed")
-    }
-
-    private func processFolderPlaylist(folderPath: String, musicFiles: [URL]) async {
-        let folderURL = URL(fileURLWithPath: folderPath)
-        let folderName = folderURL.lastPathComponent
-
-        print("📂 Processing folder playlist for: \(folderName)")
-
-        do {
-            // Generate stable IDs for all music files in this folder
-            var trackStableIds: [String] = []
-
-            for musicFile in musicFiles {
-                let stableId = try generateStableId(for: musicFile)
-                trackStableIds.append(stableId)
-            }
-
-            print("🎵 Found \(trackStableIds.count) tracks in folder: \(folderName)")
-
-            // Check if a folder playlist already exists for this path
-            if let existingPlaylist = try databaseManager.getFolderPlaylist(forPath: folderPath) {
-                print("🔄 Syncing existing folder playlist: \(existingPlaylist.title)")
-
-                // Sync the existing playlist with current folder contents
-                try databaseManager.syncPlaylistWithFolder(playlistId: existingPlaylist.id!, trackStableIds: trackStableIds)
-                print("✅ Synced playlist '\(existingPlaylist.title)' with folder contents")
-            } else {
-                // Auto-creation of folder playlists is disabled.
-                print("⏭️ Skipping auto-creation of folder playlist for: \(folderName)")
-            }
-
-        } catch {
-            print("❌ Failed to process folder playlist for \(folderName): \(error)")
-        }
-    }
-    
     private func scanLocalDocuments() async {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         
@@ -424,9 +354,6 @@ class LibraryIndexer: NSObject, ObservableObject {
                 isIndexing = false
                 print("Offline library scan completed. Found \(tracksFound) tracks.")
             }
-
-            // Process folder playlists after offline scan
-            await processFolderPlaylists(allMusicFiles: musicFiles)
         } catch {
             await MainActor.run {
                 isIndexing = false
@@ -521,19 +448,13 @@ class LibraryIndexer: NSObject, ObservableObject {
             let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             let fileSize = Int64(resourceValues.fileSize ?? 0)
             let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
-            let waveformMeta = Self.makeWaveformMeta(
-                totalBars: waveformBars,
-                fileSize: fileSize,
-                contentModificationTime: contentModificationTime
-            )
 
             print("🎶 Parsing audio file: \(fileURL.lastPathComponent)")
             let track = try await parseAudioFile(
                 at: fileURL,
                 stableId: stableId,
                 fileSize: fileSize,
-                contentModificationTime: contentModificationTime,
-                waveformMeta: waveformMeta
+                contentModificationTime: contentModificationTime
             )
             print("✅ Audio file parsed successfully: \(track.title)")
 
@@ -603,23 +524,24 @@ class LibraryIndexer: NSObject, ObservableObject {
             let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             let fileSize = Int64(resourceValues.fileSize ?? 0)
             let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
-            let waveformMeta = Self.makeWaveformMeta(
-                totalBars: waveformBars,
-                fileSize: fileSize,
-                contentModificationTime: contentModificationTime
-            )
 
-            if let existing = try databaseManager.getTrack(byStableId: stableId),
-               Self.waveformMatches(existing.waveformData, meta: waveformMeta) {
-                return
+            if let existing = try databaseManager.getTrack(byStableId: stableId) {
+                let expectedBars = Self.waveformBars(forDurationMs: existing.durationMs)
+                let meta = Self.makeWaveformMeta(
+                    totalBars: expectedBars,
+                    fileSize: fileSize,
+                    contentModificationTime: contentModificationTime
+                )
+                if Self.waveformMatches(existing.waveformData, meta: meta) {
+                    return
+                }
             }
 
             let track = try await parseAudioFile(
                 at: fileURL,
                 stableId: stableId,
                 fileSize: fileSize,
-                contentModificationTime: contentModificationTime,
-                waveformMeta: waveformMeta
+                contentModificationTime: contentModificationTime
             )
             try databaseManager.upsertTrack(track)
 
@@ -650,8 +572,7 @@ class LibraryIndexer: NSObject, ObservableObject {
         at url: URL,
         stableId: String,
         fileSize: Int64,
-        contentModificationTime: TimeInterval,
-        waveformMeta: WaveformMeta
+        contentModificationTime: TimeInterval
     ) async throws -> Track {
         print("🔍 Calling AudioMetadataParser for: \(url.lastPathComponent)")
         
@@ -682,19 +603,19 @@ class LibraryIndexer: NSObject, ObservableObject {
         print("🎤 Creating artist with cleaned name: '\(cleanedArtistName)'")
         
         let artist = try databaseManager.upsertArtist(name: cleanedArtistName)
-        let album = try databaseManager.upsertAlbum(
-            title: metadata.album ?? Localized.unknownAlbum,
-            artistId: artist.id,
-            year: metadata.year,
-            albumArtist: metadata.albumArtist
-        )
+        let album = try databaseManager.upsertAlbum(name: metadata.album ?? Localized.unknownAlbum)
         let genreRecord: Genre? = if let genreName = cleanedGenre, !genreName.isEmpty {
             try databaseManager.upsertGenre(name: genreName)
         } else {
             nil
         }
         
-        let bars = waveformBars
+        let bars = Self.waveformBars(forDurationMs: metadata.durationMs)
+        let waveformMeta = Self.makeWaveformMeta(
+            totalBars: bars,
+            fileSize: fileSize,
+            contentModificationTime: contentModificationTime
+        )
         let waveformData = await Task.detached(priority: .utility) {
             await Self.buildWaveformData(
                 for: url,
@@ -977,10 +898,6 @@ class LibraryIndexer: NSObject, ObservableObject {
 
             print("📁 Found \(sharedFiles.count) shared audio file references")
 
-            // Group files by folder for playlist creation
-            var folderGroups: [String: [URL]] = [:]
-            var processedFiles: [URL] = []
-
             for fileInfo in sharedFiles {
                 guard let bookmarkData = fileInfo["bookmark"],
                       let filenameData = fileInfo["filename"],
@@ -1021,24 +938,10 @@ class LibraryIndexer: NSObject, ObservableObject {
                     // Store the bookmark permanently for future access after app updates
                     await storeBookmarkPermanently(bookmarkData, for: url)
 
-                    // Group by folder path for playlist creation
-                    if let folderPathData = fileInfo["folderPath"],
-                       let folderPath = String(data: folderPathData, encoding: .utf8) {
-                        if folderGroups[folderPath] == nil {
-                            folderGroups[folderPath] = []
-                        }
-                        folderGroups[folderPath]?.append(url)
-                    }
-
-                    processedFiles.append(url)
-
                 } catch {
                     print("❌ Failed to resolve bookmark for \(filename): \(error)")
                 }
             }
-
-            // Create folder playlists for shared files
-            await processSharedFolderPlaylists(folderGroups: folderGroups)
 
             // Clear the shared files list after processing and storing bookmarks permanently
             try FileManager.default.removeItem(at: sharedDataURL)
@@ -1047,48 +950,6 @@ class LibraryIndexer: NSObject, ObservableObject {
         } catch {
             print("❌ Failed to process shared audio files: \(error)")
         }
-    }
-
-    private func processSharedFolderPlaylists(folderGroups: [String: [URL]]) async {
-        guard !folderGroups.isEmpty else { return }
-
-        print("📁 Processing \(folderGroups.count) shared folder playlists...")
-
-        for (folderPath, musicFiles) in folderGroups {
-            let folderURL = URL(fileURLWithPath: folderPath)
-            let folderName = folderURL.lastPathComponent
-
-            print("📂 Processing shared folder playlist for: \(folderName)")
-
-            do {
-                // Generate stable IDs for all music files in this folder
-                var trackStableIds: [String] = []
-
-                for musicFile in musicFiles {
-                    let stableId = try generateStableId(for: musicFile)
-                    trackStableIds.append(stableId)
-                }
-
-                print("🎵 Found \(trackStableIds.count) tracks in shared folder: \(folderName)")
-
-                // Check if a folder playlist already exists for this path
-                if let existingPlaylist = try databaseManager.getFolderPlaylist(forPath: folderPath) {
-                    print("🔄 Syncing existing shared folder playlist: \(existingPlaylist.title)")
-
-                    // Sync the existing playlist with current folder contents
-                    try databaseManager.syncPlaylistWithFolder(playlistId: existingPlaylist.id!, trackStableIds: trackStableIds)
-                    print("✅ Synced shared playlist '\(existingPlaylist.title)' with folder contents")
-                } else {
-                    // Auto-creation of shared folder playlists is disabled.
-                    print("⏭️ Skipping auto-creation of shared folder playlist for: \(folderName)")
-                }
-
-            } catch {
-                print("❌ Failed to process shared folder playlist for \(folderName): \(error)")
-            }
-        }
-
-        print("✅ Shared folder playlist processing completed")
     }
 
     private func processLegacySharedFiles(from sharedContainer: URL) async {

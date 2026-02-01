@@ -1,139 +1,6 @@
 import SwiftUI
 import GRDB
 
-struct AlbumsScreen: View {
-    let allTracks: [Track]
-    @EnvironmentObject private var appCoordinator: AppCoordinator
-    @State private var albums: [Album] = []
-    @State private var settings = DeleteSettings.load()
-    
-    var body: some View {
-        ZStack {
-            ScreenSpecificBackgroundView(screen: .albums)
-            
-            VStack {
-                if albums.isEmpty {
-                    EmptyAlbumsView()
-                } else {
-                    ScrollView {
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: 20),
-                                GridItem(.flexible())
-                            ],
-                            spacing: 16
-                        ) {
-                            ForEach(albums, id: \.id) { album in
-                                NavigationLink {
-                                    AlbumDetailScreen(album: album, allTracks: allTracks)
-                                } label: {
-                                    AlbumCardView(album: album,
-                                                  tracks: getAlbumTracks(album))
-                                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(16)
-                        .padding(.bottom, 100) // Add padding for mini player
-                    }
-                }
-            }
-        }
-        .navigationTitle(Localized.albums)
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: loadAlbums)
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LibraryNeedsRefresh"))) { _ in
-            loadAlbums()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
-            settings = DeleteSettings.load()
-        }
-    }
-    
-    private func getAlbumTracks(_ album: Album) -> [Track] {
-        allTracks.filter { $0.albumId == album.id }
-    }
-    
-    private func loadAlbums() {
-        do {
-            albums = try appCoordinator.getAllAlbums()
-        } catch {
-            print("Failed to load albums: \(error)")
-        }
-    }
-}
-
-private struct EmptyAlbumsView: View {
-    var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "rectangle.stack.fill")
-                .font(.system(size: 40))
-                .foregroundColor(.secondary)
-            Text(Localized.noAlbumsFound).font(.headline)
-            Text(Localized.albumsWillAppear)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// Album card with artwork loading
-private struct AlbumCardView: View {
-    let album: Album
-    let tracks: [Track]
-    @State private var artworkImage: UIImage?
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Album artwork area with fixed aspect ratio
-            GeometryReader { geometry in
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.15))
-                    .overlay {
-                        if let image = artworkImage {
-                            Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: geometry.size.width, height: geometry.size.width)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                        } else {
-                            Image(systemName: "music.note")
-                                .font(.system(size: 36))
-                                .foregroundColor(.secondary)
-                        }
-                    }
-            }
-            .aspectRatio(1, contentMode: .fit)
-            
-            VStack(alignment: .leading, spacing: 4) {
-                Text(album.title)
-                    .font(.headline)
-                    .lineLimit(2)
-                
-                Text(Localized.songsCount(tracks.count))
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .frame(minHeight: 60, alignment: .topLeading)
-        }
-        .task {
-            loadAlbumArtwork()
-        }
-    }
-    
-    private func loadAlbumArtwork() {
-        // Use the first track in the album to get artwork
-        guard let firstTrack = tracks.first else { return }
-        Task {
-            artworkImage = await ArtworkManager.shared.getArtwork(for: firstTrack)
-        }
-    }
-}
-
 // Album detail view using CollectionDetailView
 struct AlbumDetailScreen: View {
     let album: Album
@@ -144,7 +11,7 @@ struct AlbumDetailScreen: View {
     @State private var albumTracks: [Track] = []
     @State private var albumLookup: [Int64: String] = [:]
     @State private var filterState = TrackFilterState()
-    
+
     // 1. Sort State (Removed showSortPopover as Menu handles this automatically)
     @State private var sortOption: TrackSortOption = .defaultOrder
 
@@ -167,7 +34,7 @@ struct AlbumDetailScreen: View {
             ScreenSpecificBackgroundView(screen: .albumDetail)
 
             CollectionDetailView(
-                title: album.title,
+                title: album.name,
                 subtitle: Localized.songsCount(albumTracks.count),
                 artwork: artworkImage,
                 displayTracks: sortedTracks,
@@ -183,10 +50,7 @@ struct AlbumDetailScreen: View {
                     }
                 },
                 onShuffle: { tracks in
-                    let shuffled = tracks.shuffled()
-                    if let first = shuffled.first {
-                        Task { await playerEngine.playTrack(first, queue: shuffled) }
-                    }
+                    Task { await playerEngine.shuffleAndPlay(tracks) }
                 },
                 onTrackTap: { track, queue in
                     Task { await playerEngine.playTrack(track, queue: queue) }
@@ -199,48 +63,24 @@ struct AlbumDetailScreen: View {
                 albumLookup: albumLookup,
                 filterState: filterState
             )
-            .padding(.bottom, 90)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
         }
+        .navigationTitle(album.name)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                HStack(spacing: 16) {
-                    // Filter Button
-                    if hasFilterOptions {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                filterState.toggleFilter()
-                            }
-                        } label: {
-                            Image(systemName: filterState.isFilterVisible ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
-                                .foregroundColor(.white)
-                        }
-                    }
-
-                    // Sort Button (Standard Menu + Picker)
-                    Menu {
-                        Picker("Sort By", selection: $sortOption) {
-                            ForEach(availableSortOptions, id: \.self) { option in
-                                Label(option.localizedString, systemImage: option.iconName)
-                                    .tag(option)
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "arrow.up.arrow.down")
-                            .foregroundColor(.white)
-                    }
-                    .onChange(of: sortOption) { _ in
-                        saveSortPreference()
-                    }
-                }
-            }
-        }
+        .modifier(CollectionDetailToolbar(
+            hasFilterOptions: hasFilterOptions,
+            filterState: filterState,
+            sortOption: $sortOption,
+            sortOptions: availableSortOptions,
+            onSortChanged: saveSortPreference,
+            isEditMode: .constant(false)
+        ))
         .onAppear {
             loadAlbumTracks()
             loadAlbumArtwork()
             loadSortPreference()
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("LibraryNeedsRefresh"))) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .libraryNeedsRefresh)) { _ in
             loadAlbumTracks()
         }
     }
@@ -248,7 +88,7 @@ struct AlbumDetailScreen: View {
     private func loadAlbumTracks() {
         guard let albumId = album.id else { return }
         do {
-            albumTracks = try appCoordinator.databaseManager.getTracksByAlbumId(albumId)
+            albumTracks = try DatabaseManager.shared.getTracksByAlbumId(albumId)
             loadAlbumLookup()
         } catch {
             print("Failed to load album tracks: \(error)")
@@ -257,11 +97,7 @@ struct AlbumDetailScreen: View {
 
     private func loadAlbumLookup() {
         do {
-            let albums = try appCoordinator.databaseManager.getAllAlbums()
-            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
-                guard let id = album.id else { return nil }
-                return (id, album.title)
-            })
+            albumLookup = try DatabaseManager.shared.getAlbumLookup()
         } catch {
             print("Failed to load album lookup: \(error)")
         }
@@ -276,21 +112,17 @@ struct AlbumDetailScreen: View {
             }
         }
     }
-    
-    private func sortPreferenceKey() -> String {
-        "sortPreference_album_\(album.id ?? 0)"
+
+    private var sortStore: SortPreferenceStore {
+        SortPreferenceStore(keyPrefix: "album", entityId: "\(album.id ?? 0)")
     }
 
     private func loadSortPreference() {
-        let key = sortPreferenceKey()
-        if let savedRawValue = UserDefaults.standard.string(forKey: key),
-           let saved = TrackSortOption(rawValue: savedRawValue) {
-            sortOption = saved
-        }
+        if let saved = sortStore.load() { sortOption = saved }
     }
 
     private func saveSortPreference() {
-        UserDefaults.standard.set(sortOption.rawValue, forKey: sortPreferenceKey())
+        sortStore.save(sortOption)
     }
 }
 
@@ -298,7 +130,7 @@ struct ArtistDetailScreenWrapper: View {
     let artistName: String
     let allTracks: [Track]
     @State private var artist: Artist?
-    
+
     var body: some View {
         Group {
             if let artist {
@@ -314,7 +146,7 @@ struct ArtistDetailScreenWrapper: View {
         }
         .onAppear(perform: loadArtist)
     }
-    
+
     private func loadArtist() {
         do {
             artist = try DatabaseManager.shared.read { db in

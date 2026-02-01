@@ -9,7 +9,6 @@ struct ContentView: View {
     @State private var selectedTab = 0
     @State private var refreshTimer: Timer?
     @State private var showTutorial = false
-    @State private var showPlaylistManagement = false
     @State private var showSettings = false
     @State private var settings = DeleteSettings.load()
     
@@ -31,7 +30,6 @@ struct ContentView: View {
             .modifier(SheetModifier(
                 appCoordinator: appCoordinator,
                 showTutorial: $showTutorial,
-                showPlaylistManagement: $showPlaylistManagement,
                 showSettings: $showSettings,
                 onManualSync: performManualSync
             ))
@@ -41,9 +39,8 @@ struct ContentView: View {
         GeometryReader { proxy in
             ZStack(alignment: .bottom) {
                 LibraryView(
-                    tracks: tracks, 
-                    showTutorial: $showTutorial, 
-                    showPlaylistManagement: $showPlaylistManagement, 
+                    tracks: tracks,
+                    showTutorial: $showTutorial,
                     showSettings: $showSettings,
                     onRefresh: performRefresh,
                     onManualSync: performManualSync
@@ -54,23 +51,23 @@ struct ContentView: View {
                     LinearGradient(
                         colors: [
                             Color.clear,
-                            Color.black.opacity(0.7)
+                            Color.black
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
-                    .frame(height: 180 + proxy.safeAreaInsets.bottom)
+                    .frame(height: 185 + proxy.safeAreaInsets.bottom)
                     .allowsHitTesting(false)
                 }
                 
                 MiniPlayerView()
                     .padding(.bottom, proxy.safeAreaInsets.bottom)
-                    .offset(y: 24)
+                    .offset(y: 36)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .ignoresSafeArea(.keyboard)
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LibraryNeedsRefresh"))) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .libraryNeedsRefresh)) { _ in
             Task {
                 await refreshLibrary()
             }
@@ -147,7 +144,7 @@ struct LifecycleModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TrackFound"))) { _ in
                 Task { await onRefresh() }
             }
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("LibraryNeedsRefresh"))) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .libraryNeedsRefresh)) { _ in
                 Task { await onRefresh() }
             }
             .onChange(of: libraryIndexer.isIndexing) { _, isIndexing in
@@ -190,7 +187,6 @@ struct OverlayModifier: ViewModifier {
 struct SheetModifier: ViewModifier {
     let appCoordinator: AppCoordinator
     @Binding var showTutorial: Bool
-    @Binding var showPlaylistManagement: Bool
     @Binding var showSettings: Bool
     let onManualSync: (() async -> (before: Int, after: Int))?
 
@@ -201,10 +197,6 @@ struct SheetModifier: ViewModifier {
                     showTutorial = false
                 })
                 .accentColor(.white)
-            }
-            .sheet(isPresented: $showPlaylistManagement) {
-                PlaylistManagementView()
-                    .accentColor(.white)
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(onManualSync: onManualSync)

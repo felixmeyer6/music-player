@@ -269,7 +269,7 @@ class AppCoordinator: ObservableObject {
             // Try playlist restoration again after relationships are fixed
             await retryPlaylistRestoration()
 
-            // Deduplicate playlist items (fixes folder-synced playlists with duplicate entries)
+            // Deduplicate playlist items (fixes playlists with duplicate entries)
             do {
                 try databaseManager.deduplicatePlaylistItems()
             } catch {
@@ -342,12 +342,6 @@ class AppCoordinator: ObservableObject {
                     print("🔄 Syncing existing playlist from cloud: \(playlistState.title)")
 
                     guard let playlistId = existingPlaylist.id else { continue }
-
-                    // Skip folder-synced playlists - they manage their own content
-                    if existingPlaylist.isFolderSynced {
-                        print("📁 Skipping folder-synced playlist: \(playlistState.title)")
-                        continue
-                    }
 
                     // Get current tracks in database
                     let currentItems = try databaseManager.getPlaylistItems(playlistId: playlistId)
@@ -528,12 +522,14 @@ class AppCoordinator: ObservableObject {
     
     // MARK: - Playlist operations
     
-    func addToPlaylist(playlistId: Int64, trackStableId: String) throws {
+    func addToPlaylist(playlistId: Int64, trackStableId: String, syncToCloud: Bool = true) throws {
         try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: trackStableId)
-        syncPlaylistsToCloud()
+        if syncToCloud {
+            syncPlaylistsToCloud()
+        }
     }
     
-    func removeFromPlaylist(playlistId: Int64, trackStableId: String, showToast: Bool = true) throws {
+    func removeFromPlaylist(playlistId: Int64, trackStableId: String, showToast: Bool = true, syncToCloud: Bool = true) throws {
         // Get playlist name before removing
         var playlistName: String?
         if showToast {
@@ -542,7 +538,9 @@ class AppCoordinator: ObservableObject {
         }
 
         try databaseManager.removeFromPlaylist(playlistId: playlistId, trackStableId: trackStableId)
-        syncPlaylistsToCloud()
+        if syncToCloud {
+            syncPlaylistsToCloud()
+        }
 
         // Post notification to show removal toast
         if showToast, let name = playlistName {
@@ -563,21 +561,6 @@ class AppCoordinator: ObservableObject {
         let playlist = try databaseManager.createPlaylist(title: title)
         syncPlaylistsToCloud()
         return playlist
-    }
-
-    func createFolderPlaylist(title: String, folderPath: String) throws -> Playlist {
-        let playlist = try databaseManager.createFolderPlaylist(title: title, folderPath: folderPath)
-        syncPlaylistsToCloud()
-        return playlist
-    }
-
-    func syncPlaylistWithFolder(playlistId: Int64, trackStableIds: [String]) throws {
-        try databaseManager.syncPlaylistWithFolder(playlistId: playlistId, trackStableIds: trackStableIds)
-        syncPlaylistsToCloud()
-    }
-
-    func getFolderSyncedPlaylists() throws -> [Playlist] {
-        return try databaseManager.getFolderSyncedPlaylists()
     }
 
     func isTrackInPlaylist(playlistId: Int64, trackStableId: String) throws -> Bool {
@@ -620,35 +603,40 @@ class AppCoordinator: ObservableObject {
     private var isSyncingPlaylists = false
     private var hasCompletedInitialIndexing = false
 
+    /// Public entry point for triggering a playlist sync after batch operations.
+    func triggerPlaylistSync() {
+        syncPlaylistsToCloud()
+    }
+
     private func syncPlaylistsToCloud() {
-        Task { @MainActor in
-            // Prevent concurrent sync operations
-            guard !isSyncingPlaylists else {
-                print("⏭️ Skipping playlist sync - already in progress")
-                return
-            }
+        // Prevent concurrent sync operations (check on MainActor before dispatching)
+        guard !isSyncingPlaylists else {
+            print("⏭️ Skipping playlist sync - already in progress")
+            return
+        }
 
-            // Safety: Don't sync until initial indexing is complete
-            // This prevents overwriting cloud data with incomplete local data
-            guard hasCompletedInitialIndexing else {
-                print("⏳ Skipping playlist sync - waiting for initial indexing to complete")
-                return
-            }
+        // Safety: Don't sync until initial indexing is complete
+        guard hasCompletedInitialIndexing else {
+            print("⏳ Skipping playlist sync - waiting for initial indexing to complete")
+            return
+        }
 
-            isSyncingPlaylists = true
-            defer { isSyncingPlaylists = false }
+        isSyncingPlaylists = true
 
+        // Use a regular Task to inherit @MainActor context, ensuring @Published
+        // mutations and widget updates stay on the main thread. GRDB handles its
+        // own internal threading so DB reads won't block the UI.
+        Task {
+            var syncedPlaylists: [Playlist] = []
             do {
                 let playlists = try databaseManager.getAllPlaylists()
+                syncedPlaylists = playlists
 
-                // Sync to iCloud
                 for playlist in playlists {
                     guard let playlistId = playlist.id else { continue }
 
-                    // Get playlist items from database
                     let dbPlaylistItems = try databaseManager.getPlaylistItems(playlistId: playlistId)
 
-                    // Validate that tracks still exist before syncing
                     var validItems: [(String, Date)] = []
                     for item in dbPlaylistItems {
                         if let _ = try? databaseManager.getTrack(byStableId: item.trackStableId) {
@@ -659,14 +647,10 @@ class AppCoordinator: ObservableObject {
                     }
                     let stateItems = validItems
 
-                    // SAFETY CHECK: Don't overwrite cloud data with empty playlists for non-folder-synced playlists
-                    // This prevents data loss if database gets corrupted
-                    if !playlist.isFolderSynced && stateItems.isEmpty {
-                        // Check if cloud has data for this playlist
+                    if stateItems.isEmpty {
                         if let existingCloudPlaylist = try? stateManager.loadPlaylist(slug: playlist.slug),
                            !existingCloudPlaylist.items.isEmpty {
                             print("⚠️ Skipping sync for '\(playlist.title)' - database is empty but cloud has \(existingCloudPlaylist.items.count) tracks")
-                            print("🛡️ This prevents accidental data loss. The cloud version is preserved.")
                             continue
                         }
                     }
@@ -681,13 +665,18 @@ class AppCoordinator: ObservableObject {
                 }
                 print("✅ Playlists synced to iCloud with \(playlists.count) playlists")
 
-                // Update widget playlist data with artwork
-                await updateWidgetPlaylists(playlists: playlists)
-
             } catch {
                 print("❌ Failed to sync playlists to iCloud: \(error)")
             }
+
+            await finishPlaylistSync(playlists: syncedPlaylists)
         }
+    }
+
+    /// Called from background sync task to reset state and update widgets on MainActor.
+    fileprivate func finishPlaylistSync(playlists: [Playlist]) async {
+        isSyncingPlaylists = false
+        await updateWidgetPlaylists(playlists: playlists)
     }
 
     private func updateWidgetPlaylists(playlists: [Playlist]) async {

@@ -104,7 +104,7 @@ struct TrackSorting {
                 let albums = try Album.filter(albumIds.contains(Column("id"))).fetchAll(db)
                 for album in albums {
                     if let id = album.id {
-                        result[id] = album.title
+                        result[id] = album.name
                     }
                 }
             }

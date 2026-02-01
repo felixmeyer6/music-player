@@ -186,9 +186,12 @@ struct AddToPlaylistView: View {
                 print("Error: Created playlist has no ID")
                 return
             }
+            // Add all tracks without triggering cloud sync per track
             for trackId in trackIds {
-                try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
+                try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId, syncToCloud: false)
             }
+            // Single cloud sync after all tracks are added
+            appCoordinator.triggerPlaylistSync()
 
             // Post notification to show toast
             NotificationCenter.default.post(
@@ -211,10 +214,12 @@ struct AddToPlaylistView: View {
         }
         do {
             if missingCount(in: playlist) == 0 {
-                // Remove tracks - suppress individual toasts for batch operation
+                // Remove tracks - suppress individual toasts and cloud sync for batch operation
                 for trackId in trackIds {
-                    try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: trackId, showToast: false)
+                    try appCoordinator.removeFromPlaylist(playlistId: playlistId, trackStableId: trackId, showToast: false, syncToCloud: false)
                 }
+                // Single cloud sync after all tracks are removed
+                appCoordinator.triggerPlaylistSync()
                 // Post single toast for batch removal
                 NotificationCenter.default.post(
                     name: NSNotification.Name("ShowRemovedFromPlaylistToast"),
@@ -222,9 +227,12 @@ struct AddToPlaylistView: View {
                     userInfo: ["playlistName": playlist.title]
                 )
             } else {
+                // Add all tracks without triggering cloud sync per track
                 for trackId in trackIds {
-                    try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
+                    try appCoordinator.addToPlaylist(playlistId: playlistId, trackStableId: trackId, syncToCloud: false)
                 }
+                // Single cloud sync after all tracks are added
+                appCoordinator.triggerPlaylistSync()
                 // Post notification to show toast
                 NotificationCenter.default.post(
                     name: NSNotification.Name("ShowAddedToPlaylistToast"),

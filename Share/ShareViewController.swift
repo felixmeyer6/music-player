@@ -289,14 +289,11 @@ class ShareViewController: SLComposeServiceViewController {
                 print("📄 No existing plist, creating new one")
             }
 
-            // Add new file info with folder path for playlist creation
-            let parentFolder = url.deletingLastPathComponent()
+            // Add new file info
             let fileInfo: [String: Data] = [
                 "url": url.absoluteString.data(using: .utf8) ?? Data(),
                 "bookmark": bookmarkData,
-                "filename": url.lastPathComponent.data(using: .utf8) ?? Data(),
-                "folderPath": parentFolder.path.data(using: .utf8) ?? Data(),
-                "folderName": parentFolder.lastPathComponent.data(using: .utf8) ?? Data()
+                "filename": url.lastPathComponent.data(using: .utf8) ?? Data()
             ]
             sharedFiles.append(fileInfo)
             print("➕ Added new file entry, total entries: \(sharedFiles.count)")

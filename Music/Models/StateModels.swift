@@ -7,6 +7,10 @@
 
 import Foundation
 
+extension Notification.Name {
+    static let libraryNeedsRefresh = Notification.Name("LibraryNeedsRefresh")
+}
+
 struct PlaylistState: Codable {
     let version: Int
     let slug: String

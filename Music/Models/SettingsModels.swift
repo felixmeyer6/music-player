@@ -38,6 +38,25 @@ struct DeleteSettings: Codable {
     }
 }
 
+struct WeightedShuffleSettings: Codable {
+    var isEnabled: Bool = false
+    var ratingWeights: [Double] = [0.2, 0.4, 0.6, 0.8, 1.0]
+
+    static func load() -> WeightedShuffleSettings {
+        guard let data = UserDefaults.standard.data(forKey: "WeightedShuffleSettings"),
+              let settings = try? JSONDecoder().decode(WeightedShuffleSettings.self, from: data) else {
+            return WeightedShuffleSettings()
+        }
+        return settings
+    }
+
+    func save() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: "WeightedShuffleSettings")
+        }
+    }
+}
+
 // MARK: - Color Extension for Widget
 extension Color {
     func toHex() -> String {

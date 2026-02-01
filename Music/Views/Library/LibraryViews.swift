@@ -23,7 +23,6 @@ extension View {
 struct LibraryView: View {
     let tracks: [Track]
     @Binding var showTutorial: Bool
-    @Binding var showPlaylistManagement: Bool
     @Binding var showSettings: Bool
     let onRefresh: () async -> (before: Int, after: Int)
     let onManualSync: (() async -> (before: Int, after: Int))?
@@ -39,6 +38,7 @@ struct LibraryView: View {
     @State private var searchAlbumTracks: [Track] = []
     @State private var searchPlaylistToNavigate: Playlist?
     @State private var playlistToNavigate: Playlist?
+    @State private var filteredTracksNavigationData: (genre: String?, albumId: Int64?, allTracks: [Track])?
     @State private var showSearch = false
     @State private var settings = DeleteSettings.load()
     @State private var isRefreshing = false
@@ -223,7 +223,7 @@ struct LibraryView: View {
                             .buttonStyle(PlainButtonStyle())
                             
                             NavigationLink {
-                                PlaylistsScreen()
+                                CollectionBrowserView(type: .playlists)
                             } label: {
                                 LibrarySectionRowView(
                                     title: Localized.playlists,
@@ -235,7 +235,7 @@ struct LibraryView: View {
                             .buttonStyle(PlainButtonStyle())
                             
                             NavigationLink {
-                                ArtistsScreen(allTracks: tracks)
+                                CollectionBrowserView(type: .artists)
                             } label: {
                                 LibrarySectionRowView(
                                     title: Localized.artists,
@@ -247,7 +247,7 @@ struct LibraryView: View {
                             .buttonStyle(PlainButtonStyle())
 
                             NavigationLink {
-                                GenresScreen()
+                                CollectionBrowserView(type: .genres)
                             } label: {
                                 LibrarySectionRowView(
                                     title: Localized.genre,
@@ -259,7 +259,7 @@ struct LibraryView: View {
                             .buttonStyle(PlainButtonStyle())
                             
                             NavigationLink {
-                                AlbumsScreen(allTracks: tracks)
+                                CollectionBrowserView(type: .albums)
                             } label: {
                                 LibrarySectionRowView(
                                     title: Localized.albums,
@@ -366,6 +366,18 @@ struct LibraryView: View {
                     PlaylistDetailScreen(playlist: playlist)
                 }
             }
+            .navigationDestination(isPresented: Binding(
+                get: { filteredTracksNavigationData != nil },
+                set: { if !$0 { filteredTracksNavigationData = nil } }
+            )) {
+                if let data = filteredTracksNavigationData {
+                    AllSongsScreen(
+                        tracks: data.allTracks,
+                        initialGenre: data.genre,
+                        initialAlbumId: data.albumId
+                    )
+                }
+            }
         }
         .background(.clear)
         .toolbarBackground(.clear, for: .navigationBar)
@@ -389,11 +401,19 @@ struct LibraryView: View {
                 albumAllTracks = allTracks
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToFilteredTracksFromPlayer"))) { notification in
+            if let userInfo = notification.userInfo,
+               let allTracks = userInfo["allTracks"] as? [Track] {
+                let genre = userInfo["genre"] as? String
+                let albumId = userInfo["albumId"] as? Int64
+                filteredTracksNavigationData = (genre: genre, albumId: albumId, allTracks: allTracks)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToPlaylist"))) { notification in
             if let userInfo = notification.userInfo,
                let playlistId = userInfo["playlistId"] as? Int64 {
                 do {
-                    let playlists = try appCoordinator.databaseManager.getAllPlaylists()
+                    let playlists = try DatabaseManager.shared.getAllPlaylists()
                     if let playlist = playlists.first(where: { $0.id == playlistId }) {
                         playlistToNavigate = playlist
                         print("✅ LibraryView: Navigating to playlist \(playlist.title)")
@@ -517,6 +537,8 @@ struct LibrarySectionRowView: View {
 
 struct AllSongsScreen: View {
     let tracks: [Track]
+    var initialGenre: String? = nil
+    var initialAlbumId: Int64? = nil
     @EnvironmentObject private var appCoordinator: AppCoordinator
     @StateObject private var playerEngine = PlayerEngine.shared
     @State private var sortOption: TrackSortOption = .defaultOrder
@@ -552,10 +574,7 @@ struct AllSongsScreen: View {
                     }
                 },
                 onShuffle: { tracks in
-                    let shuffled = tracks.shuffled()
-                    if let first = shuffled.first {
-                        Task { await playerEngine.playTrack(first, queue: shuffled) }
-                    }
+                    Task { await playerEngine.shuffleAndPlay(tracks) }
                 },
                 onTrackTap: { track, queue in
                     Task { await playerEngine.playTrack(track, queue: queue) }
@@ -568,7 +587,7 @@ struct AllSongsScreen: View {
                 albumLookup: albumLookup,
                 filterState: filterState
             )
-            .padding(.bottom, 90)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
         }
         .navigationTitle(Localized.allSongs)
         .navigationBarTitleDisplayMode(.inline)
@@ -595,6 +614,18 @@ struct AllSongsScreen: View {
         .onAppear {
             loadSortPreference()
             loadAlbumLookup()
+            applyInitialFilters()
+        }
+    }
+
+    private func applyInitialFilters() {
+        guard initialGenre != nil || initialAlbumId != nil else { return }
+        filterState.isFilterVisible = true
+        if let genre = initialGenre {
+            filterState.selectedGenres = [genre]
+        }
+        if let albumId = initialAlbumId {
+            filterState.selectedAlbums = [albumId]
         }
     }
 
@@ -611,11 +642,7 @@ struct AllSongsScreen: View {
 
     private func loadAlbumLookup() {
         do {
-            let albums = try appCoordinator.databaseManager.getAllAlbums()
-            albumLookup = Dictionary(uniqueKeysWithValues: albums.compactMap { album in
-                guard let id = album.id else { return nil }
-                return (id, album.title)
-            })
+            albumLookup = try DatabaseManager.shared.getAlbumLookup()
         } catch {
             print("Failed to load album lookup: \(error)")
         }
@@ -1208,7 +1235,7 @@ struct SearchView: View {
                     .background(Color(.systemGray5))
                     
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(album.title)
+                        Text(album.name)
                             .font(.body)
                             .fontWeight(.medium)
                             .foregroundColor(.primary)
@@ -1216,15 +1243,6 @@ struct SearchView: View {
                             .minimumScaleFactor(0.8)
                         
                         HStack(spacing: 4) {
-                            if let artistId = album.artistId,
-                               let artist = try? DatabaseManager.shared.read({ db in
-                                   try Artist.fetchOne(db, key: artistId)
-                               }) {
-                                Text(artist.name)
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                            
                             Text("• \(Localized.album)")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
