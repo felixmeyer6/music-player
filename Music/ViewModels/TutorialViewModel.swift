@@ -25,19 +25,23 @@ class TutorialViewModel: ObservableObject {
             forName: .NSUbiquityIdentityDidChange,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            print("📱 iCloud Drive status changed - rechecking...")
-            self?.checkiCloudDriveStatus()
+        ) { _ in
+            Task { @MainActor [weak self] in
+                print("📱 iCloud Drive status changed - rechecking...")
+                self?.checkiCloudDriveStatus()
+            }
         }
-        
-        // Monitor CloudKit account changes  
+
+        // Monitor CloudKit account changes
         NotificationCenter.default.addObserver(
             forName: .CKAccountChanged,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
-            print("📱 CloudKit account status changed - rechecking...")
-            self?.checkAppleIDStatus()
+        ) { _ in
+            Task { @MainActor [weak self] in
+                print("📱 CloudKit account status changed - rechecking...")
+                self?.checkAppleIDStatus()
+            }
         }
     }
     
@@ -63,38 +67,31 @@ class TutorialViewModel: ObservableObject {
     
     func checkAppleIDStatus() {
         // Use Apple's recommended CloudKit approach for detecting iCloud sign-in status
-        CKContainer.default().accountStatus { [weak self] accountStatus, error in
-            DispatchQueue.main.async {
-                guard let self = self else { return }
-                
-                if let error = error {
-                    print("📱 Apple ID check: ❓ CloudKit error: \(error.localizedDescription)")
-                    // Fallback to FileManager approach
-                    self.fallbackAppleIDCheck()
-                    return
-                }
-                
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                let accountStatus = try await CKContainer.default().accountStatus()
                 switch accountStatus {
                 case .available:
                     self.isSignedIntoAppleID = true
                     self.appleIDDetectionFailed = false
                     print("📱 Apple ID check: ✅ Confirmed signed into iCloud (CloudKit)")
-                    
+
                 case .noAccount:
                     self.isSignedIntoAppleID = false
                     self.appleIDDetectionFailed = false
                     print("📱 Apple ID check: ❌ Not signed into iCloud (CloudKit)")
-                    
+
                 case .restricted:
                     self.isSignedIntoAppleID = false
                     self.appleIDDetectionFailed = true
                     print("📱 Apple ID check: ⚠️ iCloud access restricted (CloudKit)")
-                    
+
                 case .couldNotDetermine:
                     self.isSignedIntoAppleID = false
                     self.appleIDDetectionFailed = true
                     print("📱 Apple ID check: ❓ Could not determine status (CloudKit)")
-                    
+
                 case .temporarilyUnavailable:
                     self.isSignedIntoAppleID = false
                     self.appleIDDetectionFailed = true
@@ -105,6 +102,9 @@ class TutorialViewModel: ObservableObject {
                     self.appleIDDetectionFailed = true
                     print("📱 Apple ID check: ❓ Unknown CloudKit status")
                 }
+            } catch {
+                print("📱 Apple ID check: ❓ CloudKit error: \(error.localizedDescription)")
+                self.fallbackAppleIDCheck()
             }
         }
     }
