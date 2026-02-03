@@ -1186,10 +1186,6 @@ struct AudioMetadata {
     let sampleRate: Int?
     let bitDepth: Int?
     let channels: Int?
-    let replaygainTrackGain: Double?
-    let replaygainAlbumGain: Double?
-    let replaygainTrackPeak: Double?
-    let replaygainAlbumPeak: Double?
     let hasEmbeddedArt: Bool
 }
 
@@ -1227,10 +1223,6 @@ class AudioMetadataParser {
         var sampleRate: Int?
         var bitDepth: Int?
         var channels: Int?
-        var replaygainTrackGain: Double?
-        var replaygainAlbumGain: Double?
-        var replaygainTrackPeak: Double?
-        var replaygainAlbumPeak: Double?
         var hasEmbeddedArt = false
         
         // Check if file is actually readable first
@@ -1350,18 +1342,6 @@ class AudioMetadataParser {
                     year = Int(dateStr)
                 }
                 
-                if let gainStr = metadata["REPLAYGAIN_TRACK_GAIN"] {
-                    replaygainTrackGain = parseReplayGain(gainStr)
-                }
-                if let gainStr = metadata["REPLAYGAIN_ALBUM_GAIN"] {
-                    replaygainAlbumGain = parseReplayGain(gainStr)
-                }
-                if let peakStr = metadata["REPLAYGAIN_TRACK_PEAK"] {
-                    replaygainTrackPeak = Double(peakStr)
-                }
-                if let peakStr = metadata["REPLAYGAIN_ALBUM_PEAK"] {
-                    replaygainAlbumPeak = Double(peakStr)
-                }
             } else if blockType == 6 {
                 // PICTURE block - embedded artwork
                 hasEmbeddedArt = true
@@ -1386,14 +1366,10 @@ class AudioMetadataParser {
             sampleRate: sampleRate,
             bitDepth: bitDepth,
             channels: channels,
-            replaygainTrackGain: replaygainTrackGain,
-            replaygainAlbumGain: replaygainAlbumGain,
-            replaygainTrackPeak: replaygainTrackPeak,
-            replaygainAlbumPeak: replaygainAlbumPeak,
             hasEmbeddedArt: hasEmbeddedArt
         )
     }
-    
+
     private static func parseVorbisComments(_ data: Data) -> [String: String] {
         var comments: [String: String] = [:]
         var offset = 0
@@ -1429,11 +1405,6 @@ class AudioMetadataParser {
         return comments
     }
     
-    private static func parseReplayGain(_ gainString: String) -> Double? {
-        let cleaned = gainString.replacingOccurrences(of: " dB", with: "")
-        return Double(cleaned)
-    }
-
     // MARK: - Rating (POPM / Popularimeter)
 
     /// Maps a standard 1–5 star rating to the POPM byte (0–255).
@@ -1718,10 +1689,6 @@ class AudioMetadataParser {
             sampleRate: sampleRate,
             bitDepth: nil, // MP3 is lossy, bit depth doesn't apply
             channels: channels,
-            replaygainTrackGain: nil,
-            replaygainAlbumGain: nil,
-            replaygainTrackPeak: nil,
-            replaygainAlbumPeak: nil,
             hasEmbeddedArt: hasEmbeddedArt
         )
     }
@@ -1835,10 +1802,6 @@ class AudioMetadataParser {
             sampleRate: sampleRate,
             bitDepth: bitDepth,
             channels: channels,
-            replaygainTrackGain: nil,
-            replaygainAlbumGain: nil,
-            replaygainTrackPeak: nil,
-            replaygainAlbumPeak: nil,
             hasEmbeddedArt: hasEmbeddedArt
         )
     }

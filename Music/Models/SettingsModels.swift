@@ -15,7 +15,6 @@ enum BackgroundColor: String, CaseIterable, Codable {
 }
 
 struct DeleteSettings: Codable {
-    var hasShownDeletePopup: Bool = false
     var minimalistIcons: Bool = false
     var backgroundColorChoice: BackgroundColor = .white
     var forceDarkMode: Bool = false
@@ -54,25 +53,6 @@ struct WeightedShuffleSettings: Codable {
         if let data = try? JSONEncoder().encode(self) {
             UserDefaults.standard.set(data, forKey: "WeightedShuffleSettings")
         }
-    }
-}
-
-// MARK: - Color Extension for Widget
-extension Color {
-    func toHex() -> String {
-        #if canImport(UIKit)
-        let components = UIColor(self).cgColor.components
-        let r = Float(components?[0] ?? 0)
-        let g = Float(components?[1] ?? 0)
-        let b = Float(components?[2] ?? 0)
-
-        return String(format: "%02lX%02lX%02lX",
-                      lroundf(r * 255),
-                      lroundf(g * 255),
-                      lroundf(b * 255))
-        #else
-        return "FFFFFF" // Default white
-        #endif
     }
 }
 

@@ -250,25 +250,6 @@ class StateManager: @unchecked Sendable {
     func getMusicFolderURL() -> URL? {
         return getAppFolderURL()
     }
-    
-    func checkiCloudAvailability() -> Bool {
-        // Check if user is signed into iCloud
-        guard FileManager.default.ubiquityIdentityToken != nil else {
-            return false
-        }
-        
-        // Check if we can get the container URL
-        guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
-            return false
-        }
-        
-        // Update our cached URL if needed
-        if iCloudContainerURL == nil {
-            iCloudContainerURL = containerURL
-        }
-        
-        return true
-    }
 }
 
 // MARK: - Player State Persistence

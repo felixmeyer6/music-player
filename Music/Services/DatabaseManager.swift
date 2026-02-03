@@ -154,10 +154,6 @@ class DatabaseManager: @unchecked Sendable {
                     channels INTEGER,
                     path TEXT NOT NULL,
                     file_size INTEGER,
-                    replaygain_track_gain REAL,
-                    replaygain_album_gain REAL,
-                    replaygain_track_peak REAL,
-                    replaygain_album_peak REAL,
                     has_embedded_art INTEGER DEFAULT 0,
                     waveform_data TEXT
                 )
@@ -567,12 +563,6 @@ class DatabaseManager: @unchecked Sendable {
         }
     }
 
-    func getGenre(byName name: String) throws -> Genre? {
-        return try read { db in
-            return try Genre.filter(Column("name").collating(.nocase) == name).fetchOne(db)
-        }
-    }
-
     // MARK: - Album operations
     
     func upsertAlbum(name: String) throws -> Album {
@@ -768,15 +758,6 @@ class DatabaseManager: @unchecked Sendable {
         }
     }
 
-    func getTracksByGenreId(_ genreId: Int64) throws -> [Track] {
-        return try read { db in
-            return try Track
-                .filter(Column("genre_id") == genreId)
-                .order(Column("title"))
-                .fetchAll(db)
-        }
-    }
-
     func getFirstTrackByGenre(_ genre: String) throws -> Track? {
         return try read { db in
             try Track.fetchOne(
@@ -791,48 +772,6 @@ class DatabaseManager: @unchecked Sendable {
                 """,
                 arguments: [genre]
             )
-        }
-    }
-
-    // MARK: - Search operations
-
-    func searchTracks(query: String) throws -> [Track] {
-        return try read { db in
-            let searchPattern = "%\(query)%"
-            return try Track
-                .filter(Column("title").like(searchPattern))
-                .order(Column("title"))
-                .fetchAll(db)
-        }
-    }
-
-    func searchAlbums(query: String) throws -> [Album] {
-        return try read { db in
-            let searchPattern = "%\(query)%"
-            return try Album
-                .filter(Column("name").like(searchPattern))
-                .order(Column("name"))
-                .fetchAll(db)
-        }
-    }
-
-    func searchArtists(query: String) throws -> [Artist] {
-        return try read { db in
-            let searchPattern = "%\(query)%"
-            return try Artist
-                .filter(Column("name").like(searchPattern))
-                .order(Column("name"))
-                .fetchAll(db)
-        }
-    }
-
-    func searchPlaylists(query: String) throws -> [Playlist] {
-        return try read { db in
-            let searchPattern = "%\(query)%"
-            return try Playlist
-                .filter(Column("title").like(searchPattern))
-                .order(Column("title"))
-                .fetchAll(db)
         }
     }
 
