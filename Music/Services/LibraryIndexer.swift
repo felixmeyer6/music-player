@@ -1,19 +1,18 @@
+//
+//  LibraryIndexer.swift
+//  Cosmos Music Player
+//
 //  Indexes audio files (MP3, WAV, AAC, M4A) in iCloud Drive using NSMetadataQuery
+//
 
 import Foundation
-import CryptoKit
+import Combine
 import AVFoundation
-import Accelerate
-
-enum LibraryIndexerError: Error {
-    case parseTimeout
-    case metadataParsingFailed
-}
 
 @MainActor
 class LibraryIndexer: NSObject, ObservableObject {
     static let shared = LibraryIndexer()
-    
+
     @Published var isIndexing = false
     @Published var indexingProgress: Double = 0.0
     @Published var tracksFound = 0
@@ -21,45 +20,39 @@ class LibraryIndexer: NSObject, ObservableObject {
     @Published var queuedFiles: [String] = []
 
     private let metadataQuery = NSMetadataQuery()
-    private let databaseManager = DatabaseManager.shared
     private let stateManager = StateManager.shared
-    private static let barsPerMinute = 50
+    private let worker = LibraryIndexingActor()
+    private var indexingTask: Task<Void, Never>?
+    private var pendingQueryUpdate = false
+    private var didDisableUpdates = false
 
-    private static func waveformBars(forDurationMs ms: Int?) -> Int {
-        guard let ms, ms > 0 else { return 50 }
-        let minutes = Double(ms) / 60_000.0
-        return max(20, Int(ceil(minutes * Double(barsPerMinute))))
-    }
-    
     override init() {
         super.init()
         setupMetadataQuery()
     }
-    
+
     private func setupMetadataQuery() {
         metadataQuery.delegate = self
-        
-        // Search only within the app's iCloud container
+
         if let musicFolderURL = stateManager.getMusicFolderURL() {
             metadataQuery.searchScopes = [musicFolderURL]
         } else {
             metadataQuery.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
         }
-        
-        // Support native AVAudioEngine audio formats
+
         let formats = ["*.mp3", "*.wav", "*.m4a", "*.aac"]
         let formatPredicates = formats.map { format in
             NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, format)
         }
         metadataQuery.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: formatPredicates)
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(queryDidGatherInitialResults),
             name: NSNotification.Name.NSMetadataQueryDidFinishGathering,
             object: metadataQuery
         )
-        
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(queryDidUpdate),
@@ -67,26 +60,25 @@ class LibraryIndexer: NSObject, ObservableObject {
             object: metadataQuery
         )
     }
-    
+
     func start() {
         guard !isIndexing else { return }
 
-        // Attempt recovery from offline mode when manually syncing
         CloudDownloadManager.shared.attemptRecovery()
 
         isIndexing = true
         indexingProgress = 0.0
         tracksFound = 0
+        currentlyProcessing = ""
+        queuedFiles = []
 
-        // Copy any new files from share extension first
         Task {
             await copyFilesFromSharedContainer()
         }
-        
+
         if let musicFolderURL = stateManager.getMusicFolderURL() {
             print("Starting iCloud library indexing in: \(musicFolderURL)")
-            
-            // Check if folder exists and list its contents
+
             if FileManager.default.fileExists(atPath: musicFolderURL.path) {
                 do {
                     let contents = try FileManager.default.contentsOfDirectory(at: musicFolderURL, includingPropertiesForKeys: nil)
@@ -103,37 +95,46 @@ class LibraryIndexer: NSObject, ObservableObject {
         } else {
             print("No music folder URL available")
         }
-        
+
         metadataQuery.start()
-        
-        // Add a timeout to trigger fallback if NSMetadataQuery doesn't work
-        Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000) // 3 seconds
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
             print("Timeout check: resultCount=\(metadataQuery.resultCount), isIndexing=\(isIndexing)")
-            if metadataQuery.resultCount == 0 && isIndexing {
+            if metadataQuery.resultCount == 0 && isIndexing && indexingTask == nil {
                 print("NSMetadataQuery timeout - triggering fallback scan")
-                await fallbackToDirectScan()
+                runFallbackScan()
             }
         }
     }
-    
+
     func startOfflineMode() {
         guard !isIndexing else { return }
 
         isIndexing = true
         indexingProgress = 0.0
         tracksFound = 0
+        currentlyProcessing = ""
+        queuedFiles = []
 
-        Task {
-            await scanLocalDocuments()
+        let handler = makeEventHandler()
+        indexingTask = Task {
+            await worker.scanLocalDocuments(onEvent: handler)
+            await MainActor.run {
+                self.finalizeIndexingTask()
+            }
         }
     }
-    
+
     func stop() {
         metadataQuery.stop()
+        indexingTask?.cancel()
+        indexingTask = nil
         isIndexing = false
+        currentlyProcessing = ""
+        queuedFiles = []
     }
-    
+
     func switchToOfflineMode() {
         print("🔄 Switching LibraryIndexer to offline mode")
         stop()
@@ -141,63 +142,23 @@ class LibraryIndexer: NSObject, ObservableObject {
     }
 
     func processExternalFile(_ fileURL: URL) async {
-        // Reject network URLs
-        if let scheme = fileURL.scheme?.lowercased(), ["http", "https", "ftp", "sftp"].contains(scheme) {
-            print("❌ Rejected network URL: \(fileURL.absoluteString)")
-            return
-        }
-
-        do {
-            print("🎵 Starting to process external file: \(fileURL.lastPathComponent)")
-            print("📱 Processing external file from: \(fileURL.path)")
-
-            print("🆔 Generating stable ID for: \(fileURL.lastPathComponent)")
-            let stableId = try generateStableId(for: fileURL)
-            print("🆔 Generated stable ID: \(stableId)")
-
-            // Check if track already exists in database
-            if try databaseManager.getTrack(byStableId: stableId) != nil {
-                print("⏭️ Track already exists in database: \(fileURL.lastPathComponent)")
-                return
-            }
-
-            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            let fileSize = Int64(resourceValues.fileSize ?? 0)
-            let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
-
-            print("🎶 Parsing external audio file: \(fileURL.lastPathComponent)")
-            let track = try await parseAudioFile(
-                at: fileURL,
-                stableId: stableId,
-                fileSize: fileSize,
-                contentModificationTime: contentModificationTime
-            )
-            print("✅ External audio file parsed successfully: \(track.title)")
-
-            print("💾 Inserting external track into database: \(track.title)")
-            try databaseManager.upsertTrack(track)
-            print("✅ External track inserted into database: \(track.title)")
-
-            // Pre-cache artwork for instant loading later
-            await ArtworkManager.shared.cacheArtwork(for: track)
-
-            await MainActor.run {
-                tracksFound += 1
-                print("📢 Posting TrackFound notification for external file: \(track.title)")
-                // Notify UI immediately that a new track was found
-                NotificationCenter.default.post(name: NSNotification.Name("TrackFound"), object: track)
-            }
-
-        } catch LibraryIndexerError.parseTimeout {
-            print("⏰ Timeout parsing external audio file: \(fileURL.lastPathComponent)")
-            print("❌ Skipping external file due to parsing timeout")
-        } catch {
-            print("❌ Failed to process external track at \(fileURL.lastPathComponent): \(error)")
-            print("❌ Error type: \(type(of: error))")
-            print("❌ Error details: \(String(describing: error))")
-        }
+        let handler = makeEventHandler()
+        await worker.processExternalFile(fileURL, onEvent: handler)
     }
-    
+
+    func generateStableId(for url: URL) throws -> String {
+        try LibraryIndexingActor.generateStableId(for: url)
+    }
+
+    func copyFilesFromSharedContainer() async {
+        let handler = makeEventHandler()
+        await worker.copyFilesFromSharedContainer(onEvent: handler)
+    }
+
+    func resolveBookmarkForTrack(_ track: Track) async -> URL? {
+        await worker.resolveBookmarkForTrack(track)
+    }
+
     @objc private func queryDidGatherInitialResults() {
         print("🔍 NSMetadataQuery gathered initial results: \(metadataQuery.resultCount) items")
         for i in 0..<metadataQuery.resultCount {
@@ -206,947 +167,119 @@ class LibraryIndexer: NSObject, ObservableObject {
                 print("  Found: \(url.lastPathComponent)")
             }
         }
-        Task {
-            await processQueryResults()
-        }
+        processMetadataQueryResults()
     }
-    
+
     @objc private func queryDidUpdate() {
-        Task {
-            await processQueryResults()
-        }
-    }
-    
-    private func processQueryResults() async {
-        metadataQuery.disableUpdates()
-        defer { metadataQuery.enableUpdates() }
-        
-        let itemCount = metadataQuery.resultCount
-        
-        if itemCount == 0 {
-            print("NSMetadataQuery found 0 results, falling back to direct file system scan")
-            await fallbackToDirectScan()
-            return
-        }
-        
-        var processedCount = 0
-        
-        for i in 0..<itemCount {
-            guard let item = metadataQuery.result(at: i) as? NSMetadataItem else { continue }
-            
-            await processMetadataItem(item)
-            
-            processedCount += 1
-            indexingProgress = Double(processedCount) / Double(itemCount)
-        }
-        
-        isIndexing = false
-        print("Library indexing completed. Found \(tracksFound) tracks.")
-    }
-    
-    private func fallbackToDirectScan() async {
-        print("🔄 Starting fallback direct scan of both iCloud and local folders")
-        
-        var allMusicFiles: [URL] = []
-        
-        // First, copy any new files from shared container to Documents
-        await copyFilesFromSharedContainer()
-        
-        // Scan iCloud folder if available
-        if let iCloudMusicFolderURL = stateManager.getMusicFolderURL() {
-            print("📁 Scanning iCloud folder: \(iCloudMusicFolderURL.path)")
-            do {
-                let iCloudFiles = try await findMusicFiles(in: iCloudMusicFolderURL)
-                print("📁 Found \(iCloudFiles.count) files in iCloud folder")
-                allMusicFiles.append(contentsOf: iCloudFiles)
-            } catch {
-                print("⚠️ Failed to scan iCloud folder: \(error)")
-            }
-        }
-        
-        // Scan local Documents folder
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        print("📱 Scanning local Documents folder: \(documentsPath.path)")
-        do {
-            let localFiles = try await findMusicFiles(in: documentsPath)
-            print("📱 Found \(localFiles.count) files in local Documents folder")
-            for file in localFiles {
-                print("  📄 Local file: \(file.lastPathComponent)")
-            }
-            allMusicFiles.append(contentsOf: localFiles)
-        } catch {
-            print("⚠️ Failed to scan local Documents folder: \(error)")
-        }
-        
-        let totalFiles = allMusicFiles.count
-        print("📁 Total music files found (iCloud + local): \(totalFiles)")
-        
-        guard totalFiles > 0 else {
-            isIndexing = false
-            print("❌ No music files found in any location")
-            return
-        }
-        
-        // Set initial queue
-        await MainActor.run {
-            queuedFiles = allMusicFiles.map { $0.lastPathComponent }
-            currentlyProcessing = ""
-        }
-        
-        for (index, url) in allMusicFiles.enumerated() {
-            let fileName = url.lastPathComponent
-            let isLocalFile = !url.path.contains("Mobile Documents")
-            print("🎵 Processing \(index + 1)/\(totalFiles): \(fileName) \(isLocalFile ? "[LOCAL]" : "[iCLOUD]")")
-            
-            // Update UI to show current file being processed
-            await MainActor.run {
-                currentlyProcessing = fileName
-                queuedFiles = Array(allMusicFiles.suffix(from: index + 1).map { $0.lastPathComponent })
-            }
-            
-            // Skip iCloud processing if we're in offline mode due to auth issues
-            if !isLocalFile && (AppCoordinator.shared.iCloudStatus == .authenticationRequired || !AppCoordinator.shared.isiCloudAvailable) {
-                print("🚫 Skipping iCloud file processing - iCloud authentication required: \(fileName)")
-                continue
-            }
-            
-            await processLocalFile(url)
-            
-            await MainActor.run {
-                indexingProgress = Double(index + 1) / Double(totalFiles)
-            }
-        }
-        
-        // Clear processing state when done
-        await MainActor.run {
-            currentlyProcessing = ""
-            queuedFiles = []
-        }
-        
-        isIndexing = false
-        print("✅ Direct scan completed. Found \(tracksFound) tracks from both iCloud and local folders.")
+        processMetadataQueryResults()
     }
 
-    private func scanLocalDocuments() async {
-        let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        
-        do {
-            let musicFiles = try await findMusicFiles(in: documentsPath)
-            
-            let totalFiles = musicFiles.count
-            var processedFiles = 0
-            
-            for fileURL in musicFiles {
-                await processLocalFile(fileURL)
-                
-                processedFiles += 1
-                await MainActor.run {
-                    indexingProgress = Double(processedFiles) / Double(totalFiles)
-                }
-            }
-            
-            await MainActor.run {
-                isIndexing = false
-                print("Offline library scan completed. Found \(tracksFound) tracks.")
-            }
-        } catch {
-            await MainActor.run {
-                isIndexing = false
-                print("Offline library scan failed: \(error)")
-            }
-        }
-    }
-    
-    private func findMusicFiles(in directory: URL) async throws -> [URL] {
-        return try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .background).async {
-                do {
-                    var musicFiles: [URL] = []
-                    
-                    let resourceKeys: [URLResourceKey] = [.isRegularFileKey, .nameKey]
-                    let directoryEnumerator = FileManager.default.enumerator(
-                        at: directory,
-                        includingPropertiesForKeys: resourceKeys,
-                        options: [.skipsHiddenFiles]
-                    )
-                    
-                    guard let enumerator = directoryEnumerator else {
-                        continuation.resume(returning: musicFiles)
-                        return
-                    }
-                    
-                    for case let fileURL as URL in enumerator {
-                        let resourceValues = try fileURL.resourceValues(forKeys: Set(resourceKeys))
-                        
-                        guard let isRegularFile = resourceValues.isRegularFile, isRegularFile else {
-                            continue
-                        }
-                        
-                        let pathExtension = fileURL.pathExtension.lowercased()
-                        let supportedExtensions = ["mp3", "wav", "m4a", "aac"]
-                        if supportedExtensions.contains(pathExtension) {
-                            musicFiles.append(fileURL)
-                        }
-                    }
-                    
-                    continuation.resume(returning: musicFiles)
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
-        }
-    }
-    
-    private func processLocalFile(_ fileURL: URL) async {
-        do {
-            print("🎵 Starting to process file: \(fileURL.lastPathComponent)")
-            
-            let isLocalFile = !fileURL.path.contains("Mobile Documents")
-            
-            // Only try to download from iCloud if it's actually an iCloud file
-            if !isLocalFile {
-                let cloudDownloadManager = CloudDownloadManager.shared
-                do {
-                    try await cloudDownloadManager.ensureLocal(fileURL)
-                    print("✅ iCloud file ensured local: \(fileURL.lastPathComponent)")
-                } catch {
-                    print("⚠️ Failed to ensure iCloud file is local: \(fileURL.lastPathComponent) - \(error)")
-                    
-                    // Check for authentication errors
-                    if let cloudError = error as? CloudDownloadError {
-                        switch cloudError {
-                        case .authenticationRequired, .accessDenied:
-                            print("🔐 Authentication error in LibraryIndexer - switching to offline mode")
-                            AppCoordinator.shared.handleiCloudAuthenticationError()
-                            return // Skip this file
-                        default:
-                            break
-                        }
-                    }
-                    
-                    // Continue processing even if download fails (for other errors)
-                }
-            } else {
-                print("📱 Processing local file (no iCloud download needed): \(fileURL.lastPathComponent)")
-            }
-            
-            print("🆔 Generating stable ID for: \(fileURL.lastPathComponent)")
-            let stableId = try generateStableId(for: fileURL)
-            print("🆔 Generated stable ID: \(stableId)")
-
-            // Check if track already exists in database
-            if try databaseManager.getTrack(byStableId: stableId) != nil {
-                print("⏭️ Track already exists in database: \(fileURL.lastPathComponent)")
-                return
-            }
-            
-            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            let fileSize = Int64(resourceValues.fileSize ?? 0)
-            let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
-
-            print("🎶 Parsing audio file: \(fileURL.lastPathComponent)")
-            let track = try await parseAudioFile(
-                at: fileURL,
-                stableId: stableId,
-                fileSize: fileSize,
-                contentModificationTime: contentModificationTime
-            )
-            print("✅ Audio file parsed successfully: \(track.title)")
-
-            print("💾 Inserting track into database: \(track.title)")
-            try databaseManager.upsertTrack(track)
-            print("✅ Track inserted into database: \(track.title)")
-
-            // Pre-cache artwork for instant loading later
-            await ArtworkManager.shared.cacheArtwork(for: track)
-
-            await MainActor.run {
-                tracksFound += 1
-                print("📢 Posting TrackFound notification for: \(track.title)")
-                // Notify UI immediately that a new track was found
-                NotificationCenter.default.post(name: NSNotification.Name("TrackFound"), object: track)
-            }
-            
-            // Check if file is downloaded (for iCloud files)
-            await checkDownloadStatus(for: fileURL)
-            
-        } catch LibraryIndexerError.parseTimeout {
-            print("⏰ Timeout parsing audio file: \(fileURL.lastPathComponent)")
-            print("❌ Skipping file due to parsing timeout")
-        } catch {
-            print("❌ Failed to process local track at \(fileURL.lastPathComponent): \(error)")
-            print("❌ Error type: \(type(of: error))")
-            print("❌ Error details: \(String(describing: error))")
-        }
-    }
-    
-    private func checkDownloadStatus(for fileURL: URL) async {
-        do {
-            let resourceValues = try fileURL.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .isUbiquitousItemKey])
-            
-            if let isUbiquitous = resourceValues.isUbiquitousItem, isUbiquitous {
-                if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                    switch downloadStatus {
-                    case .notDownloaded:
-                        print("File not downloaded: \(fileURL.lastPathComponent)")
-                        // Trigger download
-                        try FileManager.default.startDownloadingUbiquitousItem(at: fileURL)
-                    case .downloaded:
-                        print("File is downloaded: \(fileURL.lastPathComponent)")
-                    case .current:
-                        print("File is current: \(fileURL.lastPathComponent)")
-                    default:
-                        print("Unknown download status for: \(fileURL.lastPathComponent)")
-                    }
-                }
-            }
-        } catch {
-            print("Failed to check download status for \(fileURL.lastPathComponent): \(error)")
-        }
-    }
-    
-    private func processMetadataItem(_ item: NSMetadataItem) async {
-        guard let fileURL = item.value(forAttribute: NSMetadataItemURLKey) as? URL else { return }
-        let ext = fileURL.pathExtension.lowercased()
-        let supportedFormats = ["mp3", "wav", "m4a", "aac"]
-        guard supportedFormats.contains(ext) else { return }
-
-        do {
-            let stableId = try generateStableId(for: fileURL)
-
-            try await CloudDownloadManager.shared.ensureLocal(fileURL)
-
-            let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-            let fileSize = Int64(resourceValues.fileSize ?? 0)
-            let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
-
-            if let existing = try databaseManager.getTrack(byStableId: stableId) {
-                let expectedBars = Self.waveformBars(forDurationMs: existing.durationMs)
-                let meta = Self.makeWaveformMeta(
-                    totalBars: expectedBars,
-                    fileSize: fileSize,
-                    contentModificationTime: contentModificationTime
-                )
-                if Self.waveformMatches(existing.waveformData, meta: meta) {
-                    return
-                }
-            }
-
-            let track = try await parseAudioFile(
-                at: fileURL,
-                stableId: stableId,
-                fileSize: fileSize,
-                contentModificationTime: contentModificationTime
-            )
-            try databaseManager.upsertTrack(track)
-
-            // Pre-cache artwork for instant loading later
-            await ArtworkManager.shared.cacheArtwork(for: track)
-
-            await MainActor.run {
-                tracksFound += 1
-                // Notify UI immediately that a new track was found
-                NotificationCenter.default.post(name: NSNotification.Name("TrackFound"), object: track)
-            }
-            
-            // Check if file is downloaded (for iCloud files)
-            await checkDownloadStatus(for: fileURL)
-            
-        } catch {
-            print("Failed to process track at \(fileURL): \(error)")
-        }
-    }
-    
-    func generateStableId(for url: URL) throws -> String {
-        let filename = url.lastPathComponent
-        let digest = SHA256.hash(data: filename.data(using: .utf8) ?? Data())
-        return digest.compactMap { String(format: "%02x", $0) }.joined()
-    }
-    
-    private func parseAudioFile(
-        at url: URL,
-        stableId: String,
-        fileSize: Int64,
-        contentModificationTime: TimeInterval
-    ) async throws -> Track {
-        print("🔍 Calling AudioMetadataParser for: \(url.lastPathComponent)")
-        
-        // Add timeout to prevent hanging
-        let metadata = try await withThrowingTaskGroup(of: AudioMetadata.self) { group in
-            group.addTask {
-                return try await AudioMetadataParser.parseMetadata(from: url)
-            }
-            
-            group.addTask {
-                try await Task.sleep(nanoseconds: 10_000_000_000) // 10 seconds timeout
-                throw LibraryIndexerError.parseTimeout
-            }
-            
-            guard let result = try await group.next() else {
-                throw LibraryIndexerError.parseTimeout
-            }
-            
-            group.cancelAll()
-            return result
-        }
-        
-        print("✅ AudioMetadataParser completed for: \(url.lastPathComponent)")
-        
-        // Clean and normalize artist name to merge similar artists
-        let cleanedArtistName = cleanArtistName(metadata.artist ?? Localized.unknownArtist)
-        let cleanedGenre = cleanGenre(metadata.genre)
-        print("🎤 Creating artist with cleaned name: '\(cleanedArtistName)'")
-        
-        let artist = try databaseManager.upsertArtist(name: cleanedArtistName)
-        let album = try databaseManager.upsertAlbum(name: metadata.album ?? Localized.unknownAlbum)
-        let genreRecord: Genre? = if let genreName = cleanedGenre, !genreName.isEmpty {
-            try databaseManager.upsertGenre(name: genreName)
-        } else {
-            nil
-        }
-        
-        let bars = Self.waveformBars(forDurationMs: metadata.durationMs)
-        let waveformMeta = Self.makeWaveformMeta(
-            totalBars: bars,
-            fileSize: fileSize,
-            contentModificationTime: contentModificationTime
-        )
-        let waveformData = await Task.detached(priority: .utility) {
-            await Self.buildWaveformData(
-                for: url,
-                totalBars: bars,
-                waveformMeta: waveformMeta
-            )
-        }.value
-        
-        return Track(
-            stableId: stableId,
-            albumId: album.id,
-            artistId: artist.id,
-            genreId: genreRecord?.id,
-            genre: cleanedGenre,
-            rating: metadata.rating,
-            title: metadata.title ?? url.deletingPathExtension().lastPathComponent,
-            trackNo: metadata.trackNumber,
-            discNo: metadata.discNumber,
-            durationMs: metadata.durationMs,
-            sampleRate: metadata.sampleRate,
-            bitDepth: metadata.bitDepth,
-            channels: metadata.channels,
-            path: url.path,
-            fileSize: fileSize,
-            hasEmbeddedArt: metadata.hasEmbeddedArt,
-            waveformData: waveformData
-        )
-    }
-
-    // MARK: - Waveform Analysis
-
-    private struct WaveformMeta: Codable, Equatable {
-        let totalBars: Int
-        let fileSize: Int64
-        let contentModificationTime: TimeInterval
-        let version: Int
-    }
-
-    private struct WaveformPayload: Codable {
-        let meta: WaveformMeta
-        let bars: [Float]
-    }
-
-    nonisolated private static func makeWaveformMeta(
-        totalBars: Int,
-        fileSize: Int64,
-        contentModificationTime: TimeInterval
-    ) -> WaveformMeta {
-        WaveformMeta(
-            totalBars: totalBars,
-            fileSize: fileSize,
-            contentModificationTime: contentModificationTime,
-            version: 4
-        )
-    }
-
-    nonisolated private static func waveformMatches(_ waveformData: String?, meta: WaveformMeta) -> Bool {
-        guard let payload = decodeWaveformPayload(waveformData) else {
-            return false
-        }
-
-        guard payload.meta.totalBars == meta.totalBars,
-              payload.meta.fileSize == meta.fileSize,
-              payload.meta.version == meta.version else {
-            return false
-        }
-
-        // Allow small timestamp drift due to filesystem precision.
-        return abs(payload.meta.contentModificationTime - meta.contentModificationTime) < 1.0
-    }
-
-    nonisolated private static func decodeWaveformPayload(_ waveformData: String?) -> WaveformPayload? {
-        guard let waveformData, let data = waveformData.data(using: .utf8) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(WaveformPayload.self, from: data)
-    }
-
-    nonisolated private static func buildWaveformData(
-        for url: URL,
-        totalBars: Int,
-        waveformMeta: WaveformMeta
-    ) async -> String? {
-        guard totalBars > 0 else { return nil }
-
-        let bars = await analyzeWaveformBars(for: url, totalBars: totalBars)
-        guard !bars.isEmpty else { return nil }
-
-        let payload = WaveformPayload(meta: waveformMeta, bars: bars)
-        do {
-            let data = try JSONEncoder().encode(payload)
-            return String(data: data, encoding: .utf8)
-        } catch {
-            print("⚠️ Failed to encode waveform payload for \(url.lastPathComponent): \(error)")
-            return nil
-        }
-    }
-
-    nonisolated private static func analyzeWaveformBars(for url: URL, totalBars: Int) async -> [Float] {
-        guard totalBars > 0 else { return [] }
-
-        let asset = AVURLAsset(url: url)
-        guard let audioTrack = try? await asset.loadTracks(withMediaType: .audio).first else {
-            return []
-        }
-
-        let duration = try? await asset.load(.duration)
-        let durationSeconds = duration.map { CMTimeGetSeconds($0) } ?? 0
-        guard durationSeconds.isFinite, durationSeconds > 0 else {
-            return []
-        }
-
-        // Keep mapping math aligned with the decode sample rate to avoid
-        // compressing the waveform into the first portion of the bars.
-        let decodeSampleRate: Double = 11_025
-        let estimatedFrames = max(1, Int(durationSeconds * decodeSampleRate))
-        let framesPerBar = max(1, estimatedFrames / totalBars)
-
-        // Aggressive downsampling budget: only inspect a limited number of samples.
-        let targetSampleCount = max(totalBars * 32, 1024)
-        let stride = max(1, estimatedFrames / targetSampleCount)
-
-        do {
-            let reader = try AVAssetReader(asset: asset)
-            let outputSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVLinearPCMIsFloatKey: true,
-                AVLinearPCMBitDepthKey: 32,
-                AVLinearPCMIsNonInterleaved: false,
-                AVNumberOfChannelsKey: 1,
-                AVSampleRateKey: decodeSampleRate,
-                AVLinearPCMIsBigEndianKey: false
-            ]
-
-            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-            output.alwaysCopiesSampleData = false
-
-            guard reader.canAdd(output) else { return [] }
-            reader.add(output)
-
-            guard reader.startReading() else { return [] }
-
-            var barPeaks = [Float](repeating: 0, count: totalBars)
-            var runningFrameIndex = 0
-
-            while reader.status == .reading {
-                guard let sampleBuffer = output.copyNextSampleBuffer() else { break }
-                guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
-
-                var totalLength = 0
-                var dataPointer: UnsafeMutablePointer<Int8>?
-                let status = CMBlockBufferGetDataPointer(
-                    blockBuffer,
-                    atOffset: 0,
-                    lengthAtOffsetOut: nil,
-                    totalLengthOut: &totalLength,
-                    dataPointerOut: &dataPointer
-                )
-
-                guard status == kCMBlockBufferNoErr,
-                      let dataPointer else { continue }
-
-                let sampleCount = totalLength / MemoryLayout<Float>.size
-                if sampleCount == 0 { continue }
-
-                let floatPointer = dataPointer.withMemoryRebound(to: Float.self, capacity: sampleCount) { $0 }
-                var absSamples = [Float](repeating: 0, count: sampleCount)
-                vDSP_vabs(floatPointer, 1, &absSamples, 1, vDSP_Length(sampleCount))
-
-                var idx = 0
-                while idx < sampleCount {
-                    let globalFrame = runningFrameIndex + idx
-                    let barIndex = min(totalBars - 1, globalFrame / framesPerBar)
-                    let value = absSamples[idx]
-                    if value > barPeaks[barIndex] {
-                        barPeaks[barIndex] = value
-                    }
-                    idx += stride
-                }
-
-                runningFrameIndex += sampleCount
-            }
-
-            if reader.status == .failed {
-                print("⚠️ AVAssetReader failed for \(url.lastPathComponent): \(reader.error?.localizedDescription ?? "unknown error")")
-                return []
-            }
-
-            let maxAmp = barPeaks.max() ?? 0
-            if maxAmp > 0 {
-                barPeaks = barPeaks.map { $0 / maxAmp }
-            }
-
-            return barPeaks
-        } catch {
-            print("⚠️ Waveform analysis failed for \(url.lastPathComponent): \(error)")
-            return []
-        }
-    }
-
-    private func cleanArtistName(_ artistName: String) -> String {
-        var cleaned = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Remove common YouTube/streaming suffixes
-        let suffixesToRemove = [
-            " - Topic",
-            " Topic",
-            "- Topic", 
-            ", Topic",
-            " (Topic)"
-        ]
-        
-        for suffix in suffixesToRemove {
-            if cleaned.hasSuffix(suffix) {
-                cleaned = String(cleaned.dropLast(suffix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-        }
-        
-        // Handle multiple artists - take the first main artist and clean up formatting
-        if cleaned.contains(",") {
-            let components = cleaned.components(separatedBy: ",")
-            if let firstArtist = components.first?.trimmingCharacters(in: .whitespacesAndNewlines) {
-                cleaned = firstArtist
-            }
-        }
-        
-        // Remove brackets and additional info that might cause duplicates
-        if let bracketStart = cleaned.firstIndex(of: "[") {
-            cleaned = String(cleaned[..<bracketStart]).trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        
-        return cleaned.isEmpty ? Localized.unknownArtist : cleaned
-    }
-
-    private func cleanGenre(_ genre: String?) -> String? {
-        guard let genre else { return nil }
-        let cleaned = genre.trimmingCharacters(in: .whitespacesAndNewlines)
-        return cleaned.isEmpty ? nil : cleaned
-    }
-    
-    func copyFilesFromSharedContainer() async {
-        print("📁 Checking shared container for new music files...")
-
-        guard let sharedContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player") else {
-            print("❌ Failed to get shared container URL")
+    private func processMetadataQueryResults() {
+        if indexingTask != nil {
+            pendingQueryUpdate = true
             return
         }
 
-        // Process shared URLs from share extension
-        await processSharedURLs(from: sharedContainer)
-
-        // Also check for legacy copied files (for backward compatibility)
-        await processLegacySharedFiles(from: sharedContainer)
-
-        // Process previously stored external bookmarks (both document picker and share extension files)
-        await processStoredExternalBookmarks()
-    }
-
-    private func processSharedURLs(from sharedContainer: URL) async {
-        let sharedDataURL = sharedContainer.appendingPathComponent("SharedAudioFiles.plist")
-
-        guard FileManager.default.fileExists(atPath: sharedDataURL.path) else {
-            print("📁 No shared audio files found")
-            return
+        if !didDisableUpdates {
+            metadataQuery.disableUpdates()
+            didDisableUpdates = true
         }
 
-        do {
-            let data = try Data(contentsOf: sharedDataURL)
-            guard let sharedFiles = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [[String: Data]] else {
-                return
-            }
-
-            print("📁 Found \(sharedFiles.count) shared audio file references")
-
-            for fileInfo in sharedFiles {
-                guard let bookmarkData = fileInfo["bookmark"],
-                      let filenameData = fileInfo["filename"],
-                      let filename = String(data: filenameData, encoding: .utf8) else {
-                    continue
-                }
-
-                do {
-                    // Resolve bookmark to get access to the original file
-                    var isStale = false
-                    let url = try URL(resolvingBookmarkData: bookmarkData, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &isStale)
-
-                    if isStale {
-                        print("⚠️ Bookmark is stale for: \(filename)")
-                        continue
-                    }
-
-                    // Reject network URLs
-                    if let scheme = url.scheme?.lowercased(), ["http", "https", "ftp", "sftp"].contains(scheme) {
-                        print("❌ Rejected network URL: \(url.absoluteString)")
-                        continue
-                    }
-
-                    // Start accessing security-scoped resource
-                    guard url.startAccessingSecurityScopedResource() else {
-                        print("❌ Failed to access security-scoped resource for: \(filename)")
-                        continue
-                    }
-
-                    defer {
-                        url.stopAccessingSecurityScopedResource()
-                    }
-
-                    // Process the file directly from its original location
-                    await processExternalFile(url)
-                    print("✅ Processed shared file from original location: \(filename)")
-
-                    // Store the bookmark permanently for future access after app updates
-                    await storeBookmarkPermanently(bookmarkData, for: url)
-
-                } catch {
-                    print("❌ Failed to resolve bookmark for \(filename): \(error)")
-                }
-            }
-
-            // Clear the shared files list after processing and storing bookmarks permanently
-            try FileManager.default.removeItem(at: sharedDataURL)
-            print("🗑️ Cleared shared audio files list (bookmarks moved to permanent storage)")
-
-        } catch {
-            print("❌ Failed to process shared audio files: \(error)")
-        }
-    }
-
-    private func processLegacySharedFiles(from sharedContainer: URL) async {
-        let sharedMusicURL = sharedContainer.appendingPathComponent("Documents").appendingPathComponent("Music")
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let localMusicURL = documentsURL.appendingPathComponent("Music")
-
-        // Create local Music directory if it doesn't exist
-        do {
-            try FileManager.default.createDirectory(at: localMusicURL, withIntermediateDirectories: true, attributes: nil)
-        } catch {
-            print("❌ Failed to create local Music directory: \(error)")
-            return
-        }
-
-        // Check if shared Music directory exists
-        guard FileManager.default.fileExists(atPath: sharedMusicURL.path) else {
-            print("📁 No shared Music directory found")
-            return
-        }
-
-        do {
-            let sharedFiles = try FileManager.default.contentsOfDirectory(at: sharedMusicURL, includingPropertiesForKeys: nil)
-            let audioFiles = sharedFiles.filter { url in
-                let ext = url.pathExtension.lowercased()
-                return ext == "mp3" || ext == "wav"
-            }
-
-            print("📁 Found \(audioFiles.count) legacy audio files in shared container")
-
-            for audioFile in audioFiles {
-                let localDestination = localMusicURL.appendingPathComponent(audioFile.lastPathComponent)
-
-                // Skip if file already exists in local directory
-                if FileManager.default.fileExists(atPath: localDestination.path) {
-                    print("⏭️ File already exists locally: \(audioFile.lastPathComponent)")
-                    continue
-                }
-
-                do {
-                    try FileManager.default.copyItem(at: audioFile, to: localDestination)
-                    print("✅ Copied legacy file to Documents/Music: \(audioFile.lastPathComponent)")
-
-                    // Remove from shared container after successful copy
-                    try FileManager.default.removeItem(at: audioFile)
-                    print("🗑️ Removed legacy file from shared container: \(audioFile.lastPathComponent)")
-
-                } catch {
-                    print("❌ Failed to copy legacy file \(audioFile.lastPathComponent): \(error)")
-                }
-            }
-
-        } catch {
-            print("❌ Failed to read shared container directory: \(error)")
-        }
-    }
-
-    private func storeBookmarkPermanently(_ bookmarkData: Data, for url: URL) async {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let bookmarksURL = documentsURL.appendingPathComponent("ExternalFileBookmarks.plist")
-
-        do {
-            // Load existing bookmarks or create new dictionary
-            var bookmarks: [String: Data] = [:]
-            if FileManager.default.fileExists(atPath: bookmarksURL.path) {
-                let data = try Data(contentsOf: bookmarksURL)
-                if let existingBookmarks = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Data] {
-                    bookmarks = existingBookmarks
-                }
-            }
-
-            // Generate stableId for this file
-            let stableId = try generateStableId(for: url)
-
-            // Store bookmark data using stableId as key (survives file moves)
-            bookmarks[stableId] = bookmarkData
-
-            // Save updated bookmarks
-            let plistData = try PropertyListSerialization.data(fromPropertyList: bookmarks, format: .xml, options: 0)
-            try plistData.write(to: bookmarksURL)
-
-            print("💾 Stored permanent bookmark for shared file: \(url.lastPathComponent) with stableId: \(stableId)")
-        } catch {
-            print("❌ Failed to store permanent bookmark for \(url.lastPathComponent): \(error)")
-        }
-    }
-
-    private func processStoredExternalBookmarks() async {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let bookmarksURL = documentsURL.appendingPathComponent("ExternalFileBookmarks.plist")
-
-        guard FileManager.default.fileExists(atPath: bookmarksURL.path) else {
-            print("📁 No stored external bookmarks found")
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: bookmarksURL)
-            guard let bookmarks = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Data] else {
-                print("❌ Invalid external bookmarks format")
-                return
-            }
-
-            print("📁 Found \(bookmarks.count) stored external file bookmarks")
-
-            for (stableId, bookmarkData) in bookmarks {
-                do {
-                    // Resolve bookmark to get current file location
-                    var isStale = false
-                    let resolvedURL = try URL(resolvingBookmarkData: bookmarkData, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &isStale)
-
-                    if isStale {
-                        print("⚠️ Bookmark is stale for stableId: \(stableId)")
-                        continue
-                    }
-
-                    // Reject network URLs
-                    if let scheme = resolvedURL.scheme?.lowercased(), ["http", "https", "ftp", "sftp"].contains(scheme) {
-                        print("❌ Rejected network URL: \(resolvedURL.absoluteString)")
-                        continue
-                    }
-
-                    // Check if this file is in the database
-                    if let existingTrack = try databaseManager.getTrack(byStableId: stableId) {
-                        // File exists in DB - check if path has changed
-                        if existingTrack.path != resolvedURL.path {
-                            print("📍 File moved detected! Old: \(existingTrack.path)")
-                            print("📍 File moved detected! New: \(resolvedURL.path)")
-
-                            // Update the track's path in the database
-                            try databaseManager.write { db in
-                                var updatedTrack = existingTrack
-                                updatedTrack.path = resolvedURL.path
-                                try updatedTrack.update(db)
-                            }
-                            print("✅ Updated database path for: \(resolvedURL.lastPathComponent)")
-                        } else {
-                            print("⏭️ External file path unchanged: \(resolvedURL.lastPathComponent)")
-                        }
-                        continue
-                    }
-
-                    // File not in database yet - process it
-                    // Start accessing security-scoped resource
-                    guard resolvedURL.startAccessingSecurityScopedResource() else {
-                        print("❌ Failed to access security-scoped resource for: \(resolvedURL.lastPathComponent)")
-                        continue
-                    }
-
-                    defer {
-                        resolvedURL.stopAccessingSecurityScopedResource()
-                    }
-
-                    // Process the file
-                    await processExternalFile(resolvedURL)
-                    print("✅ Processed stored external file: \(resolvedURL.lastPathComponent)")
-
-                } catch {
-                    print("❌ Failed to resolve bookmark for stableId \(stableId): \(error)")
-                }
-            }
-
-        } catch {
-            print("❌ Failed to process stored external bookmarks: \(error)")
-        }
-    }
-
-    /// Resolve bookmark for a specific track and update database path if file moved
-    func resolveBookmarkForTrack(_ track: Track) async -> URL? {
-        let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let bookmarksURL = documentsURL.appendingPathComponent("ExternalFileBookmarks.plist")
-
-        guard FileManager.default.fileExists(atPath: bookmarksURL.path) else {
-            return nil
-        }
-
-        do {
-            let data = try Data(contentsOf: bookmarksURL)
-            guard let bookmarks = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Data],
-                  let bookmarkData = bookmarks[track.stableId] else {
-                return nil // No bookmark for this track
-            }
-
-            // Resolve bookmark to get current file location
-            var isStale = false
-            let resolvedURL = try URL(resolvingBookmarkData: bookmarkData, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &isStale)
-
-            if isStale {
-                print("⚠️ Bookmark is stale for: \(track.title)")
+        let urls: [URL] = (0..<metadataQuery.resultCount).compactMap { index in
+            guard let item = metadataQuery.result(at: index) as? NSMetadataItem,
+                  let url = item.value(forAttribute: NSMetadataItemURLKey) as? URL else {
                 return nil
             }
+            return url
+        }
 
-            // Update database path if file moved
-            if track.path != resolvedURL.path {
-                print("📍 Playback: File moved detected! Old: \(track.path)")
-                print("📍 Playback: File moved detected! New: \(resolvedURL.path)")
+        if urls.isEmpty {
+            if didDisableUpdates {
+                metadataQuery.enableUpdates()
+                didDisableUpdates = false
+            }
+            print("NSMetadataQuery found 0 results, falling back to direct file system scan")
+            runFallbackScan()
+            return
+        }
 
-                try databaseManager.write { db in
-                    var updatedTrack = track
-                    updatedTrack.path = resolvedURL.path
-                    try updatedTrack.update(db)
-                }
-                print("✅ Updated database path for playback: \(resolvedURL.lastPathComponent)")
+        runIndexing(for: urls)
+    }
+
+    private func runIndexing(for urls: [URL]) {
+        let handler = makeEventHandler()
+        indexingTask = Task {
+            await worker.processMetadataURLs(urls, onEvent: handler)
+            await MainActor.run {
+                self.finalizeIndexingTask()
+            }
+        }
+    }
+
+    private func runFallbackScan() {
+        guard indexingTask == nil else {
+            pendingQueryUpdate = true
+            return
+        }
+
+        let handler = makeEventHandler()
+        indexingTask = Task {
+            await worker.fallbackToDirectScan(onEvent: handler)
+            await MainActor.run {
+                self.finalizeIndexingTask()
+            }
+        }
+    }
+
+    private func makeEventHandler() -> IndexingEventHandler {
+        return { event in
+            await LibraryIndexer.shared.handleEvent(event)
+        }
+    }
+
+    private func finalizeIndexingTask() {
+        indexingTask = nil
+        if didDisableUpdates {
+            metadataQuery.enableUpdates()
+            didDisableUpdates = false
+        }
+        currentlyProcessing = ""
+        queuedFiles = []
+
+        if pendingQueryUpdate {
+            pendingQueryUpdate = false
+            processMetadataQueryResults()
+        }
+    }
+
+    private func handleEvent(_ event: IndexingEvent) async {
+        switch event {
+        case .started:
+            isIndexing = true
+            indexingProgress = 0.0
+
+        case .queue(let current, let remaining):
+            currentlyProcessing = current
+            queuedFiles = remaining
+
+        case .progress(let processed, let total):
+            if total > 0 {
+                indexingProgress = Double(processed) / Double(total)
+            } else {
+                indexingProgress = 0.0
             }
 
-            return resolvedURL
+        case .trackFound(let track):
+            tracksFound += 1
+            NotificationCenter.default.post(name: NSNotification.Name("TrackFound"), object: track)
 
-        } catch {
-            print("❌ Failed to resolve bookmark for track \(track.title): \(error)")
-            return nil
+        case .finished:
+            isIndexing = false
+            currentlyProcessing = ""
+            queuedFiles = []
+
+        case .error(let error):
+            print("⚠️ Library indexing error: \(error)")
         }
     }
 }
