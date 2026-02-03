@@ -107,6 +107,11 @@ class DatabaseManager: @unchecked Sendable {
             return documentsPath.appendingPathComponent("MusicLibrary.sqlite")
         }
     }
+
+    private func stableIdForFilename(_ filename: String) -> String {
+        let digest = SHA256.hash(data: filename.data(using: .utf8) ?? Data())
+        return digest.compactMap { String(format: "%02x", $0) }.joined()
+    }
     
     private func createTables() throws {
         try dbWriter.write { db in
@@ -297,96 +302,230 @@ class DatabaseManager: @unchecked Sendable {
             }
 
 
-            // First, deduplicate by filename before updating stable IDs
+            // Migration: Deduplicate by filename and migrate stable IDs (one-time, batched)
             do {
-                let allTracks = try Track.fetchAll(db)
-
-                // Group by filename (what the new stable_id will be)
-                let groupedByFilename = Dictionary(grouping: allTracks, by: { track -> String in
-                    let url = URL(fileURLWithPath: track.path)
-                    return url.lastPathComponent
-                })
-
-                var removedCount = 0
-
-                for (filename, duplicates) in groupedByFilename where duplicates.count > 1 {
-                    print("⚠️ Found \(duplicates.count) tracks with same filename: \(filename)")
-
-                    // Keep the most recent one (highest ID = most recently added)
-                    let sorted = duplicates.sorted { ($0.id ?? 0) > ($1.id ?? 0) }
-                    let keep = sorted.first!
-                    let remove = Array(sorted.dropFirst())
-
-                    print("✅ Keeping track ID \(keep.id ?? 0): \(keep.title)")
-
-                    for duplicate in remove {
-                        // Transfer playlist items to the kept track
-                        try db.execute(
-                            sql: "UPDATE OR IGNORE playlist_item SET track_stable_id = ? WHERE track_stable_id = ?",
-                            arguments: [keep.stableId, duplicate.stableId]
-                        )
-
-                        // Delete remaining orphaned references
-                        try db.execute(
-                            sql: "DELETE FROM playlist_item WHERE track_stable_id = ?",
-                            arguments: [duplicate.stableId]
-                        )
-
-                        // Delete the duplicate track
-                        try Track.filter(Column("id") == duplicate.id).deleteAll(db)
-                        print("🗑️ Removed duplicate track ID \(duplicate.id ?? 0): \(duplicate.title)")
-                        removedCount += 1
-                    }
-                }
-
-                if removedCount > 0 {
-                    print("✅ Removed \(removedCount) duplicate tracks by filename")
-                } else {
-                    print("ℹ️ No duplicate tracks found by filename")
-                }
-
+                try db.execute(sql: """
+                    CREATE TABLE IF NOT EXISTS migration_state (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    )
+                """)
             } catch {
-                print("⚠️ Filename deduplication failed: \(error)")
+                print("ℹ️ Database migration: migration_state table creation failed: \(error)")
             }
 
-            // Now update stable IDs from path-based to filename-based
-            do {
-                let tracks = try Track.fetchAll(db)
-                var updatedCount = 0
+            let stableIdMigrationKey = "stable_id_filename_v1"
+            let migrationState = try? String.fetchOne(
+                db,
+                sql: "SELECT value FROM migration_state WHERE key = ?",
+                arguments: [stableIdMigrationKey]
+            )
+            let hasRunStableIdMigration = migrationState == "done"
 
-                for track in tracks {
-                    // Generate new stable ID based on filename only
-                    let url = URL(fileURLWithPath: track.path)
-                    let filename = url.lastPathComponent
-                    let newStableId = SHA256.hash(data: filename.data(using: .utf8) ?? Data())
-                        .compactMap { String(format: "%02x", $0) }.joined()
+            if hasRunStableIdMigration {
+                print("ℹ️ Database: Stable ID migration already completed")
+            } else {
+                struct TrackMigrationRow {
+                    let id: Int64
+                    let stableId: String
+                    let title: String
+                    let filename: String
+                    let newStableId: String
+                }
 
-                    // Only update if stable ID changed
-                    if track.stableId != newStableId {
-                        // Update track
+                do {
+                    let rows = try Row.fetchAll(db, sql: "SELECT id, stable_id, path, title FROM track")
+                    if rows.isEmpty {
                         try db.execute(
-                            sql: "UPDATE track SET stable_id = ? WHERE id = ?",
-                            arguments: [newStableId, track.id]
+                            sql: "INSERT OR REPLACE INTO migration_state (key, value) VALUES (?, 'done')",
+                            arguments: [stableIdMigrationKey]
                         )
+                        print("ℹ️ Database: No tracks found for stable ID migration")
+                    } else {
+                        var tracks: [TrackMigrationRow] = []
+                        tracks.reserveCapacity(rows.count)
 
-                        // Update playlist item references
-                        try db.execute(
-                            sql: "UPDATE playlist_item SET track_stable_id = ? WHERE track_stable_id = ?",
-                            arguments: [newStableId, track.stableId]
-                        )
+                        var groupedByFilename: [String: [TrackMigrationRow]] = [:]
 
-                        updatedCount += 1
+                        for row in rows {
+                            guard
+                                let id: Int64 = row["id"],
+                                let stableId: String = row["stable_id"],
+                                let path: String = row["path"],
+                                let title: String = row["title"]
+                            else {
+                                continue
+                            }
+
+                            let filename = URL(fileURLWithPath: path).lastPathComponent
+                            let newStableId = stableIdForFilename(filename)
+
+                            let entry = TrackMigrationRow(
+                                id: id,
+                                stableId: stableId,
+                                title: title,
+                                filename: filename,
+                                newStableId: newStableId
+                            )
+
+                            tracks.append(entry)
+                            groupedByFilename[filename, default: []].append(entry)
+                        }
+
+                        var keepIdByFilename: [String: Int64] = [:]
+                        keepIdByFilename.reserveCapacity(groupedByFilename.count)
+
+                        var removedCount = 0
+                        for (filename, duplicates) in groupedByFilename {
+                            guard let keep = duplicates.max(by: { $0.id < $1.id }) else { continue }
+                            keepIdByFilename[filename] = keep.id
+
+                            if duplicates.count > 1 {
+                                removedCount += duplicates.count - 1
+                                print("⚠️ Found \(duplicates.count) tracks with same filename: \(filename)")
+                                print("✅ Keeping track ID \(keep.id): \(keep.title)")
+                            }
+                        }
+
+                        let keptTracks = tracks.filter { track in
+                            keepIdByFilename[track.filename] == track.id
+                        }
+
+                        let updatedCount = keptTracks.filter { $0.stableId != $0.newStableId }.count
+                        let needsDedup = removedCount > 0
+                        let needsStableIdUpdate = updatedCount > 0
+
+                        if !needsDedup && !needsStableIdUpdate {
+                            print("ℹ️ Database: Stable IDs already filename-based")
+                            try db.execute(
+                                sql: "INSERT OR REPLACE INTO migration_state (key, value) VALUES (?, 'done')",
+                                arguments: [stableIdMigrationKey]
+                            )
+                        } else {
+                            try db.execute(sql: """
+                                CREATE TEMP TABLE IF NOT EXISTS temp_track_migration (
+                                    id INTEGER PRIMARY KEY,
+                                    old_stable_id TEXT NOT NULL,
+                                    new_stable_id TEXT NOT NULL,
+                                    filename TEXT NOT NULL,
+                                    keep_id INTEGER NOT NULL
+                                )
+                            """)
+                            try db.execute(sql: "DELETE FROM temp_track_migration")
+
+                            let batchSize = 500
+                            var index = 0
+                            while index < tracks.count {
+                                let end = min(index + batchSize, tracks.count)
+                                let batch = tracks[index..<end]
+
+                                var sql = "INSERT INTO temp_track_migration (id, old_stable_id, new_stable_id, filename, keep_id) VALUES "
+                                var arguments: [DatabaseValueConvertible] = []
+                                arguments.reserveCapacity(batch.count * 5)
+
+                                var isFirst = true
+                                for track in batch {
+                                    if !isFirst {
+                                        sql.append(",")
+                                    }
+                                    isFirst = false
+                                    sql.append("(?, ?, ?, ?, ?)")
+                                    arguments.append(track.id)
+                                    arguments.append(track.stableId)
+                                    arguments.append(track.newStableId)
+                                    arguments.append(track.filename)
+                                    arguments.append(keepIdByFilename[track.filename] ?? track.id)
+                                }
+
+                                try db.execute(sql: sql, arguments: StatementArguments(arguments))
+                                index = end
+                            }
+
+                            if needsDedup {
+                                try db.execute(sql: """
+                                    UPDATE OR IGNORE playlist_item
+                                    SET track_stable_id = (
+                                        SELECT keep.old_stable_id
+                                        FROM temp_track_migration AS map
+                                        JOIN temp_track_migration AS keep
+                                          ON keep.id = map.keep_id
+                                        WHERE map.old_stable_id = playlist_item.track_stable_id
+                                          AND map.id != map.keep_id
+                                    )
+                                    WHERE track_stable_id IN (
+                                        SELECT old_stable_id
+                                        FROM temp_track_migration
+                                        WHERE id != keep_id
+                                    )
+                                """)
+
+                                try db.execute(sql: """
+                                    DELETE FROM playlist_item
+                                    WHERE track_stable_id IN (
+                                        SELECT old_stable_id
+                                        FROM temp_track_migration
+                                        WHERE id != keep_id
+                                    )
+                                """)
+
+                                try db.execute(sql: """
+                                    DELETE FROM track
+                                    WHERE id IN (
+                                        SELECT id
+                                        FROM temp_track_migration
+                                        WHERE id != keep_id
+                                    )
+                                """)
+
+                                print("✅ Removed \(removedCount) duplicate tracks by filename")
+                            } else {
+                                print("ℹ️ No duplicate tracks found by filename")
+                            }
+
+                            if needsStableIdUpdate {
+                                try db.execute(sql: """
+                                    UPDATE track
+                                    SET stable_id = (
+                                        SELECT new_stable_id
+                                        FROM temp_track_migration AS map
+                                        WHERE map.id = track.id
+                                    )
+                                    WHERE id IN (SELECT id FROM temp_track_migration)
+                                      AND stable_id != (
+                                        SELECT new_stable_id
+                                        FROM temp_track_migration AS map
+                                        WHERE map.id = track.id
+                                    )
+                                """)
+
+                                try db.execute(sql: """
+                                    UPDATE playlist_item
+                                    SET track_stable_id = (
+                                        SELECT new_stable_id
+                                        FROM temp_track_migration AS map
+                                        WHERE map.old_stable_id = playlist_item.track_stable_id
+                                    )
+                                    WHERE track_stable_id IN (
+                                        SELECT old_stable_id
+                                        FROM temp_track_migration
+                                    )
+                                """)
+
+                                print("✅ Database: Migrated \(updatedCount) stable IDs from path-based to filename-based")
+                            } else {
+                                print("ℹ️ Database: Stable IDs already filename-based")
+                            }
+
+                            try db.execute(
+                                sql: "INSERT OR REPLACE INTO migration_state (key, value) VALUES (?, 'done')",
+                                arguments: [stableIdMigrationKey]
+                            )
+                        }
                     }
+                } catch {
+                    print("⚠️ Database migration: Stable ID migration failed: \(error)")
+                    // Don't throw - allow app to continue and re-index will handle it
                 }
-
-                if updatedCount > 0 {
-                    print("✅ Database: Migrated \(updatedCount) stable IDs from path-based to filename-based")
-                } else {
-                    print("ℹ️ Database: Stable IDs already filename-based")
-                }
-            } catch {
-                print("⚠️ Database migration: Stable ID migration failed: \(error)")
-                // Don't throw - allow app to continue and re-index will handle it
             }
 
             // Add UNIQUE constraint to stable_id to prevent duplicates
