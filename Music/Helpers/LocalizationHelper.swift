@@ -30,16 +30,13 @@ struct Localized {
     static let createPlaylist = "create_playlist".localized
     static let playlistNamePlaceholder = "playlist_name_placeholder".localized
     static let enterPlaylistName = "enter_playlist_name".localized
-    static let deletePlaylist = "delete_playlist".localized
     static let delete = "delete".localized
     static let cancel = "cancel".localized
     static let create = "create".localized
     static let done = "done".localized
-    static let edit = "edit".localized
     static let editPlaylist = "edit_playlist".localized
     static let save = "save".localized
     static let enterNewName = "enter_new_name".localized
-    static let managePlaylists = "manage_playlists".localized
     static let playlist = "playlist".localized
     static let createFirstPlaylist = "create_first_playlist".localized
     
@@ -93,18 +90,10 @@ struct Localized {
     static let noResultsFound = "no_results_found".localized
     static let tryDifferentKeywords = "try_different_keywords".localized
     
-    // MARK: - Context Menu Actions
-    static let showArtistPage = "show_artist_page".localized
-    static let addToPlaylistEllipsis = "add_to_playlist_ellipsis".localized
-    static let deleteFile = "delete_file".localized
-    
     // MARK: - Settings
     static let appearance = "appearance".localized
     static let minimalistLibraryIcons = "minimalist_library_icons".localized
     static let forceDarkMode = "force_dark_mode".localized
-    static let useSimpleIcons = "use_simple_icons".localized
-    static let overrideSystemAppearance = "override_system_appearance".localized
-    
     // MARK: - Search Categories
     static let all = "all".localized
     
@@ -165,22 +154,10 @@ struct Localized {
         }
     }
     
-    static func createdDate(_ dateString: String) -> String {
-        return "created_date".localized(with: dateString)
-    }
-    
-    static func deletePlaylistConfirmation(_ playlistName: String) -> String {
-        return "delete_playlist_confirmation".localized(with: playlistName)
-    }
-
     static let areYouSure = "are_you_sure".localized
 
     static func deletingPlaylistCantBeUndone(_ playlistName: String) -> String {
         return "deleting_playlist_cant_be_undone".localized(with: playlistName)
-    }
-    
-    static func deleteFileConfirmation(_ fileName: String) -> String {
-        return "delete_file_confirmation".localized(with: fileName)
     }
     
     static func foundTracks(_ count: Int) -> String {
@@ -275,7 +252,6 @@ struct Localized {
 
     // MARK: - Audio Settings
     static let audioSettings = "audio_settings".localized
-    static let crossfade = "crossfade".localized
     static let crossfadeEnabled = "crossfade_enabled".localized
     static let crossfadeDuration = "crossfade_duration".localized
     static let secondsShort = "seconds_short".localized
@@ -287,26 +263,8 @@ struct Localized {
     static let ratingWeights = "rating_weights".localized
     static let weightedShuffleDescription = "weighted_shuffle_description".localized
 
-    // MARK: - Sort Options
-    static let sortDateNewest = "sort_date_newest".localized
-    static let sortDateOldest = "sort_date_oldest".localized
-    static let sortNameAZ = "sort_name_az".localized
-    static let sortNameZA = "sort_name_za".localized
-    static let sortSizeLargest = "sort_size_largest".localized
-    static let sortSizeSmallest = "sort_size_smallest".localized
-
     // MARK: - Queue Actions
     static let playNext = "play_next".localized
     static let addToQueue = "add_to_queue".localized
 
-    // MARK: - Bulk Selection
-    static let select = "select".localized
-    static let selectAll = "select_all".localized
-    static let deleteFiles = "delete_files".localized
-    static let deleteFilesConfirmation = "delete_files_confirmation".localized
-
-
-    static func deleteFilesConfirmationMessage(_ count: Int) -> String {
-        return "delete_files_confirmation_message".localized(with: count)
-    }
 }
