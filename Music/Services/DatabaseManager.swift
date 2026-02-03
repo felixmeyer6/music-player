@@ -150,7 +150,7 @@ class DatabaseManager: @unchecked Sendable {
                     path TEXT NOT NULL,
                     file_size INTEGER,
                     has_embedded_art INTEGER DEFAULT 0,
-                    waveform_data TEXT
+                    waveform_data BLOB
                 )
             """)
             
@@ -291,12 +291,13 @@ class DatabaseManager: @unchecked Sendable {
 
             // Migration: Add waveform_data column to track table
             do {
-                try db.execute(sql: "ALTER TABLE track ADD COLUMN waveform_data TEXT")
+                try db.execute(sql: "ALTER TABLE track ADD COLUMN waveform_data BLOB")
                 print("✅ Database: Added waveform_data column to track table")
             } catch {
                 // Column may already exist, which is fine
                 print("ℹ️ Database migration: waveform_data column already exists or migration failed: \(error)")
             }
+
 
             // First, deduplicate by filename before updating stable IDs
             do {

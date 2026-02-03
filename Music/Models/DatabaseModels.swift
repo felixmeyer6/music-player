@@ -43,7 +43,7 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var path: String
     var fileSize: Int64?
     var hasEmbeddedArt: Bool = false
-    var waveformData: String?
+    var waveformData: Data?
     var playCount: Int = 0
 
     static let databaseTableName = "track"

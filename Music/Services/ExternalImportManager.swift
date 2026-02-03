@@ -1,6 +1,6 @@
 import Foundation
 
-/// Handles importing music files and folders from the Files app.
+/// Handles importing music files and folders from the Files app
 @MainActor
 final class ExternalImportManager {
     static let shared = ExternalImportManager()

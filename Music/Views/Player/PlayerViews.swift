@@ -910,12 +910,8 @@ struct WaveformScrubber: View {
     var barSpacing: CGFloat = 1
     var barCornerRadius: CGFloat = 1
 
-    private static let barsPerMinute = 50
-
     private var totalBars: Int {
-        guard let ms = track?.durationMs, ms > 0 else { return 50 }
-        let minutes = Double(ms) / 60_000.0
-        return max(20, Int(ceil(minutes * Double(Self.barsPerMinute))))
+        WaveformProcessing.barsCount(forDurationMs: track?.durationMs)
     }
 
     @State private var isDragging = false
@@ -1009,9 +1005,10 @@ actor WaveformAnalyzer {
             return cached
         }
 
-        if let precomputed = decodeWaveformData(track.waveformData, totalBars: totalBars) {
-            cache[key] = precomputed
-            return precomputed
+        if let decoded = WaveformProcessing.decodeBars(from: track.waveformData, totalBars: totalBars) {
+            let mapped = mapToHeights(decoded, totalBars: totalBars)
+            cache[key] = mapped
+            return mapped
         }
 
         let computed = await computeAmplitudes(for: track, totalBars: totalBars)
@@ -1023,91 +1020,12 @@ actor WaveformAnalyzer {
         guard totalBars > 0 else { return [] }
 
         let url = URL(fileURLWithPath: track.path)
+        let bars = await WaveformProcessing.analyzeWaveformBars(for: url, totalBars: totalBars)
+        guard !bars.isEmpty else { return [] }
 
-        do {
-            let audioFile = try AVAudioFile(forReading: url)
-            let totalFrames = max(1, Int(audioFile.length))
-            let framesPerBar = max(1, totalFrames / totalBars)
-            let channels = Int(audioFile.processingFormat.channelCount)
-
-            var bars = [Float](repeating: 0, count: totalBars)
-
-            let chunkSize = 4096
-            audioFile.framePosition = 0
-
-            while Int(audioFile.framePosition) < totalFrames {
-                let remaining = totalFrames - Int(audioFile.framePosition)
-                let framesToRead = min(chunkSize, remaining)
-
-                guard let buffer = AVAudioPCMBuffer(
-                    pcmFormat: audioFile.processingFormat,
-                    frameCapacity: AVAudioFrameCount(framesToRead)
-                ) else {
-                    break
-                }
-
-                try audioFile.read(into: buffer, frameCount: AVAudioFrameCount(framesToRead))
-                let framesRead = Int(buffer.frameLength)
-                if framesRead == 0 { break }
-
-                let startFrame = Int(audioFile.framePosition) - framesRead
-
-                for frame in 0..<framesRead {
-                    let amplitude = sampleAmplitude(buffer: buffer, frame: frame, channels: channels)
-                    let globalFrame = startFrame + frame
-                    let barIndex = min(totalBars - 1, globalFrame / framesPerBar)
-                    if amplitude > bars[barIndex] {
-                        bars[barIndex] = amplitude
-                    }
-                }
-            }
-
-            let maxAmp = bars.max() ?? 0
-            if maxAmp > 0 {
-                bars = bars.map { $0 / maxAmp }
-            }
-
-            return mapToHeights(bars, totalBars: totalBars)
-        } catch {
-            print("⚠️ Waveform analysis failed for \(track.title): \(error)")
-            return []
-        }
-    }
-
-    private func decodeWaveformData(_ waveformData: String?, totalBars: Int) -> [CGFloat]? {
-        guard totalBars > 0, let waveformData, let data = waveformData.data(using: .utf8) else {
-            return nil
-        }
-
-        struct WaveformPayload: Codable {
-            let bars: [Float]
-        }
-
-        let decodedBars: [Float]
-        if let payload = try? JSONDecoder().decode(WaveformPayload.self, from: data), !payload.bars.isEmpty {
-            decodedBars = payload.bars
-        } else if let array = try? JSONDecoder().decode([Float].self, from: data), !array.isEmpty {
-            decodedBars = array
-        } else {
-            return nil
-        }
-
-        let resampled: [Float]
-        if decodedBars.count == totalBars {
-            resampled = decodedBars
-        } else if decodedBars.count == 1 {
-            resampled = Array(repeating: decodedBars[0], count: totalBars)
-        } else {
-            resampled = (0..<totalBars).map { i in
-                let t = Double(i) / Double(max(1, totalBars - 1))
-                let idx = Int(round(t * Double(decodedBars.count - 1)))
-                return decodedBars[min(max(0, idx), decodedBars.count - 1)]
-            }
-        }
-
-        let maxAmp = resampled.max() ?? 0
-        let normalized = maxAmp > 0 ? resampled.map { $0 / maxAmp } : resampled
-        return mapToHeights(normalized, totalBars: totalBars)
+        let mapped = mapToHeights(bars, totalBars: totalBars)
+        await storeWaveformDataIfMissing(for: track, totalBars: totalBars, bars: bars)
+        return mapped
     }
 
     private func mapToHeights(_ bars: [Float], totalBars: Int) -> [CGFloat] {
@@ -1132,38 +1050,31 @@ actor WaveformAnalyzer {
         }
     }
 
-    private func sampleAmplitude(buffer: AVAudioPCMBuffer, frame: Int, channels: Int) -> Float {
-        guard channels > 0 else { return 0 }
+    private func storeWaveformDataIfMissing(for track: Track, totalBars: Int, bars: [Float]) async {
+        guard track.waveformData == nil, totalBars > 0, !bars.isEmpty else { return }
 
-        switch buffer.format.commonFormat {
-        case .pcmFormatFloat32:
-            guard let data = buffer.floatChannelData else { return 0 }
-            var sum: Float = 0
-            for ch in 0..<channels {
-                sum += abs(data[ch][frame])
+        let url = URL(fileURLWithPath: track.path)
+        let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+        let fileSize = Int64(resourceValues?.fileSize ?? 0)
+        let contentModificationTime = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let meta = WaveformProcessing.makeMeta(
+            totalBars: totalBars,
+            fileSize: fileSize,
+            contentModificationTime: contentModificationTime
+        )
+
+        let alignedBars = bars.count == totalBars ? bars : WaveformProcessing.resampleBars(bars, totalBars: totalBars)
+        guard let encoded = WaveformProcessing.encode(meta: meta, bars: alignedBars) else { return }
+
+        do {
+            try DatabaseManager.shared.write { db in
+                try db.execute(
+                    sql: "UPDATE track SET waveform_data = ? WHERE stable_id = ?",
+                    arguments: [encoded, track.stableId]
+                )
             }
-            return sum / Float(channels)
-
-        case .pcmFormatInt16:
-            guard let data = buffer.int16ChannelData else { return 0 }
-            let scale = Float(Int16.max)
-            var sum: Float = 0
-            for ch in 0..<channels {
-                sum += abs(Float(data[ch][frame])) / scale
-            }
-            return sum / Float(channels)
-
-        case .pcmFormatInt32:
-            guard let data = buffer.int32ChannelData else { return 0 }
-            let scale = Float(Int32.max)
-            var sum: Float = 0
-            for ch in 0..<channels {
-                sum += abs(Float(data[ch][frame])) / scale
-            }
-            return sum / Float(channels)
-
-        default:
-            return 0
+        } catch {
+            print("⚠️ Failed to store waveform data for \(track.title): \(error)")
         }
     }
 }
@@ -1598,4 +1509,3 @@ struct TrackRowView: View, @MainActor Equatable {
         }
     }
 }
-

@@ -1,11 +1,8 @@
-//
 //  Runs heavy library indexing work off the main actor
-//
 
 import Foundation
 import CryptoKit
 import AVFoundation
-import Accelerate
 
 enum LibraryIndexerError: Error {
     case parseTimeout
@@ -26,7 +23,6 @@ typealias IndexingEventHandler = @Sendable (IndexingEvent) async -> Void
 actor LibraryIndexingActor {
     private let databaseManager = DatabaseManager.shared
     private let stateManager = StateManager.shared
-    private static let barsPerMinute = 50
     private let supportedExtensions: Set<String> = ["mp3", "wav", "m4a", "aac"]
 
     func processMetadataURLs(_ urls: [URL], onEvent: IndexingEventHandler?) async {
@@ -327,13 +323,13 @@ actor LibraryIndexingActor {
             let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
 
             if let existing = try databaseManager.getTrack(byStableId: stableId) {
-                let expectedBars = Self.waveformBars(forDurationMs: existing.durationMs)
-                let meta = Self.makeWaveformMeta(
+                let expectedBars = WaveformProcessing.barsCount(forDurationMs: existing.durationMs)
+                let meta = WaveformProcessing.makeMeta(
                     totalBars: expectedBars,
                     fileSize: fileSize,
                     contentModificationTime: contentModificationTime
                 )
-                if Self.waveformMatches(existing.waveformData, meta: meta) {
+                if WaveformProcessing.matches(existing.waveformData, meta: meta) {
                     print("⏭️ Track already indexed with matching waveform: \(fileURL.lastPathComponent)")
                     return nil
                 }
@@ -474,17 +470,17 @@ actor LibraryIndexingActor {
             nil
         }
 
-        let bars = Self.waveformBars(forDurationMs: metadata.durationMs)
-        let waveformMeta = Self.makeWaveformMeta(
+        let bars = WaveformProcessing.barsCount(forDurationMs: metadata.durationMs)
+        let waveformMeta = WaveformProcessing.makeMeta(
             totalBars: bars,
             fileSize: fileSize,
             contentModificationTime: contentModificationTime
         )
         let waveformData = await Task.detached(priority: .utility) {
-            await Self.buildWaveformData(
+            await WaveformProcessing.buildWaveformData(
                 for: url,
                 totalBars: bars,
-                waveformMeta: waveformMeta
+                meta: waveformMeta
             )
         }.value
 
@@ -771,176 +767,4 @@ actor LibraryIndexingActor {
         }
     }
 
-    // MARK: - Waveform Analysis
-
-    private struct WaveformMeta: Codable, Equatable {
-        let totalBars: Int
-        let fileSize: Int64
-        let contentModificationTime: TimeInterval
-        let version: Int
-    }
-
-    private struct WaveformPayload: Codable {
-        let meta: WaveformMeta
-        let bars: [Float]
-    }
-
-    nonisolated private static func waveformBars(forDurationMs ms: Int?) -> Int {
-        guard let ms, ms > 0 else { return 50 }
-        let minutes = Double(ms) / 60_000.0
-        return max(20, Int(ceil(minutes * Double(barsPerMinute))))
-    }
-
-    nonisolated private static func makeWaveformMeta(
-        totalBars: Int,
-        fileSize: Int64,
-        contentModificationTime: TimeInterval
-    ) -> WaveformMeta {
-        WaveformMeta(
-            totalBars: totalBars,
-            fileSize: fileSize,
-            contentModificationTime: contentModificationTime,
-            version: 4
-        )
-    }
-
-    nonisolated private static func waveformMatches(_ waveformData: String?, meta: WaveformMeta) -> Bool {
-        guard let payload = decodeWaveformPayload(waveformData) else {
-            return false
-        }
-
-        guard payload.meta.totalBars == meta.totalBars,
-              payload.meta.fileSize == meta.fileSize,
-              payload.meta.version == meta.version else {
-            return false
-        }
-
-        return abs(payload.meta.contentModificationTime - meta.contentModificationTime) < 1.0
-    }
-
-    nonisolated private static func decodeWaveformPayload(_ waveformData: String?) -> WaveformPayload? {
-        guard let waveformData, let data = waveformData.data(using: .utf8) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(WaveformPayload.self, from: data)
-    }
-
-    nonisolated private static func buildWaveformData(
-        for url: URL,
-        totalBars: Int,
-        waveformMeta: WaveformMeta
-    ) async -> String? {
-        guard totalBars > 0 else { return nil }
-
-        let bars = await analyzeWaveformBars(for: url, totalBars: totalBars)
-        guard !bars.isEmpty else { return nil }
-
-        let payload = WaveformPayload(meta: waveformMeta, bars: bars)
-        do {
-            let data = try JSONEncoder().encode(payload)
-            return String(data: data, encoding: .utf8)
-        } catch {
-            print("⚠️ Failed to encode waveform payload for \(url.lastPathComponent): \(error)")
-            return nil
-        }
-    }
-
-    nonisolated private static func analyzeWaveformBars(for url: URL, totalBars: Int) async -> [Float] {
-        guard totalBars > 0 else { return [] }
-
-        let asset = AVURLAsset(url: url)
-        guard let audioTrack = try? await asset.loadTracks(withMediaType: .audio).first else {
-            return []
-        }
-
-        let duration = try? await asset.load(.duration)
-        let durationSeconds = duration.map { CMTimeGetSeconds($0) } ?? 0
-        guard durationSeconds.isFinite, durationSeconds > 0 else {
-            return []
-        }
-
-        let decodeSampleRate: Double = 11_025
-        let estimatedFrames = max(1, Int(durationSeconds * decodeSampleRate))
-        let framesPerBar = max(1, estimatedFrames / totalBars)
-
-        let targetSampleCount = max(totalBars * 32, 1024)
-        let stride = max(1, estimatedFrames / targetSampleCount)
-
-        do {
-            let reader = try AVAssetReader(asset: asset)
-            let outputSettings: [String: Any] = [
-                AVFormatIDKey: kAudioFormatLinearPCM,
-                AVLinearPCMIsFloatKey: true,
-                AVLinearPCMBitDepthKey: 32,
-                AVLinearPCMIsNonInterleaved: false,
-                AVNumberOfChannelsKey: 1,
-                AVSampleRateKey: decodeSampleRate,
-                AVLinearPCMIsBigEndianKey: false
-            ]
-
-            let output = AVAssetReaderTrackOutput(track: audioTrack, outputSettings: outputSettings)
-            output.alwaysCopiesSampleData = false
-
-            guard reader.canAdd(output) else { return [] }
-            reader.add(output)
-
-            guard reader.startReading() else { return [] }
-
-            var barPeaks = [Float](repeating: 0, count: totalBars)
-            var runningFrameIndex = 0
-
-            while reader.status == .reading {
-                guard let sampleBuffer = output.copyNextSampleBuffer() else { break }
-                guard let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) else { continue }
-
-                var totalLength = 0
-                var dataPointer: UnsafeMutablePointer<Int8>?
-                let status = CMBlockBufferGetDataPointer(
-                    blockBuffer,
-                    atOffset: 0,
-                    lengthAtOffsetOut: nil,
-                    totalLengthOut: &totalLength,
-                    dataPointerOut: &dataPointer
-                )
-
-                guard status == kCMBlockBufferNoErr,
-                      let dataPointer else { continue }
-
-                let sampleCount = totalLength / MemoryLayout<Float>.size
-                if sampleCount == 0 { continue }
-
-                let floatPointer = dataPointer.withMemoryRebound(to: Float.self, capacity: sampleCount) { $0 }
-                var absSamples = [Float](repeating: 0, count: sampleCount)
-                vDSP_vabs(floatPointer, 1, &absSamples, 1, vDSP_Length(sampleCount))
-
-                var idx = 0
-                while idx < sampleCount {
-                    let globalFrame = runningFrameIndex + idx
-                    let barIndex = min(totalBars - 1, globalFrame / framesPerBar)
-                    let value = absSamples[idx]
-                    if value > barPeaks[barIndex] {
-                        barPeaks[barIndex] = value
-                    }
-                    idx += stride
-                }
-
-                runningFrameIndex += sampleCount
-            }
-
-            if reader.status == .failed {
-                print("⚠️ AVAssetReader failed for \(url.lastPathComponent): \(reader.error?.localizedDescription ?? "unknown error")")
-                return []
-            }
-
-            let maxAmp = barPeaks.max() ?? 0
-            if maxAmp > 0 {
-                barPeaks = barPeaks.map { $0 / maxAmp }
-            }
-
-            return barPeaks
-        } catch {
-            print("⚠️ Waveform analysis failed for \(url.lastPathComponent): \(error)")
-            return []
-        }
-    }
 }
