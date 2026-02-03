@@ -4,14 +4,6 @@ import UIKit
 
 enum BackgroundColor: String, CaseIterable, Codable {
     case white = "FFFFFF"
-
-    var name: String {
-        return "White"
-    }
-
-    var color: Color {
-        return Color.white
-    }
 }
 
 struct DeleteSettings: Codable {

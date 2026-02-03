@@ -759,25 +759,16 @@ class AppCoordinator: ObservableObject {
 }
 
 enum AppCoordinatorError: Error {
-    case iCloudNotAvailable
     case iCloudNotSignedIn
     case iCloudContainerInaccessible
-    case databaseError
-    case indexingError
     case playlistNotFound
-    
+
     var localizedDescription: String {
         switch self {
-        case .iCloudNotAvailable:
-            return "iCloud Drive is not available on this device."
         case .iCloudNotSignedIn:
             return "Please sign in to iCloud to use this app. Go to Settings > [Your Name] > iCloud and enable iCloud Drive."
         case .iCloudContainerInaccessible:
             return "Cannot access iCloud Drive. Please check your internet connection and iCloud Drive settings."
-        case .databaseError:
-            return "Database error occurred."
-        case .indexingError:
-            return "Error indexing music library."
         case .playlistNotFound:
             return "Playlist not found."
         }

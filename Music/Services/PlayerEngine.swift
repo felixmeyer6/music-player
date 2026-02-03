@@ -2675,6 +2675,4 @@ class PlayerEngine: NSObject, ObservableObject {
 enum PlayerError: Error {
     case fileNotFound
     case invalidAudioFile
-    case audioEngineError
-    case configurationError
 }

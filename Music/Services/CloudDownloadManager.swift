@@ -627,9 +627,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
 
 enum CloudDownloadError: Error {
     case fileNotFound
-    case downloadFailed
-    case hasConflicts
-    case iCloudNotAvailable
     case authenticationRequired
     case accessDenied
 }

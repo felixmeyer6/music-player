@@ -500,7 +500,6 @@ enum EQError: Error, LocalizedError {
     case cannotDeleteBuiltInPreset
     case invalidImportData
     case invalidGraphicEQFormat
-    case presetNotFound
 
     var errorDescription: String? {
         switch self {
@@ -510,8 +509,6 @@ enum EQError: Error, LocalizedError {
             return "Invalid preset import data"
         case .invalidGraphicEQFormat:
             return "Invalid GraphicEQ format. Expected format: 'GraphicEQ: freq1 gain1; freq2 gain2; ...'"
-        case .presetNotFound:
-            return "Preset not found"
         }
     }
 }

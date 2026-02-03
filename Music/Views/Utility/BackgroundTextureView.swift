@@ -12,7 +12,6 @@ enum ScreenType {
     case playlistDetail
     case allSongs
     case player
-    case miniPlayer
 }
 
 struct ScreenSpecificBackgroundView: View {
