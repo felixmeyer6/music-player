@@ -54,10 +54,8 @@ class PlayerEngine: NSObject, ObservableObject {
     private var hasRestoredState = false
     private var hasSetupAudioEngine = false
     private var hasSetupAudioSession = false
-    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
     private var hasSetupRemoteCommands = false
     private nonisolated(unsafe) var hasSetupAudioSessionNotifications = false
-    private var backgroundCheckTimer: Timer?
     
     // Artwork caching
     private var cachedArtwork: MPMediaItemArtwork?
@@ -78,11 +76,7 @@ class PlayerEngine: NSObject, ObservableObject {
     
     // System volume integration
     private var pausedSilentPlayer: AVAudioPlayer?
-    private nonisolated(unsafe) var volumeCheckTimer: Timer?
-    private var lastKnownVolume: Float = -1
-    private var isUserChangingVolume = false
-    private var lastVolumeChangeTime: Date = Date()
-    private var rapidChangeDetected = false
+    private var volumeObservation: NSKeyValueObservation?
 
     // Tiny fades to avoid clicks/pops on start/stop/seek/skip.
     private let clickFadeDuration: TimeInterval = 0.02
@@ -112,7 +106,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // setupRemoteCommands()
         // Don't set up volume control immediately - wait until we actually need it
         // setupBasicVolumeControl()
-        setupPeriodicStateSaving()
         setupMetadataUpdateListener()
     }
 
@@ -174,8 +167,6 @@ class PlayerEngine: NSObject, ObservableObject {
                 // Reset timing state completely when sample rate changes
                 seekTimeOffset = 0
                 playbackTime = 0
-                lastControlCenterUpdate = 0
-                
                 // Stop and restart playback timer to ensure proper timing with new sample rate
                 stopPlaybackTimer()
                 if isPlaying {
@@ -426,13 +417,23 @@ class PlayerEngine: NSObject, ObservableObject {
     private func setupBasicVolumeControl() {
         print("🎛️ Setting up basic volume control...")
         
-        // Delay the initial sync slightly to ensure audio session is ready
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        // Ensure audio session is ready before observing output volume
+        ensureAudioSessionSetup()
+
+        // Initial sync on main
+        DispatchQueue.main.async { [weak self] in
             self?.syncWithSystemVolume()
         }
-        
-        // Start monitoring system volume changes
-        startVolumeTimer()
+
+        // Observe system volume changes instead of polling
+        volumeObservation?.invalidate()
+        volumeObservation = AVAudioSession.sharedInstance().observe(\.outputVolume, options: [.new]) { [weak self] session, change in
+            guard let self else { return }
+            let newVolume = change.newValue ?? session.outputVolume
+            Task { @MainActor in
+                self.updateAudioEngineVolume(to: newVolume)
+            }
+        }
         
         print("✅ Basic volume control enabled")
     }
@@ -447,63 +448,6 @@ class PlayerEngine: NSObject, ObservableObject {
         let systemVolume = AVAudioSession.sharedInstance().outputVolume
         print("🔊 Syncing with system volume: \(Int(systemVolume * 100))%")
         updateAudioEngineVolume(to: systemVolume)
-        
-        // Set the baseline for timer-based monitoring
-        lastKnownVolume = systemVolume
-        
-    }
-
-    private func startVolumeTimer() {
-        volumeCheckTimer?.invalidate()
-        volumeCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.checkVolumeChange()
-            }
-        }
-        print("⏰ Volume check timer started (200ms intervals)")
-    }
-    
-    private func checkVolumeChange() {
-        // Only check volume if audio session has been set up
-        guard hasSetupAudioSession else { return }
-        
-        let currentVolume = AVAudioSession.sharedInstance().outputVolume
-        
-        if lastKnownVolume != currentVolume {
-            if lastKnownVolume >= 0 {
-                // Simply sync audio engine to system volume
-                audioEngine.mainMixerNode.outputVolume = currentVolume
-            }
-            lastKnownVolume = currentVolume
-        }
-    }
-    
-    @objc private func handleVolumeNotification(_ notification: Notification) {
-        print("📢 Received volume notification: \(notification.name)")
-        print("📢 Notification userInfo: \(notification.userInfo ?? [:])")
-        
-        if let volume = notification.userInfo?["AVSystemController_AudioVolumeNotificationParameter"] as? Float {
-            print("🔊 Volume notification: \(Int(volume * 100))%")
-            updateAudioEngineVolume(to: volume)
-        } else {
-            print("⚠️ No volume parameter in notification")
-        }
-    }
-    
-    nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
-        print("📢 KVO observer called for keyPath: \(keyPath ?? "nil")")
-        print("📢 Change: \(change ?? [:])")
-        
-        if keyPath == "outputVolume" {
-            if let volume = change?[.newKey] as? Float {
-                print("🔊 AVAudioSession volume changed: \(Int(volume * 100))%")
-                Task { @MainActor in
-                    updateAudioEngineVolume(to: volume)
-                }
-            } else {
-                print("⚠️ No volume value in KVO change")
-            }
-        }
     }
     
     private func updateAudioEngineVolume(to volume: Float) {
@@ -1007,7 +951,6 @@ class PlayerEngine: NSObject, ObservableObject {
         if !preservePlaybackTime {
             seekTimeOffset = 0
             playbackTime = 0
-            lastControlCenterUpdate = 0
         }
 
         // Clear cached artwork when loading new track
@@ -1019,7 +962,7 @@ class PlayerEngine: NSObject, ObservableObject {
         currentArtistName = getCachedArtistName(for: track)
         playbackState = .loading
 
-        // Volume control already set up in init
+        // Volume control is initialized on first playback
 
         do {
             let loaded = try await loadAudioFile(for: track, stopPreviousScopes: true)
@@ -1045,7 +988,6 @@ class PlayerEngine: NSObject, ObservableObject {
             ensureRemoteCommandsSetup()
             
             // Force immediate Control Center update with new track info and reset timing
-            lastControlCenterUpdate = 0
             updateNowPlayingInfoEnhanced()
             
             playbackState = .stopped
@@ -1156,10 +1098,8 @@ class PlayerEngine: NSObject, ObservableObject {
             playbackState = .playing
             startPlaybackTimer()
             
-            // End paused state monitoring and start regular playing monitoring
+            // End paused state monitoring
             stopSilentPlaybackForPause()
-            endBackgroundMonitoring()
-            startBackgroundMonitoring()
             
             print("✅ Resumed playback from position: \(playbackTime)s")
             
@@ -1233,7 +1173,7 @@ class PlayerEngine: NSObject, ObservableObject {
         ensureRemoteCommandsSetup()
         
         // Set up volume control if not already done
-        if volumeCheckTimer == nil {
+        if volumeObservation == nil {
             setupBasicVolumeControl()
         }
 
@@ -1328,9 +1268,8 @@ class PlayerEngine: NSObject, ObservableObject {
         print("🔓 Stopped accessing security-scoped resources on stop")
         stopPlaybackTimer()
         
-        // Stop all background monitoring and silent playback
+        // Stop silent playback
         stopSilentPlaybackForPause()
-        endBackgroundMonitoring()
         
         // Update Now Playing info to show stopped state (but keep track info)
         updateNowPlayingInfoEnhanced()
@@ -1527,48 +1466,26 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
         
-        // Schedule WITHOUT any completion handler
+        scheduleGeneration &+= 1
+        let generation = scheduleGeneration
+
         node.scheduleSegment(
             file,
             startingFrame: startFrame,
             frameCount: AVAudioFrameCount(remaining),
             at: nil,
-            completionHandler: nil
-        )
+            completionCallbackType: .dataPlayedBack
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.scheduleGeneration == generation else { return }
+                guard node === self.activePlayerNode else { return }
+                guard self.isPlaying, !self.isCrossfading else { return }
+                await self.handleTrackEnd()
+            }
+        }
 
         print("✅ Successfully scheduled segment: startFrame=\(startFrame), frameCount=\(remaining)")
-
-        // Start background monitoring when we schedule a segment
-        startBackgroundMonitoring()
-    }
-    private func startBackgroundMonitoring() {
-        // Only create a background task if we don't already have one
-        if backgroundTask == .invalid {
-            backgroundTask = UIApplication.shared.beginBackgroundTask { [weak self] in
-                print("🚨 Background task expiring during playback")
-                Task { @MainActor in
-                    self?.endBackgroundMonitoring()
-                }
-            }
-        }
-
-        // Start a timer that works in background
-        backgroundCheckTimer?.invalidate()
-        backgroundCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.checkIfTrackEnded()
-            }
-        }
-    }
-    
-    private func endBackgroundMonitoring() {
-        backgroundCheckTimer?.invalidate()
-        backgroundCheckTimer = nil
-        
-        if backgroundTask != .invalid {
-            UIApplication.shared.endBackgroundTask(backgroundTask)
-            backgroundTask = .invalid
-        }
     }
     
     private func stopSilentPlaybackForPause() {
@@ -1605,34 +1522,6 @@ class PlayerEngine: NSObject, ObservableObject {
             } catch {
                 print("❌ Failed to maintain audio session during pause: \(error)")
                 // Don't try to maintain session if it fails - let the app handle it naturally
-            }
-        }
-    }
-    
-    private func checkIfTrackEnded() async {
-        // Check if audio has finished playing
-        guard isPlaying else { return }
-        guard !isCrossfading else { return }
-
-        // Check if player node has stopped naturally (reached end)
-        if !activePlayerNode.isPlaying && audioFile != nil {
-            // Track has ended
-            await handleTrackEnd()
-            return
-        }
-
-        // Alternative check: position-based
-        if let audioFile = audioFile {
-            if let nodeTime = activePlayerNode.lastRenderTime,
-               let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
-                let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
-                let currentTime = seekTimeOffset + nodePlaybackTime
-
-                if currentTime >= duration - 0.2 && duration > 0 {
-                    // Track is ending
-                    isPlaying = false // Prevent multiple triggers
-                    await handleTrackEnd()
-                }
             }
         }
     }
@@ -1978,12 +1867,14 @@ class PlayerEngine: NSObject, ObservableObject {
     func startPlaybackTimer() {
         stopPlaybackTimer()
         
-        // Keep 0.1s interval for accurate timing
-        playbackTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        // Use a modest interval with tolerance to reduce wakeups.
+        let interval: TimeInterval = 0.25
+        playbackTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.updatePlaybackTime()
             }
         }
+        playbackTimer?.tolerance = interval * 0.5
     }
 
     private func nextIndexForAutoAdvance() -> Int? {
@@ -2054,7 +1945,6 @@ class PlayerEngine: NSObject, ObservableObject {
             currentTrack = nextTrack
             currentArtistName = getCachedArtistName(for: nextTrack)
             currentIndex = index
-            lastControlCenterUpdate = 0
             // Reset time-related UI state immediately so the scrub bar starts at 0
             // while the audio crossfade completes on the old active node.
             seekTimeOffset = 0
@@ -2111,8 +2001,6 @@ class PlayerEngine: NSObject, ObservableObject {
         }
     }
     
-    private var lastControlCenterUpdate: TimeInterval = 0
-    
     private func updatePlaybackTime() async {
         // During crossfade the active node/audioFile still belong to the old track.
         // Avoid updating playbackTime from the old node so the new track's scrub bar
@@ -2144,20 +2032,8 @@ class PlayerEngine: NSObject, ObservableObject {
             }
         }
         
-        // Remove this duplicate detection - it's handled by checkIfTrackEnded()
-        /* DELETE THIS BLOCK:
-         if isPlaying && playbackTime >= duration - 0.1 && duration > 0 {
-         isPlaying = false
-         await handleTrackEnd()
-         }
-         */
-        
-        // Update Control Center more frequently for better synchronization - every 0.5 seconds instead of 2 seconds
-        // This ensures smooth time display in Control Center regardless of sample rate changes
-        if abs(playbackTime - lastControlCenterUpdate) >= 0.5 {
-            lastControlCenterUpdate = playbackTime
-            updateNowPlayingInfoEnhanced()
-        }
+        // Control Center updates are event-driven (play/pause/seek/track change),
+        // so avoid periodic updates here to reduce energy/IPC overhead.
     }
     
     private func handleTrackEnd() async {
@@ -2497,29 +2373,12 @@ class PlayerEngine: NSObject, ObservableObject {
         }
     }
     
-    private func setupPeriodicStateSaving() {
-        // Save state every 30 seconds while playing, and on important events
-        Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                if self?.isPlaying == true && self?.currentTrack != nil {
-                    self?.savePlayerState()
-                }
-            }
-        }
-    }
-    
     deinit {
         // Note: Cannot access main actor properties or methods in deinit
         // State saving is handled by app lifecycle notifications instead
         
         NotificationCenter.default.removeObserver(self)
-        volumeCheckTimer?.invalidate()
-        
-        
-        // Remove KVO observer only if it was set up
-        if hasSetupAudioSessionNotifications {
-            AVAudioSession.sharedInstance().removeObserver(self, forKeyPath: "outputVolume")
-        }
+        volumeObservation?.invalidate()
     }
 }
 enum PlayerError: Error {
