@@ -180,6 +180,7 @@ class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_album ON track(album_id)")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_artist ON track(artist_id)")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre_id ON track(genre_id)")
+            try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_stable_id ON track(stable_id)")
             do {
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
             } catch {
@@ -358,7 +359,7 @@ class DatabaseManager: @unchecked Sendable {
                             }
 
                             let filename = URL(fileURLWithPath: path).lastPathComponent
-                            let newStableId = stableIdForFilename(filename)
+                            let newStableId = self.stableIdForFilename(filename)
 
                             let entry = TrackMigrationRow(
                                 id: id,
@@ -1154,6 +1155,20 @@ class DatabaseManager: @unchecked Sendable {
                 .filter(Column("playlist_id") == playlistId)
                 .order(Column("position"))
                 .fetchAll(db)
+        }
+    }
+
+    func getPlaylistTracks(playlistId: Int64) throws -> [Track] {
+        return try read { db in
+            let sql = """
+                SELECT track.*
+                FROM track
+                JOIN playlist_item
+                  ON playlist_item.track_stable_id = track.stable_id
+                WHERE playlist_item.playlist_id = ?
+                ORDER BY playlist_item.position
+            """
+            return try Track.fetchAll(db, sql: sql, arguments: [playlistId])
         }
     }
     

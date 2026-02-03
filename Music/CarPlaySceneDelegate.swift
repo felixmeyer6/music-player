@@ -153,11 +153,7 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
         guard let playlistId = playlist.id else { return }
 
         // Get playlist tracks using the same logic as PlaylistDetailScreen
-        let playlistItems = (try? AppCoordinator.shared.databaseManager.getPlaylistItems(playlistId: playlistId)) ?? []
-        let allTracks = (try? AppCoordinator.shared.getAllTracks()) ?? []
-        let allPlaylistTracks = playlistItems.compactMap { item in
-            allTracks.first { $0.stableId == item.trackStableId }
-        }
+        let allPlaylistTracks = (try? AppCoordinator.shared.databaseManager.getPlaylistTracks(playlistId: playlistId)) ?? []
 
         let songItems: [CPListItem] = allPlaylistTracks.map { track in
             let artistName = getArtistName(for: track)

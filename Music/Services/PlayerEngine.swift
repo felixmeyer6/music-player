@@ -2373,13 +2373,6 @@ class PlayerEngine: NSObject, ObservableObject {
         }
     }
     
-    deinit {
-        // Note: Cannot access main actor properties or methods in deinit
-        // State saving is handled by app lifecycle notifications instead
-        
-        NotificationCenter.default.removeObserver(self)
-        volumeObservation?.invalidate()
-    }
 }
 enum PlayerError: Error {
     case fileNotFound

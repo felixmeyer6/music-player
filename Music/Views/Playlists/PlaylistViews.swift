@@ -107,11 +107,7 @@ struct PlaylistDetailScreen: View {
     private func loadPlaylistTracks() {
         guard let playlistId = playlist.id else { return }
         do {
-            let playlistItems = try DatabaseManager.shared.getPlaylistItems(playlistId: playlistId)
-            let allTracks = try appCoordinator.getAllTracks()
-            tracks = playlistItems.compactMap { item in
-                allTracks.first { $0.stableId == item.trackStableId }
-            }
+            tracks = try DatabaseManager.shared.getPlaylistTracks(playlistId: playlistId)
             loadAlbumLookup()
         } catch {
             print("Failed to load playlist tracks: \(error)")
@@ -189,4 +185,3 @@ struct PlaylistSelectionView: View {
         )
     }
 }
-

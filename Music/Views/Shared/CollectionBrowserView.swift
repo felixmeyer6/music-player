@@ -338,14 +338,7 @@ struct CollectionBrowserView: View {
     private func getAllPlaylistTracks(_ playlist: Playlist) -> [Track] {
         guard let playlistId = playlist.id else { return [] }
         do {
-            let playlistItems = try DatabaseManager.shared.getPlaylistItems(playlistId: playlistId)
-            var tracks: [Track] = []
-            for item in playlistItems {
-                if let track = try DatabaseManager.shared.getTrack(byStableId: item.trackStableId) {
-                    tracks.append(track)
-                }
-            }
-            return tracks
+            return try DatabaseManager.shared.getPlaylistTracks(playlistId: playlistId)
         } catch {
             print("Failed to get playlist tracks: \(error)")
             return []
