@@ -13,8 +13,6 @@ struct Artist: Codable, FetchableRecord, PersistableRecord {
     var name: String
 
     static let databaseTableName = "artist"
-
-    nonisolated(unsafe) static let tracks = hasMany(Track.self)
 }
 
 struct Genre: Codable, FetchableRecord, PersistableRecord {
@@ -22,8 +20,6 @@ struct Genre: Codable, FetchableRecord, PersistableRecord {
     var name: String
 
     static let databaseTableName = "genre"
-
-    nonisolated(unsafe) static let tracks = hasMany(Track.self)
 }
 
 struct Album: Codable, FetchableRecord, PersistableRecord {
@@ -31,8 +27,6 @@ struct Album: Codable, FetchableRecord, PersistableRecord {
     var name: String
 
     static let databaseTableName = "album"
-
-    nonisolated(unsafe) static let tracks = hasMany(Track.self)
 }
 
 struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
@@ -58,10 +52,6 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     var playCount: Int = 0
 
     static let databaseTableName = "track"
-
-    nonisolated(unsafe) static let artist = belongsTo(Artist.self)
-    nonisolated(unsafe) static let album = belongsTo(Album.self)
-    nonisolated(unsafe) static let genreRecord = belongsTo(Genre.self)
 
     enum CodingKeys: String, CodingKey {
         case id, title, path, genre, rating
@@ -92,8 +82,6 @@ struct Playlist: Codable, FetchableRecord, PersistableRecord {
 
     static let databaseTableName = "playlist"
 
-    nonisolated(unsafe) static let items = hasMany(PlaylistItem.self)
-
     enum CodingKeys: String, CodingKey {
         case id, slug, title
         case createdAt = "created_at"
@@ -109,8 +97,6 @@ struct PlaylistItem: Codable, FetchableRecord, PersistableRecord {
     var trackStableId: String
 
     static let databaseTableName = "playlist_item"
-
-    nonisolated(unsafe) static let playlist = belongsTo(Playlist.self)
 
     enum CodingKeys: String, CodingKey {
         case position
@@ -137,8 +123,6 @@ struct EQPreset: Codable, FetchableRecord, PersistableRecord, Identifiable {
 
     static let databaseTableName = "eq_preset"
 
-    nonisolated(unsafe) static let bands = hasMany(EQBand.self)
-
     enum CodingKeys: String, CodingKey {
         case id, name
         case isBuiltIn = "is_built_in"
@@ -159,8 +143,6 @@ struct EQBand: Codable, FetchableRecord, PersistableRecord {
 
     static let databaseTableName = "eq_band"
 
-    nonisolated(unsafe) static let preset = belongsTo(EQPreset.self)
-
     enum CodingKeys: String, CodingKey {
         case id, frequency, gain, bandwidth
         case presetId = "preset_id"
@@ -176,8 +158,6 @@ struct EQSettings: Codable, FetchableRecord, PersistableRecord {
     var updatedAt: Int64
 
     static let databaseTableName = "eq_settings"
-
-    nonisolated(unsafe) static let activePreset = belongsTo(EQPreset.self, key: "activePresetId")
 
     enum CodingKeys: String, CodingKey {
         case id
