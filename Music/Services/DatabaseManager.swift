@@ -1,9 +1,4 @@
-//
-//  DatabaseManager.swift
-//  Cosmos Music Player
-//
 //  Database manager for the music library using GRDB
-//
 
 import Foundation
 import CryptoKit

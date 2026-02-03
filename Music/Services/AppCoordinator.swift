@@ -1,9 +1,4 @@
-//
-//  AppCoordinator.swift
-//  Cosmos Music Player
-//
 //  Main app coordinator that manages all services
-//
 
 import Foundation
 import Combine

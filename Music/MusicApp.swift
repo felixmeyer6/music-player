@@ -1,10 +1,3 @@
-//
-//  MusicApp.swift
-//  Music
-//
-//  Created by CLQ on 28/08/2025.
-//
-
 import SwiftUI
 import AVFoundation
 

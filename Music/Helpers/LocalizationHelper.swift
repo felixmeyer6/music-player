@@ -1,9 +1,4 @@
-//
-//  LocalizationHelper.swift
-//  Cosmos Music Player
-//
 //  Localization helper for easy access to localized strings
-//
 
 import Foundation
 

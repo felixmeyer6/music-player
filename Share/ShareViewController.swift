@@ -1,10 +1,3 @@
-//
-//  ShareViewController.swift
-//  Share
-//
-//  Created by CLQ on 10/09/2025.
-//
-
 import UIKit
 import Social
 import UniformTypeIdentifiers

@@ -1,9 +1,4 @@
-//
-//  PlaylistWidget.swift
-//  PlayerWidget
-//
 //  Horizontal scrollable playlist browser widget with album art mashup
-//
 
 import WidgetKit
 import SwiftUI

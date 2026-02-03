@@ -1,9 +1,4 @@
-//
-//  LibraryIndexer.swift
-//  Cosmos Music Player
-//
 //  Indexes audio files (MP3, WAV, AAC, M4A) in iCloud Drive using NSMetadataQuery
-//
 
 import Foundation
 import CryptoKit

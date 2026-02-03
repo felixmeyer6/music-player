@@ -1,9 +1,4 @@
-//
-//  DatabaseModels.swift
-//  Cosmos Music Player
-//
 //  Database models for the music library
-//
 
 import Foundation
 @preconcurrency import GRDB

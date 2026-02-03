@@ -1,9 +1,4 @@
-//
-//  TrackFiltering.swift
-//  Cosmos Music Player
-//
 //  Track filtering logic for Genre, Album, and Rating filters
-//
 
 import Foundation
 import SwiftUI

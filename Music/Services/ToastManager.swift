@@ -1,9 +1,4 @@
-//
-//  ToastManager.swift
-//  Music
-//
 //  Global toast manager for showing notifications above all views including sheets
-//
 
 import SwiftUI
 import UIKit

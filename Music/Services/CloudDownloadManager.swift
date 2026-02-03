@@ -1,9 +1,4 @@
-//
-//  CloudDownloadManager.swift
-//  Cosmos Music Player
-//
 //  Manages downloading and monitoring iCloud Drive files
-//
 
 import Foundation
 import Combine

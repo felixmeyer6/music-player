@@ -1,9 +1,4 @@
-//
-//  MetadataView.swift
-//  Cosmos Music Player
-//
 //  Track metadata dialog view with editing capabilities
-//
 
 import SwiftUI
 

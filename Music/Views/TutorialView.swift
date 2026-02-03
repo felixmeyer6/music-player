@@ -1,9 +1,4 @@
-//
-//  TutorialView.swift
-//  Cosmos Music Player
-//
 //  Tutorial flow for first-time users
-//
 
 import SwiftUI
 

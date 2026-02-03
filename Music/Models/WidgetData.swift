@@ -1,9 +1,4 @@
-//
-//  WidgetData.swift
-//  Cosmos Music Player
-//
 //  Shared data models for widget communication
-//
 
 import Foundation
 import UIKit

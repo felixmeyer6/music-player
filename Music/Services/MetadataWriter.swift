@@ -1,9 +1,4 @@
-//
-//  MetadataWriter.swift
-//  Cosmos Music Player
-//
 //  Service for writing metadata to audio files using ID3TagEditor
-//
 
 import Foundation
 import ID3TagEditor

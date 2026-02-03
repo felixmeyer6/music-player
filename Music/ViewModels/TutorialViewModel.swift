@@ -1,9 +1,4 @@
-//
-//  TutorialViewModel.swift
-//  Cosmos Music Player
-//
 //  View model for the tutorial flow
-//
 
 import Foundation
 import UIKit

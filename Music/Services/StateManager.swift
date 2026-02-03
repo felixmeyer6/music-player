@@ -1,9 +1,4 @@
-//
-//  StateManager.swift
-//  Cosmos Music Player
-//
 //  Manages JSON state files for playlists in iCloud Drive
-//
 
 import Foundation
 

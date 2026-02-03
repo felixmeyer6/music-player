@@ -1,9 +1,4 @@
-//
-//  EQManager.swift
-//  Cosmos Music Player
-//
 //  Graphic equalizer management service
-//
 
 import Foundation
 import AVFoundation

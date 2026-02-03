@@ -1,8 +1,5 @@
-//  PlayerEngine.swift
-//  Cosmos Music Player
-//
 //  Audio playback engine using AVAudioEngine
-//
+
 import Foundation
 import AVFoundation
 import Combine

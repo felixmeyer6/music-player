@@ -1,10 +1,3 @@
-//
-//  PlayerWidgetBundle.swift
-//  PlayerWidget
-//
-//  Created by CLQ on 07/12/2025.
-//
-
 import WidgetKit
 import SwiftUI
 

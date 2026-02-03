@@ -1,9 +1,4 @@
-//
-//  StateModels.swift
-//  Cosmos Music Player
-//
 //  JSON state models for playlists sync
-//
 
 import Foundation
 

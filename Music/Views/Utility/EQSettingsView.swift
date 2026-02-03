@@ -1,9 +1,4 @@
-//
-//  EQSettingsView.swift
-//  Cosmos Music Player
-//
 //  Graphic equalizer settings and management UI
-//
 
 import SwiftUI
 

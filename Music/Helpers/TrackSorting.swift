@@ -1,9 +1,4 @@
-//
-//  TrackSorting.swift
-//  Cosmos Music Player
-//
 //  Centralized track sorting helper
-//
 
 import Foundation
 import SwiftUI

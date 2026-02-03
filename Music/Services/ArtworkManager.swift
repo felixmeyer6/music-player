@@ -1,9 +1,4 @@
-//
-//  ArtworkManager.swift
-//  Cosmos Music Player
-//
 //  Manages album artwork extraction and caching
-//
 
 import Foundation
 import UIKit

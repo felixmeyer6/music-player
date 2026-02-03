@@ -1,9 +1,4 @@
-//
-//  FileCleanupManager.swift
-//  Cosmos Music Player
-//
 //  Manages cleanup of iCloud files that were deleted from iCloud Drive
-//
 
 import Foundation
 import SwiftUI
