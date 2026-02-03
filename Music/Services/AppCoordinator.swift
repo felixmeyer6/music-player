@@ -306,7 +306,7 @@ class AppCoordinator: ObservableObject {
                 let testFile = folderURL.appendingPathComponent("Welcome.txt")
                 
                 let tempContent = "Music folder - you can delete this file"
-                let welcomeContent = "Welcome to Music!\n\nYou can add your FLAC music files directly to this folder in the Files app.\n\nThe app will automatically detect and index any music files you add here.\n\nEnjoy your music!"
+                let welcomeContent = "Welcome to Music!\n\nYou can add your MP3 music files directly to this folder in the Files app.\n\nThe app will automatically detect and index any music files you add here.\n\nEnjoy your music!"
                 
                 try tempContent.write(to: tempFile, atomically: true, encoding: .utf8)
                 try welcomeContent.write(to: testFile, atomically: true, encoding: .utf8)

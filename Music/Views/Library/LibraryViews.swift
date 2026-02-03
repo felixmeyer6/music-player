@@ -1343,8 +1343,7 @@ struct MusicFilePicker: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: [
             UTType.audio,
-            UTType("public.mp3")!,
-            UTType("org.xiph.flac")!
+            UTType("public.mp3")!
         ])
         
         picker.delegate = context.coordinator

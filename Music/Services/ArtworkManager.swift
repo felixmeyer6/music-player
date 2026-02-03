@@ -248,9 +248,7 @@ class ArtworkManager: ObservableObject {
     private nonisolated func extractArtwork(from url: URL) async -> UIImage? {
         let ext = url.pathExtension.lowercased()
 
-        if ext == "flac" {
-            return await extractFlacArtwork(from: url)
-        } else if ext == "mp3" {
+        if ext == "mp3" {
             return await extractMp3Artwork(from: url)
         } else if ext == "m4a" || ext == "mp4" || ext == "aac" {
             return await extractM4AArtwork(from: url)
@@ -290,87 +288,6 @@ class ArtworkManager: ObservableObject {
         }
     }
     
-    private nonisolated func extractFlacArtwork(from url: URL) async -> UIImage? {
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .background).async {
-                do {
-                    let data = try Data(contentsOf: url)
-                    
-                    if data.count < 42 {
-                        continuation.resume(returning: nil)
-                        return
-                    }
-                    
-                    var offset = 4
-                    
-                    while offset < data.count {
-                        let blockHeader = data[offset]
-                        let isLast = (blockHeader & 0x80) != 0
-                        let blockType = blockHeader & 0x7F
-                        
-                        offset += 1
-                        
-                        guard offset + 3 <= data.count else { break }
-                        
-                        let blockSize = Int(data[offset]) << 16 | Int(data[offset + 1]) << 8 | Int(data[offset + 2])
-                        offset += 3
-                        
-                        if blockType == 6 { // PICTURE block
-                            if let image = Self.parseFlacPictureBlock(data: data, offset: offset, size: blockSize) {
-                                continuation.resume(returning: image)
-                                return
-                            }
-                        }
-                        
-                        offset += blockSize
-                        
-                        if isLast { break }
-                    }
-                    
-                    continuation.resume(returning: nil)
-                    
-                } catch {
-                    print("Failed to extract FLAC artwork: \(error)")
-                    continuation.resume(returning: nil)
-                }
-            }
-        }
-    }
-    
-    private nonisolated static func parseFlacPictureBlock(data: Data, offset: Int, size: Int) -> UIImage? {
-        var pos = offset
-        
-        // Skip picture type (4 bytes)
-        pos += 4
-        
-        guard pos + 4 <= data.count else { return nil }
-        
-        // Get MIME type length
-        let mimeLength = Int(data[pos]) << 24 | Int(data[pos + 1]) << 16 | Int(data[pos + 2]) << 8 | Int(data[pos + 3])
-        pos += 4 + mimeLength
-        
-        guard pos + 4 <= data.count else { return nil }
-        
-        // Get description length
-        let descLength = Int(data[pos]) << 24 | Int(data[pos + 1]) << 16 | Int(data[pos + 2]) << 8 | Int(data[pos + 3])
-        pos += 4 + descLength
-        
-        // Skip width, height, color depth, indexed colors (16 bytes total)
-        pos += 16
-        
-        guard pos + 4 <= data.count else { return nil }
-        
-        // Get picture data length
-        let pictureLength = Int(data[pos]) << 24 | Int(data[pos + 1]) << 16 | Int(data[pos + 2]) << 8 | Int(data[pos + 3])
-        pos += 4
-        
-        guard pos + pictureLength <= data.count else { return nil }
-        
-        // Extract picture data
-        let pictureData = data.subdata(in: pos..<pos + pictureLength)
-        return UIImage(data: pictureData)
-    }
-
     // MARK: - M4A/AAC Artwork Extraction
 
     private nonisolated func extractM4AArtwork(from url: URL) async -> UIImage? {

@@ -179,7 +179,7 @@ struct MusicApp: App {
             
             // Create placeholder file if it doesn't exist
             if !FileManager.default.fileExists(atPath: placeholderURL.path) {
-                let placeholderText = "This folder contains music files for Music.\nPlace your FLAC files here to add them to your library."
+                let placeholderText = "This folder contains music files for Music.\nPlace your MP3 files here to add them to your library."
                 try placeholderText.write(to: placeholderURL, atomically: true, encoding: .utf8)
                 print("✅ Created iCloud Drive placeholder file to ensure folder visibility")
             }

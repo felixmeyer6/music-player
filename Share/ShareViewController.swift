@@ -77,7 +77,6 @@ class ShareViewController: SLComposeServiceViewController {
     
     private func isAudioFile(_ attachment: NSItemProvider) -> Bool {
         return attachment.hasItemConformingToTypeIdentifier(UTType.mp3.identifier) ||
-               attachment.hasItemConformingToTypeIdentifier("org.xiph.flac") ||
                attachment.hasItemConformingToTypeIdentifier("com.microsoft.waveform-audio") ||
                attachment.hasItemConformingToTypeIdentifier(UTType.wav.identifier)
     }
@@ -105,8 +104,6 @@ class ShareViewController: SLComposeServiceViewController {
 
         if attachment.hasItemConformingToTypeIdentifier(UTType.mp3.identifier) {
             typeIdentifier = UTType.mp3.identifier
-        } else if attachment.hasItemConformingToTypeIdentifier("org.xiph.flac") {
-            typeIdentifier = "org.xiph.flac"
         } else if attachment.hasItemConformingToTypeIdentifier("com.microsoft.waveform-audio") {
             typeIdentifier = "com.microsoft.waveform-audio"
         } else if attachment.hasItemConformingToTypeIdentifier(UTType.wav.identifier) {
@@ -183,7 +180,7 @@ class ShareViewController: SLComposeServiceViewController {
                 print("❌ Path is not a directory: \(folderURL.path)")
                 // Maybe it's a single file, let's try to process it as such
                 let fileExtension = folderURL.pathExtension.lowercased()
-                let supportedExtensions = ["mp3", "flac", "wav"]
+                let supportedExtensions = ["mp3", "wav"]
                 if supportedExtensions.contains(fileExtension) {
                     print("🎵 Treating as single audio file: \(folderURL.lastPathComponent)")
                     self?.storeSharedURL(folderURL)
@@ -204,7 +201,7 @@ class ShareViewController: SLComposeServiceViewController {
     }
 
     private func processFolder(at folderURL: URL) {
-        let supportedExtensions = ["mp3", "flac", "wav"]
+        let supportedExtensions = ["mp3", "wav"]
         var audioFilesFound = 0
 
         do {

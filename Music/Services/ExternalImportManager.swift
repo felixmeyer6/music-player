@@ -6,7 +6,7 @@ final class ExternalImportManager {
     static let shared = ExternalImportManager()
 
     private let libraryIndexer = LibraryIndexer.shared
-    private let supportedExtensions: Set<String> = ["flac", "mp3", "wav", "m4a", "aac"]
+    private let supportedExtensions: Set<String> = ["mp3", "wav", "m4a", "aac"]
 
     private init() {}
 

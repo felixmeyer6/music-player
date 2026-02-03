@@ -1,7 +1,7 @@
 //  PlayerEngine.swift
 //  Cosmos Music Player
 //
-//  Audio playback engine using AVAudioEngine for high-resolution FLAC playback
+//  Audio playback engine using AVAudioEngine
 //
 import Foundation
 import AVFoundation
@@ -2236,25 +2236,11 @@ class PlayerEngine: NSObject, ObservableObject {
             var artwork: MPMediaItemArtwork?
             if let resolvedURL = resolvedURL {
                 print("🎵 Loading artwork from: \(resolvedURL.lastPathComponent)")
-                let fileExtension = resolvedURL.pathExtension.lowercased()
-
-                if fileExtension == "flac" {
-                    if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
-                        print("✅ Loaded FLAC artwork via AVAsset")
-                        artwork = art
-                    } else if let art = self.loadArtworkFromFLACMetadata(url: resolvedURL) {
-                        print("✅ Loaded FLAC artwork via direct metadata reading")
-                        artwork = art
-                    } else {
-                        print("⚠️ No artwork found in FLAC file: \(resolvedURL.lastPathComponent)")
-                    }
+                if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
+                    print("✅ Loaded artwork via AVAsset for: \(resolvedURL.lastPathComponent)")
+                    artwork = art
                 } else {
-                    if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
-                        print("✅ Loaded artwork via AVAsset for: \(resolvedURL.lastPathComponent)")
-                        artwork = art
-                    } else {
-                        print("⚠️ No artwork found in file: \(resolvedURL.lastPathComponent)")
-                    }
+                    print("⚠️ No artwork found in file: \(resolvedURL.lastPathComponent)")
                 }
             }
 
@@ -2305,134 +2291,6 @@ class PlayerEngine: NSObject, ObservableObject {
 
         print("⚠️ No artwork found in AVAsset metadata")
         return nil
-    }
-    
-    private nonisolated func loadArtworkFromFLACMetadata(url: URL) -> MPMediaItemArtwork? {
-        do {
-            // Read FLAC file directly to extract embedded artwork
-            let data = try Data(contentsOf: url)
-            
-            // Look for FLAC PICTURE metadata block
-            if let artwork = extractFLACPictureBlock(from: data) {
-                print("🎨 Found artwork in FLAC PICTURE block")
-                
-                let processedImage = self.cropToSquareIfNeeded(image: artwork)
-                
-                let mpArtwork = MPMediaItemArtwork(boundsSize: processedImage.size) { size in
-                    return processedImage
-                }
-                
-                return mpArtwork
-            }
-            
-            print("⚠️ No PICTURE block found in FLAC file")
-            return nil
-            
-        } catch {
-            print("❌ Direct FLAC metadata reading failed: \(error)")
-            return nil
-        }
-    }
-    
-    private nonisolated func extractFLACPictureBlock(from data: Data) -> UIImage? {
-        // FLAC file format: 4-byte signature "fLaC" followed by metadata blocks
-        
-        guard data.count > 4 else { return nil }
-        
-        // Check for FLAC signature
-        let signature = data.subdata(in: 0..<4)
-        guard signature == Data([0x66, 0x4C, 0x61, 0x43]) else { // "fLaC"
-            print("⚠️ Invalid FLAC signature")
-            return nil
-        }
-        
-        var offset = 4
-        
-        // Parse metadata blocks
-        while offset < data.count - 4 {
-            // Read metadata block header (4 bytes)
-            let blockHeader = data.subdata(in: offset..<(offset + 4))
-            
-            let isLastBlock = (blockHeader[0] & 0x80) != 0
-            let blockType = blockHeader[0] & 0x7F
-            
-            // Block length (24-bit big-endian)
-            let blockLength = Int(blockHeader[1]) << 16 | Int(blockHeader[2]) << 8 | Int(blockHeader[3])
-            
-            offset += 4
-            
-            // Check if this is a PICTURE block (type 6)
-            if blockType == 6 {
-                print("🖼️ Found FLAC PICTURE block at offset \(offset), length: \(blockLength)")
-                
-                guard offset + blockLength <= data.count else {
-                    print("❌ PICTURE block extends beyond file")
-                    break
-                }
-                
-                let pictureBlockData = data.subdata(in: offset..<(offset + blockLength))
-                
-                if let image = parseFLACPictureBlock(data: pictureBlockData) {
-                    return image
-                }
-            }
-            
-            // Move to next block
-            offset += blockLength
-            
-            if isLastBlock {
-                break
-            }
-        }
-        
-        return nil
-    }
-    
-    private nonisolated func parseFLACPictureBlock(data: Data) -> UIImage? {
-        guard data.count >= 32 else { return nil }
-        
-        var offset = 0
-        
-        // Picture type (4 bytes) - skip
-        offset += 4
-        
-        // MIME type length (4 bytes, big-endian)
-        let mimeTypeLength = Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
-        offset += 4
-        
-        guard offset + mimeTypeLength <= data.count else { return nil }
-        
-        // MIME type string - skip
-        offset += mimeTypeLength
-        
-        // Description length (4 bytes, big-endian)
-        guard offset + 4 <= data.count else { return nil }
-        let descriptionLength = Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
-        offset += 4
-        
-        // Description string - skip
-        offset += descriptionLength
-        
-        // Width (4 bytes) - skip
-        offset += 4
-        // Height (4 bytes) - skip
-        offset += 4
-        // Color depth (4 bytes) - skip
-        offset += 4
-        // Number of colors (4 bytes) - skip
-        offset += 4
-        
-        // Picture data length (4 bytes, big-endian)
-        guard offset + 4 <= data.count else { return nil }
-        let pictureDataLength = Int(data[offset]) << 24 | Int(data[offset + 1]) << 16 | Int(data[offset + 2]) << 8 | Int(data[offset + 3])
-        offset += 4
-        
-        // Picture data
-        guard offset + pictureDataLength <= data.count else { return nil }
-        let pictureData = data.subdata(in: offset..<(offset + pictureDataLength))
-        
-        // Create UIImage from picture data
-        return UIImage(data: pictureData)
     }
     
     private func updateNowPlayingInfoWithCachedArtwork() {

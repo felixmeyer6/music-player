@@ -139,7 +139,7 @@ class CloudDownloadManager: NSObject, ObservableObject {
         progressQuery?.searchScopes = [NSMetadataQueryUbiquitousDocumentsScope]
 
         // Support native AVAudioEngine audio formats for progress monitoring
-        let formats = ["*.flac", "*.mp3", "*.wav", "*.m4a", "*.aac"]
+        let formats = ["*.mp3", "*.wav", "*.m4a", "*.aac"]
         let formatPredicates = formats.map { format in
             NSPredicate(format: "%K LIKE %@", NSMetadataItemFSNameKey, format)
         }

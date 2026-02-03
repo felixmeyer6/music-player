@@ -5,7 +5,7 @@ Music is a high-quality music player supporting iCloud and local storage based o
 ## Features ✨
 
 ### 🎧 Audio Playback
-- **High-Quality Lossless Support**: Supports lossless FLAC, WAV & MP3
+- **Audio Format Support**: MP3, WAV, AAC, M4A
 - **Graphic Equalizer**: GraphicEQ support with ability to save and switch configs
 
 ### 📚 Music Library Management
