@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cd /Users/Administrateur/Software/Music\\\\ Player/music-player && swift -parse:*)"
+      "Bash(cd /Users/Administrateur/Software/Music\\\\ Player/music-player && swift -parse:*)",
+      "Bash(periphery version:*)",
+      "Bash(periphery scan:*)",
+      "Bash(for prop in \"Localized\\\\.useSimpleIcons\" \"Localized\\\\.overrideSystemAppearance\" \"Localized\\\\.crossfade\\\\b\" \"Localized\\\\.edit\\\\b\" \"Localized\\\\.managePlaylists\" \"Localized\\\\.deletePlaylist\\\\b\" \"Localized\\\\.deleteFile\\\\b\" \"Localized\\\\.showArtistPage\" \"Localized\\\\.addToPlaylistEllipsis\" \"Localized\\\\.select\\\\b\" \"Localized\\\\.selectAll\" \"Localized\\\\.deleteFiles\\\\b\" \"Localized\\\\.deleteFilesConfirmation\\\\b\" \"Localized\\\\.deleteFilesConfirmationMessage\" \"Localized\\\\.createdDate\" \"Localized\\\\.deletePlaylistConfirmation\" \"Localized\\\\.deleteFileConfirmation\" \"Localized\\\\.sortDateNewest\" \"Localized\\\\.sortDateOldest\" \"Localized\\\\.sortNameAZ\" \"Localized\\\\.sortNameZA\" \"Localized\\\\.sortSizeLargest\" \"Localized\\\\.sortSizeSmallest\")",
+      "Bash(do echo \"=== $prop ===\")",
+      "Bash(done)",
+      "Bash(for rel in \"Artist\\\\.tracks\" \"Genre\\\\.tracks\" \"Album\\\\.tracks\" \"Track\\\\.artist\" \"Track\\\\.album\" \"Track\\\\.genreRecord\" \"Playlist\\\\.items\" \"PlaylistItem\\\\.playlist\" \"EQPreset\\\\.bands\" \"EQBand\\\\.preset\" \"EQSettings\\\\.activePreset\")",
+      "Bash(do echo \"=== $rel ===\")"
     ]
   }
 }
