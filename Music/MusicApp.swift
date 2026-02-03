@@ -48,8 +48,6 @@ struct MusicApp: App {
     }
     
     private func handleDidEnterBackground() {
-        print("🔍 DIAGNOSTIC - backgroundTimeRemaining:", UIApplication.shared.backgroundTimeRemaining)
-
         // Stop high-frequency timers when backgrounded
         Task { @MainActor in
             PlayerEngine.shared.stopPlaybackTimer()
@@ -70,10 +68,7 @@ struct MusicApp: App {
             if !LibraryIndexer.shared.isIndexing {
                 let settings = DeleteSettings.load()
                 if shouldPerformAutoScan(lastScanDate: settings.lastLibraryScanDate) {
-                    print("🔄 Foreground: Starting library scan (been a while since last scan)")
                     LibraryIndexer.shared.start()
-                } else {
-                    print("⏭️ Foreground: Skipping auto-scan (use manual sync button)")
                 }
             }
         }
@@ -82,19 +77,12 @@ struct MusicApp: App {
     private func shouldPerformAutoScan(lastScanDate: Date?) -> Bool {
         // If never scanned before, definitely scan
         guard let lastScanDate = lastScanDate else {
-            print("🆕 Never scanned before - will perform scan")
             return true
         }
 
         // Check if it's been more than 1 hour since last scan
         let hoursSinceLastScan = Date().timeIntervalSince(lastScanDate) / 3600
         let shouldScan = hoursSinceLastScan >= 1.0
-
-        if shouldScan {
-            print("⏰ Last scan was \(String(format: "%.1f", hoursSinceLastScan)) hours ago - will scan")
-        } else {
-            print("⏰ Last scan was \(String(format: "%.1f", hoursSinceLastScan)) hours ago - skipping")
-        }
 
         return shouldScan
     }
@@ -105,15 +93,12 @@ struct MusicApp: App {
             let s = AVAudioSession.sharedInstance()
             try s.setCategory(.playback, mode: .default, options: []) // no mixWithOthers in bg
             try s.setActive(true, options: [])
-            print("🎧 Session keepalive on resign active - success")
         } catch { 
             print("❌ Session keepalive fail:", error) 
         }
     }
     
     private func handleOpenURL(_ url: URL) {
-        print("🔗 Received URL: \(url.absoluteString)")
-
         guard url.scheme == "cosmos-music" else {
             print("❌ Unknown URL scheme: \(url.scheme ?? "nil")")
             return
@@ -122,7 +107,6 @@ struct MusicApp: App {
         Task { @MainActor in
             switch url.host {
             case "refresh":
-                print("📁 URL triggered library refresh - this is a manual refresh so always scan")
                 await LibraryIndexer.shared.copyFilesFromSharedContainer()
                 if !LibraryIndexer.shared.isIndexing {
                     LibraryIndexer.shared.start()
@@ -131,7 +115,6 @@ struct MusicApp: App {
             case "playlist":
                 // Extract playlist ID from path
                 let playlistId = url.pathComponents.dropFirst().joined(separator: "/")
-                print("📋 Widget: Opening playlist - \(playlistId)")
 
                 // Navigate to playlist
                 if let playlistIdInt = Int64(playlistId) {
@@ -144,7 +127,6 @@ struct MusicApp: App {
                                 object: nil,
                                 userInfo: ["playlistId": playlistIdInt]
                             )
-                            print("✅ Widget: Navigating to playlist \(playlist.title)")
                         }
                     } catch {
                         print("❌ Widget: Failed to find playlist: \(error)")
@@ -174,7 +156,6 @@ struct MusicApp: App {
             if !FileManager.default.fileExists(atPath: placeholderURL.path) {
                 let placeholderText = "This folder contains music files for Music.\nPlace your MP3 files here to add them to your library."
                 try placeholderText.write(to: placeholderURL, atomically: true, encoding: .utf8)
-                print("✅ Created iCloud Drive placeholder file to ensure folder visibility")
             }
         } catch {
             print("❌ Failed to create iCloud Drive placeholder: \(error)")

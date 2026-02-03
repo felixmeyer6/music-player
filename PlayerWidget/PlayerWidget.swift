@@ -56,12 +56,10 @@ struct PlayerWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<WidgetEntry>) -> Void) {
-        print("🔄 Widget Timeline: getTimeline called")
         let currentDate = Date()
         let entry: WidgetEntry
 
         if let trackData = WidgetDataManager.shared.getCurrentTrack() {
-            print("✅ Widget Timeline: Got track data - \(trackData.title)")
             entry = WidgetEntry(date: currentDate, trackData: trackData)
         } else {
             print("⚠️ Widget Timeline: No track data available, showing placeholder")
@@ -79,7 +77,6 @@ struct PlayerWidgetProvider: TimelineProvider {
 
         // Refresh every 15 seconds when music is playing
         let nextUpdate = entry.trackData.isPlaying ? Date().addingTimeInterval(15) : Date().addingTimeInterval(60)
-        print("⏰ Widget Timeline: Next update in \(entry.trackData.isPlaying ? "15" : "60") seconds")
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }

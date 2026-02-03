@@ -34,7 +34,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
             queue: .main
         ) { _ in
             // CarPlay will automatically update based on MPNowPlayingInfoCenter playbackState
-            print("🎛️ Player state changed - CarPlay will sync automatically")
         }
     }
 
@@ -146,7 +145,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     func templateApplicationScene(_ templateApplicationScene: CPTemplateApplicationScene,
                                  didDisconnect interfaceController: CPInterfaceController) {
         self.interfaceController = nil
-        print("🚗 CarPlay disconnected")
     }
 
     // MARK: - Navigation Methods

@@ -80,8 +80,6 @@ final class MetadataWriter: @unchecked Sendable {
 
             // Write the tag to file
             try id3TagEditor.write(tag: newTag, to: track.path)
-
-            print("✅ MetadataWriter: Successfully wrote metadata to \(fileURL.lastPathComponent)")
             return true
 
         } catch {
@@ -168,8 +166,6 @@ final class MetadataWriter: @unchecked Sendable {
 
             // Write the tag without artwork
             try id3TagEditor.write(tag: newTag, to: track.path)
-
-            print("✅ MetadataWriter: Successfully removed artwork from \(fileURL.lastPathComponent)")
             return true
 
         } catch {

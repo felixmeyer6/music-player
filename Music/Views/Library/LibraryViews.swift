@@ -416,7 +416,6 @@ struct LibraryView: View {
                     let playlists = try DatabaseManager.shared.getAllPlaylists()
                     if let playlist = playlists.first(where: { $0.id == playlistId }) {
                         playlistToNavigate = playlist
-                        print("✅ LibraryView: Navigating to playlist \(playlist.title)")
                     }
                 } catch {
                     print("❌ LibraryView: Failed to find playlist: \(error)")

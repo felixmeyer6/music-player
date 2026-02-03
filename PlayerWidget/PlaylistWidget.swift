@@ -38,14 +38,11 @@ struct PlaylistWidgetProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PlaylistWidgetEntry>) -> Void) {
-        print("🔄 Playlist Widget Timeline: getTimeline called")
-
         let playlists = PlaylistDataManager.shared.getPlaylists()
         let entry = PlaylistWidgetEntry(date: Date(), playlists: playlists)
 
         // Refresh every hour
         let nextUpdate = Date().addingTimeInterval(3600)
-        print("⏰ Playlist Widget Timeline: Next update in 1 hour, \(playlists.count) playlists")
         let timeline = Timeline(entries: [entry], policy: .after(nextUpdate))
         completion(timeline)
     }

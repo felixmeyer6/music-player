@@ -86,7 +86,6 @@ final class ExternalImportManager {
         }
 
         await libraryIndexer.processExternalFile(url)
-        print("✅ Processed external file: \(url.lastPathComponent)")
     }
 
     private func storeBookmarkData(_ bookmarkData: Data, for url: URL) async {
@@ -113,8 +112,6 @@ final class ExternalImportManager {
 
             let plistData = try PropertyListSerialization.data(fromPropertyList: bookmarks, format: .xml, options: 0)
             try plistData.write(to: bookmarksURL)
-
-            print("✅ Stored bookmark for: \(url.lastPathComponent) (key: \(stableId))")
         } catch {
             print("❌ Failed to store bookmark data: \(error)")
         }

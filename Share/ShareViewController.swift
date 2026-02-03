@@ -25,8 +25,6 @@ class ShareViewController: SLComposeServiceViewController {
             return
         }
 
-        print("📋 Processing \(inputItems.count) input items")
-
         let group = DispatchGroup()
 
         for (itemIndex, inputItem) in inputItems.enumerated() {
@@ -35,35 +33,22 @@ class ShareViewController: SLComposeServiceViewController {
                 continue
             }
 
-            print("📎 Input item \(itemIndex) has \(attachments.count) attachments")
-
             for (attachmentIndex, attachment) in attachments.enumerated() {
-                print("🔍 Processing attachment \(itemIndex).\(attachmentIndex)")
-
-                // Log what types this attachment supports
-                let supportedTypes = attachment.registeredTypeIdentifiers
-                print("📋 Supported types: \(supportedTypes)")
-
                 if isAudioFile(attachment) {
-                    print("🎵 Detected audio file at attachment \(itemIndex).\(attachmentIndex)")
                     group.enter()
                     copyAudioFile(attachment) {
                         group.leave()
                     }
                 } else if isFolder(attachment) {
-                    print("📁 Detected folder at attachment \(itemIndex).\(attachmentIndex)")
                     group.enter()
                     processFolderContents(attachment) {
                         group.leave()
                     }
-                } else {
-                    print("❓ Unknown attachment type at \(itemIndex).\(attachmentIndex)")
                 }
             }
         }
 
         group.notify(queue: .main) { [weak self] in
-            print("✅ All attachments processed, completing request")
             self?.completeRequest()
         }
     }
@@ -132,7 +117,6 @@ class ShareViewController: SLComposeServiceViewController {
         for typeIdentifier in folderTypes {
             if attachment.hasItemConformingToTypeIdentifier(typeIdentifier) {
                 foundType = typeIdentifier
-                print("🔍 Found folder type: \(typeIdentifier)")
                 break
             }
         }
@@ -156,10 +140,6 @@ class ShareViewController: SLComposeServiceViewController {
                 return
             }
 
-            print("📁 Successfully loaded folder URL: \(folderURL.absoluteString)")
-            print("📁 Folder path: \(folderURL.path)")
-            print("📁 Processing folder: \(folderURL.lastPathComponent)")
-
             // Verify it's actually a directory
             var isDirectory: ObjCBool = false
             let exists = FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDirectory)
@@ -175,7 +155,6 @@ class ShareViewController: SLComposeServiceViewController {
                 let fileExtension = folderURL.pathExtension.lowercased()
                 let supportedExtensions = ["mp3", "wav"]
                 if supportedExtensions.contains(fileExtension) {
-                    print("🎵 Treating as single audio file: \(folderURL.lastPathComponent)")
                     self?.storeSharedURL(folderURL)
                 }
                 return
@@ -200,22 +179,17 @@ class ShareViewController: SLComposeServiceViewController {
         do {
             let contents = try FileManager.default.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isDirectoryKey], options: [])
 
-            print("📂 Found \(contents.count) items in folder: \(folderURL.lastPathComponent)")
-
             for itemURL in contents {
                 var isDirectory: ObjCBool = false
                 FileManager.default.fileExists(atPath: itemURL.path, isDirectory: &isDirectory)
 
                 if isDirectory.boolValue {
                     // Recursively process subdirectories
-                    print("📁 Processing subfolder: \(itemURL.lastPathComponent)")
                     processFolder(at: itemURL)
                 } else {
                     // Check if it's a supported audio file
                     let fileExtension = itemURL.pathExtension.lowercased()
                     if supportedExtensions.contains(fileExtension) {
-                        print("🎵 Found audio file: \(itemURL.lastPathComponent)")
-
                         // Start accessing security-scoped resource for the individual file
                         let fileAccessing = itemURL.startAccessingSecurityScopedResource()
                         storeSharedURL(itemURL)
@@ -227,10 +201,7 @@ class ShareViewController: SLComposeServiceViewController {
                     }
                 }
             }
-
-            if audioFilesFound > 0 {
-                print("✅ Successfully processed \(audioFilesFound) audio files from folder: \(folderURL.lastPathComponent)")
-            } else {
+            if audioFilesFound == 0 {
                 print("⚠️ No audio files found in folder: \(folderURL.lastPathComponent)")
             }
         } catch {
@@ -244,8 +215,6 @@ class ShareViewController: SLComposeServiceViewController {
     }
 
     private func storeSharedURL(_ url: URL) {
-        print("💾 Attempting to store shared URL: \(url.lastPathComponent)")
-
         // Reject network URLs
         if let scheme = url.scheme?.lowercased(), ["http", "https", "ftp", "sftp"].contains(scheme) {
             print("❌ Rejected network URL: \(url.absoluteString)")
@@ -257,10 +226,7 @@ class ShareViewController: SLComposeServiceViewController {
             return
         }
 
-        print("📁 Shared container URL: \(sharedContainer.path)")
-
         let sharedDataURL = sharedContainer.appendingPathComponent("SharedAudioFiles.plist")
-        print("💾 Shared data URL: \(sharedDataURL.path)")
 
         do {
             // Create bookmark data for security-scoped access
@@ -269,14 +235,10 @@ class ShareViewController: SLComposeServiceViewController {
             // Load existing shared files or create new array
             var sharedFiles: [[String: Data]] = []
             if FileManager.default.fileExists(atPath: sharedDataURL.path) {
-                print("📄 Existing plist found, loading...")
                 if let data = try? Data(contentsOf: sharedDataURL),
                    let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [[String: Data]] {
                     sharedFiles = plist
-                    print("📄 Loaded \(sharedFiles.count) existing entries")
                 }
-            } else {
-                print("📄 No existing plist, creating new one")
             }
 
             // Add new file info
@@ -286,13 +248,10 @@ class ShareViewController: SLComposeServiceViewController {
                 "filename": url.lastPathComponent.data(using: .utf8) ?? Data()
             ]
             sharedFiles.append(fileInfo)
-            print("➕ Added new file entry, total entries: \(sharedFiles.count)")
 
             // Save updated list
             let plistData = try PropertyListSerialization.data(fromPropertyList: sharedFiles, format: .xml, options: 0)
             try plistData.write(to: sharedDataURL)
-
-            print("✅ Successfully stored shared audio file reference: \(url.lastPathComponent)")
         } catch {
             print("❌ Failed to store shared audio file reference: \(error)")
         }
@@ -315,7 +274,9 @@ class ShareViewController: SLComposeServiceViewController {
         while responder != nil {
             if let application = responder as? UIApplication {
                 application.open(url, options: [:], completionHandler: { success in
-                    print(success ? "✅ Successfully opened main app" : "❌ Failed to open main app")
+                    if !success {
+                        print("❌ Failed to open main app")
+                    }
                 })
                 return
             }
@@ -325,7 +286,9 @@ class ShareViewController: SLComposeServiceViewController {
         // Fallback method for iOS 14+
         if let windowScene = view.window?.windowScene {
             windowScene.open(url, options: nil) { success in
-                print(success ? "✅ Successfully opened main app via windowScene" : "❌ Failed to open main app via windowScene")
+                if !success {
+                    print("❌ Failed to open main app via windowScene")
+                }
             }
         } else {
             print("❌ Could not find UIApplication or WindowScene to open main app")

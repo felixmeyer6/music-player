@@ -840,7 +840,6 @@ struct PlayerView: View {
     private func loadTracks() async {
         do {
             allTracks = try appCoordinator.getAllTracks()
-            print("✅ Loaded \(allTracks.count) tracks for artist navigation")
         } catch {
             print("❌ Failed to load tracks: \(error)")
         }

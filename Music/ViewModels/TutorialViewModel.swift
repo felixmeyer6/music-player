@@ -96,7 +96,6 @@ class TutorialViewModel: ObservableObject {
                     print("📱 Apple ID check: ❓ Could not determine status (CloudKit)")
                     
                 case .temporarilyUnavailable:
-                    print("Error line 104 of TutorialViewModel")
                 @unknown default:
                     self.isSignedIntoAppleID = false
                     self.appleIDDetectionFailed = true
@@ -241,7 +240,6 @@ class TutorialViewModel: ObservableObject {
     func completeTutorial() {
         // Save that tutorial has been completed
         UserDefaults.standard.set(true, forKey: "HasCompletedTutorial")
-        print("✅ Tutorial completed and saved to UserDefaults")
     }
     
     static func shouldShowTutorial() -> Bool {
