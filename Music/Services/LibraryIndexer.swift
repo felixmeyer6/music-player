@@ -816,15 +816,6 @@ class LibraryIndexer: NSObject, ObservableObject {
         }
     }
 
-    nonisolated private static func estimatedSampleRate(for track: AVAssetTrack) async -> Double? {
-        let descriptions = try? await track.load(.formatDescriptions)
-        guard let desc = descriptions?.first,
-              let asbdPointer = CMAudioFormatDescriptionGetStreamBasicDescription(desc) else {
-            return nil
-        }
-        return asbdPointer.pointee.mSampleRate
-    }
-    
     private func cleanArtistName(_ artistName: String) -> String {
         var cleaned = artistName.trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -1879,11 +1870,6 @@ class AudioMetadataParser {
     }
 
     // Simple artwork detection for supported formats (uses AVAsset)
-    private static func checkForEmbeddedArtwork(url: URL) async -> Bool {
-        // For supported formats, we rely on AVAsset for artwork detection
-        // This is handled during artwork loading, not indexing
-        return false
-    }
 }
 
 enum AudioParseError: Error {

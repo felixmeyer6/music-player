@@ -151,54 +151,6 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
 
     // MARK: - Navigation Methods
 
-    private func showAllSongs(tracks: [Track]) {
-        let songItems: [CPListItem] = tracks.map { track in
-            let artistName = getArtistName(for: track)
-            let item = CPListItem(text: track.title, detailText: artistName)
-
-            // Add artwork asynchronously
-            Task { @MainActor in
-                if let artwork = await ArtworkManager.shared.getArtwork(for: track) {
-                    let resizedImage = resizeImageForCarPlay(artwork, rounded: true)
-                    item.setImage(resizedImage)
-                } else {
-                    // Set placeholder image
-                    let placeholder = createPlaceholderImage()
-                    item.setImage(placeholder)
-                }
-            }
-
-            item.handler = { _, completion in
-                Task {
-                    await AppCoordinator.shared.playTrack(track, queue: tracks)
-                }
-                completion()
-            }
-            return item
-        }
-
-        let section = CPListSection(items: songItems)
-        let listTemplate = CPListTemplate(title: Localized.allSongs, sections: [section])
-        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
-    }
-
-    private func showPlaylists() {
-        let playlists = (try? AppCoordinator.shared.databaseManager.getAllPlaylists()) ?? []
-
-        let playlistItems: [CPListItem] = playlists.map { playlist in
-            let item = CPListItem(text: playlist.title, detailText: nil)
-            item.handler = { [weak self] _, completion in
-                self?.showPlaylistDetail(playlist: playlist)
-                completion()
-            }
-            return item
-        }
-
-        let section = CPListSection(items: playlistItems)
-        let listTemplate = CPListTemplate(title: Localized.playlists, sections: [section])
-        interfaceController?.pushTemplate(listTemplate, animated: true, completion: nil)
-    }
-
     private func showPlaylistDetail(playlist: Playlist) {
         guard let playlistId = playlist.id else { return }
 

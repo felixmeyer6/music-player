@@ -536,10 +536,6 @@ struct CollectionDetailView: View {
         }
     }
 
-    private func selectAll() {
-        selectedTracks = Set(displayTracks.map { $0.stableId })
-    }
-
 }
 
 // MARK: - Filter Dropdown Component

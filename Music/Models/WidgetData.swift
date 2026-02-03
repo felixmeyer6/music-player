@@ -226,10 +226,5 @@ public final class PlaylistDataManager: @unchecked Sendable {
         }
     }
 
-    public func clearPlaylists() {
-        userDefaults?.removeObject(forKey: playlistsKey)
-        userDefaults?.synchronize()
-        print("🗑️ Widget: Cleared playlists")
-    }
 }
 

@@ -80,7 +80,6 @@ class PlayerEngine: NSObject, ObservableObject {
     // Enhanced Control Center synchronization (replaces MPNowPlayingSession approach)
     
     // System volume integration
-    private var silentPlayer: AVAudioPlayer?
     private var pausedSilentPlayer: AVAudioPlayer?
     private nonisolated(unsafe) var volumeCheckTimer: Timer?
     private var lastKnownVolume: Float = -1
@@ -441,49 +440,6 @@ class PlayerEngine: NSObject, ObservableObject {
         print("✅ Basic volume control enabled")
     }
     
-    private func setupSilentPlayer() {
-        // Create a silent audio file to play (required for accurate volume monitoring)
-        guard let silenceURL = Bundle.main.url(forResource: "silence", withExtension: "mp3") else {
-            // If no silence file, create one programmatically
-            createSilenceFile()
-            return
-        }
-        
-        do {
-            silentPlayer = try AVAudioPlayer(contentsOf: silenceURL)
-            silentPlayer?.volume = 0.0
-            silentPlayer?.numberOfLoops = -1  // Loop indefinitely
-            silentPlayer?.prepareToPlay()
-            print("🔇 Silent player created for volume monitoring")
-        } catch {
-            print("❌ Failed to create silent player: \(error)")
-            createSilenceFile()
-        }
-    }
-    
-    private func createSilenceFile() {
-        // Generate a tiny bit of silence programmatically
-        let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1024)!
-        buffer.frameLength = 1024
-        
-        // Buffer is already silent (zero-filled by default)
-        
-        do {
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("silence.caf")
-            let audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
-            try audioFile.write(from: buffer)
-            
-            silentPlayer = try AVAudioPlayer(contentsOf: tempURL)
-            silentPlayer?.volume = 0.01  // Very low but not zero
-            silentPlayer?.numberOfLoops = -1
-            silentPlayer?.prepareToPlay()
-            print("🔇 Generated silent player for volume monitoring")
-        } catch {
-            print("❌ Failed to create programmatic silence: \(error)")
-        }
-    }
-    
     private func syncWithSystemVolume() {
         // Only sync if audio session has been set up
         guard hasSetupAudioSession else {
@@ -498,31 +454,8 @@ class PlayerEngine: NSObject, ObservableObject {
         // Set the baseline for timer-based monitoring
         lastKnownVolume = systemVolume
         
-        // Don't start silent playback here - only when we actually need volume monitoring during playback
-        // silentPlayer?.play() - removed to prevent interrupting other apps on launch
     }
-    
-    // Removed MPVolumeView methods - using native system volume HUD instead
-    
-    private func setupVolumeMonitoring() {
-        // Monitor system volume notifications
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleVolumeNotification),
-            name: NSNotification.Name("AVSystemController_SystemVolumeDidChangeNotification"),
-            object: nil
-        )
-        
-        // Also monitor AVAudioSession outputVolume
-        let session = AVAudioSession.sharedInstance()
-        session.addObserver(self, forKeyPath: "outputVolume", options: [.new], context: nil)
-        
-        // Start timer-based volume checking as fallback
-        startVolumeTimer()
-        
-        print("📢 Volume monitoring enabled with timer fallback")
-    }
-    
+
     private func startVolumeTimer() {
         volumeCheckTimer?.invalidate()
         volumeCheckTimer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
@@ -2513,12 +2446,6 @@ class PlayerEngine: NSObject, ObservableObject {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
     }
 
-    private nonisolated func convertUIImageToMPMediaItemArtwork(_ image: UIImage) -> MPMediaItemArtwork? {
-        return MPMediaItemArtwork(boundsSize: image.size) { _ in
-            return image
-        }
-    }
-
     private nonisolated func cropToSquareIfNeeded(image: UIImage) -> UIImage {
         let width = image.size.width
         let height = image.size.height
@@ -2717,116 +2644,6 @@ class PlayerEngine: NSObject, ObservableObject {
             
         } catch {
             print("❌ Failed to restore UI state: \(error)")
-        }
-    }
-    
-    func restorePlayerState() async {
-        guard let playerStateDict = UserDefaults.standard.dictionary(forKey: "CosmosPlayerState") else {
-            print("📭 No saved player state found in UserDefaults")
-            return
-        }
-        
-        guard let lastSavedAt = playerStateDict["lastSavedAt"] as? Date else {
-            print("🚫 Invalid saved state format")
-            return
-        }
-        
-        print("🔄 Restoring player state from \(lastSavedAt)")
-        
-        // Don't restore if the saved state is too old (more than 7 days)
-        let daysSinceLastSave = Date().timeIntervalSince(lastSavedAt) / (24 * 60 * 60)
-        if daysSinceLastSave > 7 {
-            print("⏰ Saved state is too old (\(Int(daysSinceLastSave)) days), skipping restore")
-            return
-        }
-        
-        // Find the current track by stable ID
-        guard let currentTrackStableId = playerStateDict["currentTrackStableId"] as? String else {
-            print("🚫 No current track in saved state")
-            return
-        }
-        
-        do {
-            let track = try DatabaseManager.shared.read { db in
-                try Track.filter(Column("stable_id") == currentTrackStableId).fetchOne(db)
-            }
-            
-            guard let restoredTrack = track else {
-                print("🚫 Could not find saved track with ID: \(currentTrackStableId)")
-                return
-            }
-            
-            // Restore queue by finding tracks with stable IDs
-            let queueTrackIds = playerStateDict["queueTrackIds"] as? [String] ?? []
-            let originalQueueTrackIds = playerStateDict["originalQueueTrackIds"] as? [String] ?? []
-            
-            let queueTracks = try DatabaseManager.shared.read { db in
-                try queueTrackIds.compactMap { stableId in
-                    try Track.filter(Column("stable_id") == stableId).fetchOne(db)
-                }
-            }
-            
-            let originalQueueTracks = try DatabaseManager.shared.read { db in
-                try originalQueueTrackIds.compactMap { stableId in
-                    try Track.filter(Column("stable_id") == stableId).fetchOne(db)
-                }
-            }
-            
-            // Restore player state
-            await MainActor.run {
-                self.playbackQueue = queueTracks.isEmpty ? [restoredTrack] : queueTracks
-                self.originalQueue = originalQueueTracks.isEmpty ? [restoredTrack] : originalQueueTracks
-                
-                let savedIndex = playerStateDict["currentIndex"] as? Int ?? 0
-                self.currentIndex = max(0, min(savedIndex, self.playbackQueue.count - 1))
-                
-                self.isRepeating = playerStateDict["isRepeating"] as? Bool ?? false
-                self.isShuffled = playerStateDict["isShuffled"] as? Bool ?? false
-                self.isLoopingSong = playerStateDict["isLoopingSong"] as? Bool ?? false
-                self.currentTrack = restoredTrack
-                
-                print("✅ Restored state: queue=\(self.playbackQueue.count) tracks, index=\(self.currentIndex), loop=\(self.isLoopingSong)")
-                
-                // Additional validation for shuffle state
-                if !self.isShuffled {
-                    // When not shuffled, ensure currentIndex points to the actual currentTrack
-                    if let currentTrack = self.currentTrack,
-                       self.currentIndex < self.playbackQueue.count,
-                       self.playbackQueue[self.currentIndex].stableId != currentTrack.stableId {
-                        // Find the correct index for the current track
-                        if let correctIndex = self.playbackQueue.firstIndex(where: { $0.stableId == currentTrack.stableId }) {
-                            print("⚠️ Fixed currentIndex from \(self.currentIndex) to \(correctIndex) for non-shuffled queue")
-                            self.currentIndex = correctIndex
-                        } else {
-                            print("⚠️ Current track not found in queue, resetting to index 0")
-                            self.currentIndex = 0
-                        }
-                    }
-                }
-            }
-            
-            await MainActor.run { self.normalizeIndexAndTrack() }
-            
-            await MainActor.run {
-                // Set saved position before loading track
-                let savedTime = playerStateDict["playbackTime"] as? TimeInterval ?? 0
-                self.playbackTime = savedTime
-            }
-            
-            // Load the track and preserve the saved position
-            await loadTrack(restoredTrack, preservePlaybackTime: true)
-            
-            // Seek to the saved position after loading
-            let savedTime = playerStateDict["playbackTime"] as? TimeInterval ?? 0
-            if savedTime > 0 {
-                await seek(to: savedTime)
-                print("🔄 Seeked to restored position: \(savedTime)s")
-            }
-            
-            print("✅ Player state restored from UserDefaults - track: \(restoredTrack.title), position: \(savedTime)s")
-            
-        } catch {
-            print("❌ Failed to restore player state: \(error)")
         }
     }
     
