@@ -718,11 +718,12 @@ class LibraryIndexer: NSObject, ObservableObject {
         guard totalBars > 0 else { return [] }
 
         let asset = AVURLAsset(url: url)
-        guard let audioTrack = asset.tracks(withMediaType: .audio).first else {
+        guard let audioTrack = try? await asset.loadTracks(withMediaType: .audio).first else {
             return []
         }
 
-        let durationSeconds = CMTimeGetSeconds(asset.duration)
+        let duration = try? await asset.load(.duration)
+        let durationSeconds = duration.map { CMTimeGetSeconds($0) } ?? 0
         guard durationSeconds.isFinite, durationSeconds > 0 else {
             return []
         }
@@ -1736,10 +1737,10 @@ class AudioMetadataParser {
         var title: String?
         var artist: String?
         var album: String?
-        var albumArtist: String?
+        let albumArtist: String? = nil
         var genre: String?
-        var trackNumber: Int?
-        var discNumber: Int?
+        let trackNumber: Int? = nil
+        let discNumber: Int? = nil
         var year: Int?
         var hasEmbeddedArt = false
 

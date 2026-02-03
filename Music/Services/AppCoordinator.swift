@@ -259,44 +259,40 @@ class AppCoordinator: ObservableObject {
     }
     
     private func onIndexingCompleted() async {
+        // Restore playlists from iCloud after indexing is complete
+        await restorePlaylistsFromiCloud()
+
+        // Verify and fix any database relationship issues
+        await verifyDatabaseRelationships()
+
+        // Try playlist restoration again after relationships are fixed
+        await retryPlaylistRestoration()
+
+        // Deduplicate playlist items (fixes playlists with duplicate entries)
         do {
-            // Restore playlists from iCloud after indexing is complete
-            await restorePlaylistsFromiCloud()
-
-            // Verify and fix any database relationship issues
-            await verifyDatabaseRelationships()
-
-            // Try playlist restoration again after relationships are fixed
-            await retryPlaylistRestoration()
-
-            // Deduplicate playlist items (fixes playlists with duplicate entries)
-            do {
-                try databaseManager.deduplicatePlaylistItems()
-            } catch {
-                print("⚠️ Failed to deduplicate playlist items: \(error)")
-            }
-
-            // Clean up orphaned playlist items
-            do {
-                try databaseManager.cleanupOrphanedPlaylistItems()
-            } catch {
-                print("⚠️ Failed to cleanup orphaned playlist items: \(error)")
-            }
-
-            // Mark initial indexing as complete
-            hasCompletedInitialIndexing = true
-            print("✅ Initial indexing completed - playlist sync enabled")
-
-            // Update widget with playlists
-            syncPlaylistsToCloud()
-
-            // Check for orphaned files after sync completes
-            print("🔄 AppCoordinator: Starting orphaned files check...")
-            await fileCleanupManager.checkForOrphanedFiles()
-            print("🔄 AppCoordinator: Orphaned files check completed")
+            try databaseManager.deduplicatePlaylistItems()
         } catch {
-            print("❌ Failed to complete post-indexing tasks: \(error)")
+            print("⚠️ Failed to deduplicate playlist items: \(error)")
         }
+
+        // Clean up orphaned playlist items
+        do {
+            try databaseManager.cleanupOrphanedPlaylistItems()
+        } catch {
+            print("⚠️ Failed to cleanup orphaned playlist items: \(error)")
+        }
+
+        // Mark initial indexing as complete
+        hasCompletedInitialIndexing = true
+        print("✅ Initial indexing completed - playlist sync enabled")
+
+        // Update widget with playlists
+        syncPlaylistsToCloud()
+
+        // Check for orphaned files after sync completes
+        print("🔄 AppCoordinator: Starting orphaned files check...")
+        await fileCleanupManager.checkForOrphanedFiles()
+        print("🔄 AppCoordinator: Orphaned files check completed")
     }
     
     private func forceiCloudFolderCreation() async {

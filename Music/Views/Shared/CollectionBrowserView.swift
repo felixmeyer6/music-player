@@ -142,7 +142,7 @@ struct CollectionBrowserView: View {
                     }
                 }
             }
-            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 5 : 0)
         }
         .navigationTitle(type.navigationTitle)
         .navigationBarTitleDisplayMode(.inline)

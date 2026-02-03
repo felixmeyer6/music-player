@@ -1602,25 +1602,19 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
         
-        // Schedule segment with error handling
-        do {
-            // Schedule WITHOUT any completion handler
-            node.scheduleSegment(
-                file,
-                startingFrame: startFrame,
-                frameCount: AVAudioFrameCount(remaining),
-                at: nil,
-                completionHandler: nil
-            )
-            
-            print("✅ Successfully scheduled segment: startFrame=\(startFrame), frameCount=\(remaining)")
-            
-            // Start background monitoring when we schedule a segment
-            startBackgroundMonitoring()
-        } catch {
-            print("❌ Failed to schedule audio segment: \(error)")
-            print("❌ Details - startFrame: \(startFrame), remaining: \(remaining), file length: \(file.length)")
-        }
+        // Schedule WITHOUT any completion handler
+        node.scheduleSegment(
+            file,
+            startingFrame: startFrame,
+            frameCount: AVAudioFrameCount(remaining),
+            at: nil,
+            completionHandler: nil
+        )
+
+        print("✅ Successfully scheduled segment: startFrame=\(startFrame), frameCount=\(remaining)")
+
+        // Start background monitoring when we schedule a segment
+        startBackgroundMonitoring()
     }
     private func startBackgroundMonitoring() {
         // Only create a background task if we don't already have one
@@ -2280,65 +2274,57 @@ class PlayerEngine: NSObject, ObservableObject {
             let url = URL(fileURLWithPath: track.path)
             try await cloudDownloadManager.ensureLocal(url)
 
-            // Load artwork using NSFileCoordinator with proper async handling
-            let artwork = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<MPMediaItemArtwork?, Error>) in
+            // Use NSFileCoordinator to validate file is local, then load artwork async
+            var resolvedURL: URL?
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 DispatchQueue.global(qos: .userInitiated).async {
                     var coordinatorError: NSError?
                     let coordinator = NSFileCoordinator()
 
                     coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatorError) { (readingURL) in
-                        do {
-                            let freshURL = URL(fileURLWithPath: readingURL.path)
-                            print("🎵 Loading artwork from: \(freshURL.lastPathComponent)")
-
-                            // Check if file actually exists at path
-                            guard FileManager.default.fileExists(atPath: freshURL.path) else {
-                                print("❌ Artwork file not found at path: \(freshURL.path)")
-                                continuation.resume(returning: nil)
-                                return
-                            }
-
-                            // Handle different file formats for artwork extraction
-                            let fileExtension = freshURL.pathExtension.lowercased()
-
-                            if fileExtension == "flac" {
-                                // First try with AVAsset (works for some FLAC files)
-                                if let artwork = self.loadArtworkFromAVAsset(url: freshURL) {
-                                    print("✅ Loaded FLAC artwork via AVAsset")
-                                    continuation.resume(returning: artwork)
-                                    return
-                                }
-
-                                // If AVAsset fails, try direct FLAC metadata reading
-                                if let artwork = self.loadArtworkFromFLACMetadata(url: freshURL) {
-                                    print("✅ Loaded FLAC artwork via direct metadata reading")
-                                    continuation.resume(returning: artwork)
-                                    return
-                                }
-
-                                print("⚠️ No artwork found in FLAC file: \(freshURL.lastPathComponent)")
-                                continuation.resume(returning: nil)
-                            } else {
-                                // For MP3/M4A files, use AVAsset
-                                if let artwork = self.loadArtworkFromAVAsset(url: freshURL) {
-                                    print("✅ Loaded artwork via AVAsset for: \(freshURL.lastPathComponent)")
-                                    continuation.resume(returning: artwork)
-                                } else {
-                                    print("⚠️ No artwork found in file: \(freshURL.lastPathComponent)")
-                                    continuation.resume(returning: nil)
-                                }
-                            }
-                            
+                        let freshURL = URL(fileURLWithPath: readingURL.path)
+                        guard FileManager.default.fileExists(atPath: freshURL.path) else {
+                            print("❌ Artwork file not found at path: \(freshURL.path)")
+                            continuation.resume(returning: ())
+                            return
                         }
+                        resolvedURL = freshURL
+                        continuation.resume(returning: ())
                     }
-                    
+
                     if let error = coordinatorError {
                         print("❌ NSFileCoordinator error loading artwork: \(error)")
                         continuation.resume(throwing: error)
                     }
                 }
             }
-            
+
+            // Load artwork asynchronously after coordination
+            var artwork: MPMediaItemArtwork?
+            if let resolvedURL = resolvedURL {
+                print("🎵 Loading artwork from: \(resolvedURL.lastPathComponent)")
+                let fileExtension = resolvedURL.pathExtension.lowercased()
+
+                if fileExtension == "flac" {
+                    if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
+                        print("✅ Loaded FLAC artwork via AVAsset")
+                        artwork = art
+                    } else if let art = self.loadArtworkFromFLACMetadata(url: resolvedURL) {
+                        print("✅ Loaded FLAC artwork via direct metadata reading")
+                        artwork = art
+                    } else {
+                        print("⚠️ No artwork found in FLAC file: \(resolvedURL.lastPathComponent)")
+                    }
+                } else {
+                    if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
+                        print("✅ Loaded artwork via AVAsset for: \(resolvedURL.lastPathComponent)")
+                        artwork = art
+                    } else {
+                        print("⚠️ No artwork found in file: \(resolvedURL.lastPathComponent)")
+                    }
+                }
+            }
+
             // Cache the artwork and update now playing info
             await MainActor.run {
                 if let artwork = artwork {
@@ -2359,38 +2345,33 @@ class PlayerEngine: NSObject, ObservableObject {
         }
     }
     
-    private nonisolated func loadArtworkFromAVAsset(url: URL) -> MPMediaItemArtwork? {
-        do {
-            let asset = AVAsset(url: url)
-            
-            // Use synchronous metadata loading for compatibility
-            let commonMetadata = asset.commonMetadata
-            
-            for metadataItem in commonMetadata {
-                if metadataItem.commonKey == .commonKeyArtwork,
-                   let data = metadataItem.dataValue,
-                   let originalImage = UIImage(data: data) {
-                    
-                    print("🎨 Found artwork in AVAsset metadata (size: \(Int(originalImage.size.width))x\(Int(originalImage.size.height)))")
-                    
-                    // Crop to square if width is significantly larger than height
-                    let processedImage = self.cropToSquareIfNeeded(image: originalImage)
-                    
-                    // Use large size for CarPlay - 1024x1024 recommended
-                    let targetSize = CGSize(width: 1024, height: 1024)
-                    let artwork = MPMediaItemArtwork(boundsSize: targetSize) { size in
-                        // Resize image to requested size
-                        return self.resizeImage(processedImage, to: size)
-                    }
-                    
-                    return artwork
+    private nonisolated func loadArtworkFromAVAsset(url: URL) async -> MPMediaItemArtwork? {
+        let asset = AVURLAsset(url: url)
+        guard let commonMetadata = try? await asset.load(.commonMetadata) else { return nil }
+
+        for metadataItem in commonMetadata {
+            if metadataItem.commonKey == .commonKeyArtwork,
+               let data = try? await metadataItem.load(.dataValue),
+               let originalImage = UIImage(data: data) {
+
+                print("🎨 Found artwork in AVAsset metadata (size: \(Int(originalImage.size.width))x\(Int(originalImage.size.height)))")
+
+                // Crop to square if width is significantly larger than height
+                let processedImage = self.cropToSquareIfNeeded(image: originalImage)
+
+                // Use large size for CarPlay - 1024x1024 recommended
+                let targetSize = CGSize(width: 1024, height: 1024)
+                let artwork = MPMediaItemArtwork(boundsSize: targetSize) { size in
+                    // Resize image to requested size
+                    return self.resizeImage(processedImage, to: size)
                 }
+
+                return artwork
             }
-            
-            print("⚠️ No artwork found in AVAsset metadata")
-            return nil
-            
         }
+
+        print("⚠️ No artwork found in AVAsset metadata")
+        return nil
     }
     
     private nonisolated func loadArtworkFromFLACMetadata(url: URL) -> MPMediaItemArtwork? {

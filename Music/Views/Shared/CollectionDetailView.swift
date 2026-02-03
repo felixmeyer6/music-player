@@ -39,6 +39,7 @@ struct CollectionDetailView: View {
     // MARK: - Filter Support (optional)
     var albumLookup: [Int64: String] = [:]
     var filterState: TrackFilterState? = nil
+    var filterConfig: TrackFilterConfiguration = .all
 
     // MARK: - Private State
     @State private var recentlyActedTracks: Set<String> = []
@@ -62,24 +63,33 @@ struct CollectionDetailView: View {
     }
 
     private var availableGenres: [String] {
-        TrackFiltering.availableGenres(from: displayTracks)
+        filterConfig.showGenre ? TrackFiltering.availableGenres(from: displayTracks) : []
     }
 
     private var availableAlbums: [(id: Int64, title: String)] {
-        TrackFiltering.availableAlbums(from: displayTracks, albumLookup: albumLookup)
+        filterConfig.showAlbum ? TrackFiltering.availableAlbums(from: displayTracks, albumLookup: albumLookup) : []
     }
 
     private var availableRatings: [Int] {
-        TrackFiltering.availableRatings(from: displayTracks)
+        filterConfig.showRating ? TrackFiltering.availableRatings(from: displayTracks) : []
     }
 
     private var filteredTracks: [Track] {
         guard let state = filterState else { return displayTracks }
-        return TrackFiltering.filter(tracks: displayTracks, with: state, albumLookup: albumLookup)
+        return TrackFiltering.filter(
+            tracks: displayTracks,
+            with: state,
+            albumLookup: albumLookup,
+            filterConfig: filterConfig
+        )
     }
 
     private var hasAnyFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(tracks: displayTracks, albumLookup: albumLookup)
+        TrackFiltering.hasFilterOptions(
+            tracks: displayTracks,
+            albumLookup: albumLookup,
+            filterConfig: filterConfig
+        )
     }
 
     // MARK: - Body
@@ -147,7 +157,7 @@ struct CollectionDetailView: View {
             .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
 
             // Sticky filter row
-            if isFilterVisible {
+            if isFilterVisible && hasAnyFilterOptions {
                 filterRow
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -411,59 +421,62 @@ struct CollectionDetailView: View {
     // MARK: - Filter Row
     @ViewBuilder
     private var filterRow: some View {
-        if let state = filterState {
+        if let state = filterState, hasAnyFilterOptions {
             HStack(spacing: 8) {
-                // Three filter buttons with equal width (1/3 each)
+                // Active filter buttons with equal width
                 HStack(spacing: 8) {
-                    // Genre Filter
-                    FilterDropdown(
-                        title: "Genre",
-                        options: availableGenres,
-                        selectedOptions: Binding(
-                            get: { state.selectedGenres },
-                            set: { state.selectedGenres = $0 }
-                        ),
-                        isAvailable: !availableGenres.isEmpty
-                    )
-                    .frame(maxWidth: .infinity)
+                    if filterConfig.showGenre {
+                        FilterDropdown(
+                            title: "Genre",
+                            options: availableGenres,
+                            selectedOptions: Binding(
+                                get: { state.selectedGenres },
+                                set: { state.selectedGenres = $0 }
+                            ),
+                            isAvailable: !availableGenres.isEmpty
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
 
-                    // Album Filter
-                    FilterDropdown(
-                        title: "Album",
-                        options: availableAlbums.map { $0.title },
-                        selectedOptions: Binding(
-                            get: {
-                                Set(state.selectedAlbums.compactMap { id in
-                                    availableAlbums.first { $0.id == id }?.title
-                                })
-                            },
-                            set: { newTitles in
-                                state.selectedAlbums = Set(newTitles.compactMap { title in
-                                    availableAlbums.first { $0.title == title }?.id
-                                })
-                            }
-                        ),
-                        isAvailable: !availableAlbums.isEmpty
-                    )
-                    .frame(maxWidth: .infinity)
+                    if filterConfig.showAlbum {
+                        FilterDropdown(
+                            title: "Album",
+                            options: availableAlbums.map { $0.title },
+                            selectedOptions: Binding(
+                                get: {
+                                    Set(state.selectedAlbums.compactMap { id in
+                                        availableAlbums.first { $0.id == id }?.title
+                                    })
+                                },
+                                set: { newTitles in
+                                    state.selectedAlbums = Set(newTitles.compactMap { title in
+                                        availableAlbums.first { $0.title == title }?.id
+                                    })
+                                }
+                            ),
+                            isAvailable: !availableAlbums.isEmpty
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
 
-                    // Rating Filter
-                    FilterDropdown(
-                        title: "Rating",
-                        options: availableRatings.map { TrackFiltering.ratingString($0) },
-                        selectedOptions: Binding(
-                            get: {
-                                Set(state.selectedRatings.map { TrackFiltering.ratingString($0) })
-                            },
-                            set: { newStrings in
-                                state.selectedRatings = Set(newStrings.compactMap { str in
-                                    availableRatings.first { TrackFiltering.ratingString($0) == str }
-                                })
-                            }
-                        ),
-                        isAvailable: !availableRatings.isEmpty
-                    )
-                    .frame(maxWidth: .infinity)
+                    if filterConfig.showRating {
+                        FilterDropdown(
+                            title: "Rating",
+                            options: availableRatings.map { TrackFiltering.ratingString($0) },
+                            selectedOptions: Binding(
+                                get: {
+                                    Set(state.selectedRatings.map { TrackFiltering.ratingString($0) })
+                                },
+                                set: { newStrings in
+                                    state.selectedRatings = Set(newStrings.compactMap { str in
+                                        availableRatings.first { TrackFiltering.ratingString($0) == str }
+                                    })
+                                }
+                            ),
+                            isAvailable: !availableRatings.isEmpty
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
                 }
 
                 // Close filter button

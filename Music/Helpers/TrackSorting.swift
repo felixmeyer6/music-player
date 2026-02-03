@@ -152,7 +152,7 @@ struct SortMenuView: View {
             } label: {}
             .pickerStyle(.inline)
             .fixedSize(horizontal: true, vertical: false)
-            .onChange(of: selection) { _ in onSelectionChanged?() }
+            .onChange(of: selection) { onSelectionChanged?() }
         } label: {
             Image(systemName: "arrow.up.arrow.down")
                 .foregroundColor(.white)

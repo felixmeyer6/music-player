@@ -35,8 +35,8 @@ struct EqualizerBarsExact: View {
         .frame(width: isLarge ? 12 : 10, height: isLarge ? 20 : 12)
         .id(restartKey)                 // force view identity reset on key change
         .task(id: restartKey) { restart() } // runs on mount and when key changes
-        .onChange(of: scenePhase) { p in
-            if p == .active { restart() }   // recover after app foregrounding
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active { restart() }   // recover after app foregrounding
         }
     }
 
@@ -1625,7 +1625,7 @@ struct WaveformView: View {
         .onDisappear {
             stopWaveform()
         }
-        .onChange(of: isPlaying) { newValue in
+        .onChange(of: isPlaying) { _, newValue in
             if newValue {
                 startWaveform()
             } else {

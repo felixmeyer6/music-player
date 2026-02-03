@@ -587,7 +587,7 @@ struct AllSongsScreen: View {
                 albumLookup: albumLookup,
                 filterState: filterState
             )
-            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 5 : 0)
         }
         .navigationTitle(Localized.allSongs)
         .navigationBarTitleDisplayMode(.inline)
@@ -615,6 +615,19 @@ struct AllSongsScreen: View {
             loadSortPreference()
             loadAlbumLookup()
             applyInitialFilters()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NavigateToFilteredTracksFromPlayer"))) { notification in
+            guard let userInfo = notification.userInfo else { return }
+            let genre = userInfo["genre"] as? String
+            let albumId = userInfo["albumId"] as? Int64
+            filterState.resetFilters()
+            filterState.isFilterVisible = true
+            if let genre = genre {
+                filterState.selectedGenres = [genre]
+            }
+            if let albumId = albumId {
+                filterState.selectedAlbums = [albumId]
+            }
         }
     }
 
@@ -847,7 +860,7 @@ struct SearchView: View {
                     }
                 }
             }
-            .onChange(of: searchText) { newValue in
+            .onChange(of: searchText) { _, newValue in
                 // Cancel any existing debounce task
                 debounceTask?.cancel()
 

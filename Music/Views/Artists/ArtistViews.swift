@@ -56,7 +56,7 @@ struct ArtistDetailScreen: View {
                 albumLookup: albumLookup,
                 filterState: filterState
             )
-            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 5 : 0)
         }
         .navigationTitle(artist.name)
         .navigationBarTitleDisplayMode(.inline)

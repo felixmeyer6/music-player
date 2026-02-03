@@ -16,7 +16,11 @@ struct AlbumDetailScreen: View {
     @State private var sortOption: TrackSortOption = .defaultOrder
 
     private var hasFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(tracks: albumTracks, albumLookup: albumLookup)
+        TrackFiltering.hasFilterOptions(
+            tracks: albumTracks,
+            albumLookup: albumLookup,
+            filterConfig: TrackFilterConfiguration(showAlbum: false)
+        )
     }
 
     // 2. Filter available options (Exclude .album since we are in an album)
@@ -61,9 +65,10 @@ struct AlbumDetailScreen: View {
                 activeTrackId: playerEngine.currentTrack?.stableId,
                 isAudioPlaying: playerEngine.isPlaying,
                 albumLookup: albumLookup,
-                filterState: filterState
+                filterState: filterState,
+                filterConfig: TrackFilterConfiguration(showAlbum: false)
             )
-            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 5 : 0)
         }
         .navigationTitle(album.name)
         .navigationBarTitleDisplayMode(.inline)

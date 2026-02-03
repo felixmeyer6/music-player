@@ -16,7 +16,11 @@ struct GenreDetailScreen: View {
     }
 
     private var hasFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
+        TrackFiltering.hasFilterOptions(
+            tracks: sortedTracks,
+            albumLookup: albumLookup,
+            filterConfig: TrackFilterConfiguration(showGenre: false)
+        )
     }
 
     var body: some View {
@@ -51,9 +55,10 @@ struct GenreDetailScreen: View {
                 activeTrackId: playerEngine.currentTrack?.stableId,
                 isAudioPlaying: playerEngine.isPlaying,
                 albumLookup: albumLookup,
-                filterState: filterState
+                filterState: filterState,
+                filterConfig: TrackFilterConfiguration(showGenre: false)
             )
-            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 5 : 0)
         }
         .navigationTitle(genreName)
         .navigationBarTitleDisplayMode(.inline)

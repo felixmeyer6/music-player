@@ -80,7 +80,7 @@ struct PlaylistDetailScreen: View {
                 albumLookup: albumLookup,
                 filterState: filterState
             )
-            .padding(.bottom, playerEngine.currentTrack != nil ? 75 : 0)
+            .padding(.bottom, playerEngine.currentTrack != nil ? 5 : 0)
         }
         .navigationTitle(playlist.title)
         .navigationBarTitleDisplayMode(.inline)

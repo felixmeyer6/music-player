@@ -327,7 +327,7 @@ class EQManager: ObservableObject {
     func updatePresetGains(_ preset: EQPreset, frequencies: [Double], gains: [Double]) async throws {
         let currentTime = Int64(Date().timeIntervalSince1970)
 
-        try await databaseManager.write { db in
+        try databaseManager.write { db in
             // Update preset timestamp
             var updatedPreset = preset
             updatedPreset.updatedAt = currentTime
@@ -339,7 +339,7 @@ class EQManager: ObservableObject {
             // Insert new bands
             let bandCount = min(frequencies.count, gains.count)
             for index in 0..<bandCount {
-                var band = EQBand(
+                let band = EQBand(
                     presetId: preset.id!,
                     frequency: frequencies[index],
                     gain: gains[index],

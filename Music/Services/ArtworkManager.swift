@@ -374,26 +374,19 @@ class ArtworkManager: ObservableObject {
     // MARK: - M4A/AAC Artwork Extraction
 
     private nonisolated func extractM4AArtwork(from url: URL) async -> UIImage? {
-        return await withCheckedContinuation { continuation in
-            Task {
-                do {
-                    let asset = AVAsset(url: url)
-                    let commonMetadata = asset.commonMetadata
+        let asset = AVURLAsset(url: url)
+        guard let commonMetadata = try? await asset.load(.commonMetadata) else { return nil }
 
-                    for item in commonMetadata {
-                        if item.commonKey == .commonKeyArtwork,
-                           let data = item.dataValue,
-                           let image = UIImage(data: data) {
-                            print("🎨 Extracted M4A artwork: \(url.lastPathComponent)")
-                            continuation.resume(returning: image)
-                            return
-                        }
-                    }
-
-                    print("⚠️ No artwork found in M4A file: \(url.lastPathComponent)")
-                    continuation.resume(returning: nil)
-                }
+        for item in commonMetadata {
+            if item.commonKey == .commonKeyArtwork,
+               let data = try? await item.load(.dataValue),
+               let image = UIImage(data: data) {
+                print("🎨 Extracted M4A artwork: \(url.lastPathComponent)")
+                return image
             }
         }
+
+        print("⚠️ No artwork found in M4A file: \(url.lastPathComponent)")
+        return nil
     }
 }
