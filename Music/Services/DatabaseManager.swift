@@ -141,8 +141,6 @@ class DatabaseManager: @unchecked Sendable {
                     genre TEXT COLLATE NOCASE,
                     rating INTEGER CHECK (rating BETWEEN 1 AND 5),
                     title TEXT NOT NULL COLLATE NOCASE,
-                    track_no INTEGER,
-                    disc_no INTEGER,
                     duration_ms INTEGER,
                     sample_rate INTEGER,
                     bit_depth INTEGER,
@@ -565,74 +563,16 @@ class DatabaseManager: @unchecked Sendable {
         return try write { db in
             let normalizedName = self.normalizeAlbumName(name)
 
-            // More efficient query: try exact match first
             if let existing = try Album
                 .filter(Column("name") == normalizedName)
                 .fetchOne(db) {
                 return existing
             }
 
-            // If no exact match, try case-insensitive and similar matches
-            let existingAlbums = try Album.fetchAll(db)
-
-            for existing in existingAlbums {
-                let existingNormalized = self.normalizeAlbumName(existing.name)
-
-                // Match by normalized name (case-insensitive)
-                if existingNormalized.lowercased() == normalizedName.lowercased() {
-                    return existing
-                }
-
-                // Check for very similar names (minor differences)
-                if self.areSimilarNames(existingNormalized, normalizedName) {
-                    return existing
-                }
-            }
-
             // No existing match found, create new album
             let album = Album(name: normalizedName)
             return try album.insertAndFetch(db)!
         }
-    }
-
-    private func areSimilarNames(_ title1: String, _ title2: String) -> Bool {
-        // Use folding to handle diacritics while preserving all Unicode characters
-        let clean1 = title1.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            .components(separatedBy: .punctuationCharacters).joined()
-            .components(separatedBy: .whitespaces).joined()
-        let clean2 = title2.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
-            .components(separatedBy: .punctuationCharacters).joined()
-            .components(separatedBy: .whitespaces).joined()
-
-        // If they're identical after removing punctuation and whitespace, consider them the same
-        if clean1 == clean2 {
-            return true
-        }
-
-        // Only check substring matching if the strings are both non-empty and share the same script
-        // This prevents Thai albums from matching English albums
-        guard !clean1.isEmpty && !clean2.isEmpty else {
-            return false
-        }
-
-        // Check if both strings use similar character sets (prevent cross-script matching)
-        let hasLatin1 = clean1.rangeOfCharacter(from: .letters) != nil && clean1.rangeOfCharacter(from: CharacterSet(charactersIn: "a"..."z")) != nil
-        let hasLatin2 = clean2.rangeOfCharacter(from: .letters) != nil && clean2.rangeOfCharacter(from: CharacterSet(charactersIn: "a"..."z")) != nil
-
-        // Only allow substring matching if both are Latin or both are non-Latin
-        if hasLatin1 != hasLatin2 {
-            return false
-        }
-
-        // Check if one is a substring of the other (for cases like "Album" vs "Album - Extended")
-        if clean1.contains(clean2) || clean2.contains(clean1) {
-            let lengthDiff = abs(clean1.count - clean2.count)
-            // Only consider similar if the difference is small (less than 30% difference)
-            let maxLength = max(clean1.count, clean2.count)
-            return lengthDiff <= max(3, maxLength / 3)
-        }
-
-        return false
     }
     
     private func normalizeAlbumName(_ title: String) -> String {
@@ -700,26 +640,10 @@ class DatabaseManager: @unchecked Sendable {
 
     func getTracksByAlbumId(_ albumId: Int64) throws -> [Track] {
         return try read { db in
-            // Fetch all tracks for this album
-            let tracks = try Track
+            return try Track
                 .filter(Column("album_id") == albumId)
+                .order(Column("title").collating(.nocase))
                 .fetchAll(db)
-
-            // Sort in Swift to ensure proper integer sorting
-            let sortedTracks = tracks.sorted { track1, track2 in
-                // Sort by track number only (ignore disc number)
-                let trackNo1 = track1.trackNo ?? 999
-                let trackNo2 = track2.trackNo ?? 999
-
-                if trackNo1 != trackNo2 {
-                    return trackNo1 < trackNo2
-                }
-
-                // Tiebreaker: sort by title
-                return track1.title < track2.title
-            }
-
-            return sortedTracks
         }
     }
 

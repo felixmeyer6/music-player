@@ -257,16 +257,8 @@ class CarPlaySceneDelegate: UIResponder, CPTemplateApplicationSceneDelegate {
     }
 
     private func showAlbumDetail(album: Album, tracks: [Track]) {
-        // Sort by disc number first, then track number
         let sortedTracks = tracks.sorted {
-            let disc0 = $0.discNo ?? 1
-            let disc1 = $1.discNo ?? 1
-
-            if disc0 != disc1 {
-                return disc0 < disc1
-            }
-
-            return ($0.trackNo ?? 0) < ($1.trackNo ?? 0)
+            $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
         }
 
         let songItems: [CPListItem] = sortedTracks.map { track in

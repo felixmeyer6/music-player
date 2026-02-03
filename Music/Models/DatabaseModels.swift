@@ -34,8 +34,6 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
     /// User rating on a 1–5 scale (stored as POPM for MP3s).
     var rating: Int?
     var title: String
-    var trackNo: Int?
-    var discNo: Int?
     var durationMs: Int?
     var sampleRate: Int?
     var bitDepth: Int?
@@ -54,8 +52,6 @@ struct Track: Codable, FetchableRecord, PersistableRecord, Equatable {
         case albumId = "album_id"
         case artistId = "artist_id"
         case genreId = "genre_id"
-        case trackNo = "track_no"
-        case discNo = "disc_no"
         case durationMs = "duration_ms"
         case sampleRate = "sample_rate"
         case bitDepth = "bit_depth"

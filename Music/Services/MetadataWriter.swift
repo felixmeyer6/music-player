@@ -73,16 +73,6 @@ final class MetadataWriter: @unchecked Sendable {
                 builder = builder.genre(frame: ID3FrameGenre(genre: nil, description: genreName))
             }
 
-            // Track number
-            if let trackNo = track.trackNo {
-                builder = builder.trackPosition(frame: ID3FramePartOfTotal(part: trackNo, total: nil))
-            }
-
-            // Disc number
-            if let discNo = track.discNo {
-                builder = builder.discPosition(frame: ID3FramePartOfTotal(part: discNo, total: nil))
-            }
-
             // Rating (convert 1-5 scale to POPM format: 1=1, 2=64, 3=128, 4=196, 5=255)
             // Note: ID3TagEditor may not support POPM directly, so we skip rating for now
 
@@ -165,16 +155,6 @@ final class MetadataWriter: @unchecked Sendable {
             // Preserve genre
             if let genre = existingTag.frames[.genre] as? ID3FrameGenre {
                 builder = builder.genre(frame: genre)
-            }
-
-            // Preserve track position
-            if let trackPosition = existingTag.frames[.trackPosition] as? ID3FramePartOfTotal {
-                builder = builder.trackPosition(frame: trackPosition)
-            }
-
-            // Preserve disc position
-            if let discPosition = existingTag.frames[.discPosition] as? ID3FramePartOfTotal {
-                builder = builder.discPosition(frame: discPosition)
             }
 
             // Preserve year

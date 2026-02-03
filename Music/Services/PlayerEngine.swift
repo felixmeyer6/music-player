@@ -779,11 +779,6 @@ class PlayerEngine: NSObject, ObservableObject {
             info[MPMediaItemPropertyArtist] = artistName
         }
         
-        // Add track number
-        if let trackNo = track.trackNo {
-            info[MPMediaItemPropertyAlbumTrackNumber] = trackNo
-        }
-        
         // Add cached artwork
         if let cachedArtwork = cachedArtwork, cachedArtworkTrackId == track.stableId {
             info[MPMediaItemPropertyArtwork] = cachedArtwork

@@ -492,8 +492,6 @@ actor LibraryIndexingActor {
             genre: cleanedGenre,
             rating: metadata.rating,
             title: metadata.title ?? url.deletingPathExtension().lastPathComponent,
-            trackNo: metadata.trackNumber,
-            discNo: metadata.discNumber,
             durationMs: metadata.durationMs,
             sampleRate: metadata.sampleRate,
             bitDepth: metadata.bitDepth,
