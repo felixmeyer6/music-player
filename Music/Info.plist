@@ -25,7 +25,7 @@
 			<string>dev.neofx.music-player</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>cosmos-music</string>
+				<string>neofx-music</string>
 			</array>
 		</dict>
 	</array>

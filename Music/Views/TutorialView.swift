@@ -42,7 +42,7 @@ struct TutorialView: View {
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.easeInOut, value: viewModel.currentStep)
             }
-            .navigationTitle(Localized.welcomeToCosmos)
+            .navigationTitle(Localized.welcome)
             .navigationBarTitleDisplayMode(.inline)
             .navigationBarBackButtonHidden()
         }
@@ -336,7 +336,7 @@ struct MusicFilesStepView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     InstructionRow(step: "1", title: Localized.openFilesApp, description: Localized.findOpenFilesApp)
                     InstructionRow(step: "2", title: Localized.navigateToIcloudDrive, description: Localized.tapIcloudDriveSidebar)
-                    InstructionRow(step: "3", title: Localized.findCosmosPlayerFolder, description: Localized.lookForCosmosFolder)
+                    InstructionRow(step: "3", title: Localized.findMusicPlayerFolder, description: Localized.lookForMusicFolder)
                     InstructionRow(step: "4", title: Localized.addYourMusicInstruction, description: Localized.copyMusicFiles)
                 }
                 .padding(.horizontal, 20)

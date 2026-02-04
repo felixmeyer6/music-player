@@ -54,7 +54,6 @@ class StateManager: @unchecked Sendable {
             
             let playlistURL = playlistsFolder.appendingPathComponent("playlist-\(playlist.slug).json")
             try saveJSONAtomically(playlist, to: playlistURL)
-            print("✅ Playlist saved to both local and iCloud")
         } catch {
             print("⚠️ Failed to save playlist to iCloud, but local save succeeded: \(error)")
         }
@@ -62,7 +61,7 @@ class StateManager: @unchecked Sendable {
     
     private func savePlaylistToLocalDocuments(_ playlist: PlaylistState) throws {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localPlaylistsFolder = documentsURL.appendingPathComponent("cosmos-playlists", isDirectory: true)
+        let localPlaylistsFolder = documentsURL.appendingPathComponent("Playlists", isDirectory: true)
         
         if !FileManager.default.fileExists(atPath: localPlaylistsFolder.path) {
             try FileManager.default.createDirectory(at: localPlaylistsFolder, 
@@ -72,7 +71,6 @@ class StateManager: @unchecked Sendable {
         
         let localPlaylistURL = localPlaylistsFolder.appendingPathComponent("playlist-\(playlist.slug).json")
         try saveJSONAtomically(playlist, to: localPlaylistURL)
-        print("📱 Playlist saved locally to: \(localPlaylistURL.path)")
     }
     
     func loadPlaylist(slug: String) throws -> PlaylistState? {
@@ -97,7 +95,6 @@ class StateManager: @unchecked Sendable {
             print("⚠️ Failed to load playlist '\(slug)': \(error)")
             // Try to load from local backup
             if let localPlaylist = try? loadPlaylistFromLocalDocuments(slug: slug) {
-                print("✅ Recovered playlist '\(slug)' from local backup")
                 return localPlaylist
             }
             print("❌ Unable to recover playlist '\(slug)' from local backup")
@@ -107,7 +104,7 @@ class StateManager: @unchecked Sendable {
 
     private func loadPlaylistFromLocalDocuments(slug: String) throws -> PlaylistState? {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localPlaylistsFolder = documentsURL.appendingPathComponent("cosmos-playlists", isDirectory: true)
+        let localPlaylistsFolder = documentsURL.appendingPathComponent("Playlists", isDirectory: true)
         let localPlaylistURL = localPlaylistsFolder.appendingPathComponent("playlist-\(slug).json")
 
         guard FileManager.default.fileExists(atPath: localPlaylistURL.path) else {
@@ -157,7 +154,6 @@ class StateManager: @unchecked Sendable {
                 // Try to recover from local backup
                 let slug = fileURL.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "playlist-", with: "")
                 if let recoveredPlaylist = try? loadPlaylistFromLocalDocuments(slug: slug) {
-                    print("✅ Recovered playlist from local backup: \(slug)")
                     playlists.append(recoveredPlaylist)
                     // Try to repair cloud file
                     try? savePlaylist(recoveredPlaylist)
@@ -188,7 +184,6 @@ class StateManager: @unchecked Sendable {
         for file in files {
             let destination = quarantineFolder.appendingPathComponent(file.lastPathComponent)
             try? FileManager.default.moveItem(at: file, to: destination)
-            print("🗄️ Moved corrupted file to quarantine: \(file.lastPathComponent)")
         }
     }
     
@@ -208,7 +203,6 @@ class StateManager: @unchecked Sendable {
             
             if FileManager.default.fileExists(atPath: playlistURL.path) {
                 try FileManager.default.removeItem(at: playlistURL)
-                print("☁️ Playlist deleted from iCloud: \(playlistURL.path)")
             }
         } catch {
             print("⚠️ Failed to delete playlist from iCloud, but local delete succeeded: \(error)")
@@ -217,12 +211,11 @@ class StateManager: @unchecked Sendable {
     
     private func deletePlaylistFromLocalDocuments(slug: String) throws {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localPlaylistsFolder = documentsURL.appendingPathComponent("cosmos-playlists", isDirectory: true)
+        let localPlaylistsFolder = documentsURL.appendingPathComponent("Playlists", isDirectory: true)
         let localPlaylistURL = localPlaylistsFolder.appendingPathComponent("playlist-\(slug).json")
         
         if FileManager.default.fileExists(atPath: localPlaylistURL.path) {
             try FileManager.default.removeItem(at: localPlaylistURL)
-            print("📱 Playlist deleted locally: \(localPlaylistURL.path)")
         }
     }
     
@@ -264,8 +257,6 @@ struct PlayerState: Codable {
 
 extension StateManager {
     func savePlayerState(_ playerState: PlayerState) throws {
-        print("💾 StateManager: Saving player state - track: \(playerState.currentTrackStableId ?? "nil"), time: \(playerState.playbackTime)")
-        
         // Always save to local Documents first (survives app reinstall)
         try savePlayerStateToLocalDocuments(playerState)
         
@@ -279,7 +270,6 @@ extension StateManager {
             
             let playerStateURL = appFolderURL.appendingPathComponent("player-state.json")
             try saveJSONAtomically(playerState, to: playerStateURL)
-            print("✅ Player state saved to both local and iCloud")
         } catch {
             print("⚠️ Failed to save player state to iCloud, but local save succeeded: \(error)")
         }
@@ -287,19 +277,14 @@ extension StateManager {
     
     private func savePlayerStateToLocalDocuments(_ playerState: PlayerState) throws {
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localPlayerStateURL = documentsURL.appendingPathComponent("cosmos-player-state.json")
+        let localPlayerStateURL = documentsURL.appendingPathComponent("music-player-state.json")
         try saveJSONAtomically(playerState, to: localPlayerStateURL)
-        print("📱 Player state saved locally to: \(localPlayerStateURL.path)")
     }
     
     func loadPlayerState() throws -> PlayerState? {
-        print("📂 StateManager: Loading player state...")
-        
         // Try loading from local Documents first (survives app reinstall)
         let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let localPlayerStateURL = documentsURL.appendingPathComponent("cosmos-player-state.json")
-        
-        print("📂 StateManager: Checking local player state at: \(localPlayerStateURL.path)")
+        let localPlayerStateURL = documentsURL.appendingPathComponent("music-player-state.json")
         
         if FileManager.default.fileExists(atPath: localPlayerStateURL.path) {
             do {
@@ -307,26 +292,20 @@ extension StateManager {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let playerState = try decoder.decode(PlayerState.self, from: data)
-                print("📱 Loaded player state from local storage - track: \(playerState.currentTrackStableId ?? "nil"), time: \(playerState.playbackTime)")
                 return playerState
             } catch {
                 print("⚠️ Failed to load local player state: \(error)")
             }
-        } else {
-            print("📂 StateManager: Local player state file does not exist")
         }
         
         // Fallback to iCloud Drive if local doesn't exist
         guard let appFolderURL = getAppFolderURL() else {
-            print("📭 No player state found (neither local nor iCloud)")
             return nil
         }
         
         let playerStateURL = appFolderURL.appendingPathComponent("player-state.json")
-        print("📂 StateManager: Checking iCloud player state at: \(playerStateURL.path)")
         
         guard FileManager.default.fileExists(atPath: playerStateURL.path) else {
-            print("📭 No iCloud player state file found")
             return nil
         }
         
@@ -335,13 +314,8 @@ extension StateManager {
             let resourceValues = try playerStateURL.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey])
             
             if let isUbiquitous = resourceValues.isUbiquitousItem, isUbiquitous {
-                print("☁️ iCloud player state file detected, checking download status...")
-                
                 if let downloadingStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                    print("📊 iCloud player state download status: \(downloadingStatus)")
-                    
                     if downloadingStatus == .notDownloaded {
-                        print("🔽 iCloud player state file needs downloading, starting download...")
                         try FileManager.default.startDownloadingUbiquitousItem(at: playerStateURL)
                         
                         // Wait a moment for download to start
@@ -358,7 +332,6 @@ extension StateManager {
             coordinator.coordinate(readingItemAt: playerStateURL, options: .withoutChanges, error: &coordinatorError) { (url) in
                 do {
                     data = try Data(contentsOf: url)
-                    print("☁️ Successfully read player state from iCloud via NSFileCoordinator")
                 } catch {
                     print("❌ Failed to read iCloud player state via coordinator: \(error)")
                 }
@@ -377,7 +350,6 @@ extension StateManager {
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let playerState = try decoder.decode(PlayerState.self, from: playerStateData)
-            print("☁️ Loaded player state from iCloud - track: \(playerState.currentTrackStableId ?? "nil"), time: \(playerState.playbackTime)")
             return playerState
         } catch {
             print("❌ Failed to load player state from iCloud: \(error)")

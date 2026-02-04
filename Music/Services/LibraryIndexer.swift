@@ -71,33 +71,11 @@ class LibraryIndexer: NSObject, ObservableObject {
             await copyFilesFromSharedContainer()
         }
 
-        if let musicFolderURL = stateManager.getMusicFolderURL() {
-            print("Starting iCloud library indexing in: \(musicFolderURL)")
-
-            if FileManager.default.fileExists(atPath: musicFolderURL.path) {
-                do {
-                    let contents = try FileManager.default.contentsOfDirectory(at: musicFolderURL, includingPropertiesForKeys: nil)
-                    print("Found \(contents.count) items in Music folder:")
-                    for item in contents {
-                        print("  - \(item.lastPathComponent)")
-                    }
-                } catch {
-                    print("Error listing folder contents: \(error)")
-                }
-            } else {
-                print("Music folder doesn't exist yet")
-            }
-        } else {
-            print("No music folder URL available")
-        }
-
         metadataQuery.start()
 
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_000_000_000)
-            print("Timeout check: resultCount=\(metadataQuery.resultCount), isIndexing=\(isIndexing)")
             if metadataQuery.resultCount == 0 && isIndexing && indexingTask == nil {
-                print("NSMetadataQuery timeout - triggering fallback scan")
                 runFallbackScan()
             }
         }
@@ -131,7 +109,6 @@ class LibraryIndexer: NSObject, ObservableObject {
     }
 
     func switchToOfflineMode() {
-        print("🔄 Switching LibraryIndexer to offline mode")
         stop()
         startOfflineMode()
     }
@@ -155,13 +132,6 @@ class LibraryIndexer: NSObject, ObservableObject {
     }
 
     @objc private func queryDidGatherInitialResults() {
-        print("🔍 NSMetadataQuery gathered initial results: \(metadataQuery.resultCount) items")
-        for i in 0..<metadataQuery.resultCount {
-            if let item = metadataQuery.result(at: i) as? NSMetadataItem,
-               let url = item.value(forAttribute: NSMetadataItemURLKey) as? URL {
-                print("  Found: \(url.lastPathComponent)")
-            }
-        }
         processMetadataQueryResults()
     }
 
@@ -193,7 +163,6 @@ class LibraryIndexer: NSObject, ObservableObject {
                 metadataQuery.enableUpdates()
                 didDisableUpdates = false
             }
-            print("NSMetadataQuery found 0 results, falling back to direct file system scan")
             runFallbackScan()
             return
         }
@@ -393,8 +362,6 @@ class AudioMetadataParser {
     }
     
     private static func parseMp3MetadataSync(from url: URL) async throws -> AudioMetadata {
-        print("📖 Reading MP3 metadata for: \(url.lastPathComponent)")
-        
         // Use NSFileCoordinator for iCloud files
         let asset: AVURLAsset = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .background).async {
@@ -404,7 +371,6 @@ class AudioMetadataParser {
                 coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &error) { (readingURL) in
                     // Create fresh URL to avoid stale metadata
                     let freshURL = URL(fileURLWithPath: readingURL.path)
-                    print("🔄 Using NSFileCoordinator for MP3: \(freshURL.lastPathComponent)")
                     
                     // Check if file actually exists at path
                     guard FileManager.default.fileExists(atPath: freshURL.path) else {
@@ -413,7 +379,6 @@ class AudioMetadataParser {
                     }
                     
                     let asset = AVURLAsset(url: freshURL)
-                    print("✅ MP3 AVURLAsset created successfully via NSFileCoordinator")
                     continuation.resume(returning: asset)
                 }
                 
@@ -447,7 +412,6 @@ class AudioMetadataParser {
                     title = try? await item.load(.stringValue)
                 case .commonKeyArtist:
                     artist = try? await item.load(.stringValue)
-                    print("🎤 Found artist in common metadata: \(artist ?? "nil")")
                 case .commonKeyAlbumName:
                     album = try? await item.load(.stringValue)
                 case .commonKeyCreationDate:
@@ -471,13 +435,11 @@ class AudioMetadataParser {
                         // Additional check for artist in common key
                         if artist == nil {
                             artist = try? await metadata.load(.stringValue)
-                            print("🎤 Found artist in additional common key: \(artist ?? "nil")")
                         }
                     default:
                         break
                     }
                 } else if let identifier = metadata.identifier {
-                    print("🔍 Checking ID3 tag: \(identifier.rawValue)")
                     switch identifier.rawValue {
                     case "id3/TRCK":
                         if let trackString = try? await metadata.load(.stringValue) {
@@ -489,12 +451,10 @@ class AudioMetadataParser {
                         }
                     case "id3/TPE2":
                         albumArtist = try? await metadata.load(.stringValue)
-                        print("🎤 Found album artist in TPE2: \(albumArtist ?? "nil")")
                     case "id3/TPE1":
                         // Fallback for main artist if not found in common metadata
                         if artist == nil {
                             artist = try? await metadata.load(.stringValue)
-                            print("🎤 Found artist in TPE1: \(artist ?? "nil")")
                         }
                     case "id3/TCON":
                         // Genre
@@ -516,19 +476,11 @@ class AudioMetadataParser {
                         // Popularimeter (rating) frame: map POPM byte (0–255) to 1–5 stars.
                         if rating == nil {
                             rating = await extractPopmRating(from: metadata)
-                            if let rating {
-                                print("⭐️ Found POPM rating: \(rating)")
-                            }
                         }
                     default:
                         // Fallback: check for non-ID3 genre identifiers (e.g., QuickTime/iTunes).
                         if genre == nil && identifier.rawValue.lowercased().contains("genre") {
                             genre = try? await metadata.load(.stringValue)
-                        }
-                        // Debug: log unhandled tags that might contain artist info
-                        if identifier.rawValue.contains("ART") || identifier.rawValue.contains("TPE") {
-                            let value = try? await metadata.load(.stringValue)
-                            print("🔍 Unhandled artist-related tag \(identifier.rawValue): \(value ?? "nil")")
                         }
                         break
                     }
@@ -587,13 +539,6 @@ class AudioMetadataParser {
             }
         }
         
-        print("🎵 Final MP3 metadata for \(url.lastPathComponent):")
-        print("   Title: \(title ?? "nil")")
-        print("   Artist: \(artist ?? "nil")")
-        print("   Album: \(album ?? "nil")")
-        print("   Album Artist: \(albumArtist ?? "nil")")
-        print("   Genre: \(genre ?? "nil")")
-        
         return AudioMetadata(
             title: title,
             artist: artist,
@@ -613,8 +558,6 @@ class AudioMetadataParser {
     }
 
     private static func parseWavMetadataSync(from url: URL) async throws -> AudioMetadata {
-        print("📖 Reading WAV metadata for: \(url.lastPathComponent)")
-
         // For WAV files, use AVAudioFile to get format info and try AVAsset for metadata
         var sampleRate: Int?
         var channels: Int?
@@ -699,14 +642,6 @@ class AudioMetadataParser {
         channels = channels ?? 2
         bitDepth = bitDepth ?? 16
 
-        print("🎵 Final WAV metadata for \(url.lastPathComponent):")
-        print("   Title: \(title ?? "nil")")
-        print("   Artist: \(artist ?? "nil")")
-        print("   Genre: \(genre ?? "nil")")
-        print("   Sample Rate: \(sampleRate ?? 0) Hz")
-        print("   Channels: \(channels ?? 0)")
-        print("   Bit Depth: \(bitDepth ?? 0)")
-
         return AudioMetadata(
             title: title,
             artist: artist,
@@ -745,8 +680,6 @@ class AudioMetadataParser {
 
     // Parse AAC metadata using native AVFoundation
     private static func parseAacMetadata(_ url: URL) async throws -> AudioMetadata {
-        print("📖 Reading AAC metadata for: \(url.lastPathComponent)")
-
         // Use similar logic to MP3 parsing since AAC can have similar metadata
         return try await parseMp3MetadataSync(from: url)
     }

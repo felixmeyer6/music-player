@@ -1272,6 +1272,7 @@ struct TrackRowView: View, @MainActor Equatable {
     let onTap: () -> Void
     let playlist: Playlist?
     let showDirectDeleteButton: Bool
+    let onDelete: ((Track) -> Void)?
     let onEnterBulkMode: (() -> Void)?
     var sortOption: TrackSortOption? = nil
 
@@ -1284,6 +1285,8 @@ struct TrackRowView: View, @MainActor Equatable {
     @State private var currentPlayCount: Int?
 
     @State private var accentColor: Color = .white
+    @State private var pendingDelete: Bool = false
+    @State private var deleteResetTask: Task<Void, Never>?
 
     // 2. Computed property is now based on passed params
     private var isCurrentlyPlaying: Bool {
@@ -1296,7 +1299,8 @@ struct TrackRowView: View, @MainActor Equatable {
         lhs.activeTrackId == rhs.activeTrackId &&
         lhs.isAudioPlaying == rhs.isAudioPlaying &&
         lhs.playlist?.id == rhs.playlist?.id &&
-        lhs.sortOption == rhs.sortOption
+        lhs.sortOption == rhs.sortOption &&
+        lhs.showDirectDeleteButton == rhs.showDirectDeleteButton
     }
 
     var body: some View {
@@ -1360,14 +1364,12 @@ struct TrackRowView: View, @MainActor Equatable {
             // MARK: - Menu / Action Area
             if showDirectDeleteButton {
                 Button(action: {
-                    removeFromPlaylist()
+                    handleDeleteTap()
                 }) {
-                    Image(systemName: "trash")
-                        .font(.title2)
+                    Image(systemName: pendingDelete ? "trash.fill" : "trash")
+                        .font(.title3)
                         .foregroundColor(.red)
                         .frame(width: 44, height: 44)
-                        .background(.ultraThinMaterial, in: Circle())
-                        .overlay(Circle().stroke(.red.opacity(0.3), lineWidth: 1))
                 }
                 .buttonStyle(PlainButtonStyle())
                 .padding(.leading, 8)
@@ -1389,6 +1391,12 @@ struct TrackRowView: View, @MainActor Equatable {
         }
         .onAppear {
             if artworkImage == nil { loadArtwork() }
+        }
+        .onChange(of: showDirectDeleteButton) { _, newValue in
+            if !newValue { resetPendingDelete() }
+        }
+        .onDisappear {
+            resetPendingDelete()
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TrackPlayCountUpdated"))) { notification in
             if let stableId = notification.userInfo?["stableId"] as? String,
@@ -1496,6 +1504,34 @@ struct TrackRowView: View, @MainActor Equatable {
                 }
             }
         }
+    }
+
+    private func handleDeleteTap() {
+        if pendingDelete {
+            resetPendingDelete()
+            if let onDelete = onDelete {
+                onDelete(track)
+            } else {
+                removeFromPlaylist()
+            }
+        } else {
+            pendingDelete = true
+            scheduleDeleteReset()
+        }
+    }
+
+    private func scheduleDeleteReset() {
+        deleteResetTask?.cancel()
+        deleteResetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            pendingDelete = false
+        }
+    }
+
+    private func resetPendingDelete() {
+        deleteResetTask?.cancel()
+        deleteResetTask = nil
+        pendingDelete = false
     }
 
     private func removeFromPlaylist() {

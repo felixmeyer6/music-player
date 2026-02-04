@@ -64,8 +64,6 @@ actor LibraryIndexingActor {
     }
 
     func fallbackToDirectScan(onEvent: IndexingEventHandler?) async {
-        print("🔄 Starting fallback direct scan of both iCloud and local folders")
-
         var allMusicFiles: [URL] = []
 
         // First, copy any new files from shared container to Documents
@@ -73,10 +71,8 @@ actor LibraryIndexingActor {
 
         // Scan iCloud folder if available
         if let iCloudMusicFolderURL = stateManager.getMusicFolderURL() {
-            print("📁 Scanning iCloud folder: \(iCloudMusicFolderURL.path)")
             do {
                 let iCloudFiles = try await findMusicFiles(in: iCloudMusicFolderURL)
-                print("📁 Found \(iCloudFiles.count) files in iCloud folder")
                 allMusicFiles.append(contentsOf: iCloudFiles)
             } catch {
                 print("⚠️ Failed to scan iCloud folder: \(error)")
@@ -85,20 +81,14 @@ actor LibraryIndexingActor {
 
         // Scan local Documents folder
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        print("📱 Scanning local Documents folder: \(documentsPath.path)")
         do {
             let localFiles = try await findMusicFiles(in: documentsPath)
-            print("📱 Found \(localFiles.count) files in local Documents folder")
-            for file in localFiles {
-                print("  📄 Local file: \(file.lastPathComponent)")
-            }
             allMusicFiles.append(contentsOf: localFiles)
         } catch {
             print("⚠️ Failed to scan local Documents folder: \(error)")
         }
 
         let totalFiles = allMusicFiles.count
-        print("📁 Total music files found (iCloud + local): \(totalFiles)")
 
         if let onEvent {
             await onEvent(.started(total: totalFiles))
@@ -123,7 +113,6 @@ actor LibraryIndexingActor {
 
             let fileName = url.lastPathComponent
             let isLocalFile = !url.path.contains("Mobile Documents")
-            print("🎵 Processing \(index + 1)/\(totalFiles): \(fileName) \(isLocalFile ? "[LOCAL]" : "[iCLOUD]")")
 
             if let onEvent {
                 let remaining = Array(allMusicFiles.suffix(from: index + 1).map { $0.lastPathComponent })
@@ -155,8 +144,6 @@ actor LibraryIndexingActor {
             await onEvent(.queue(current: "", remaining: []))
             await onEvent(.finished(found: foundCount))
         }
-
-        print("✅ Direct scan completed. Found \(foundCount) tracks from both iCloud and local folders.")
     }
 
     func scanLocalDocuments(onEvent: IndexingEventHandler?) async {
@@ -193,7 +180,6 @@ actor LibraryIndexingActor {
                 await onEvent(.finished(found: foundCount))
             }
 
-            print("Offline library scan completed. Found \(foundCount) tracks.")
         } catch {
             if let onEvent {
                 await onEvent(.error(error))
@@ -210,9 +196,6 @@ actor LibraryIndexingActor {
             return
         }
 
-        print("🎵 Starting to process external file: \(fileURL.lastPathComponent)")
-        print("📱 Processing external file from: \(fileURL.path)")
-
         if let track = await processAudioFile(fileURL) {
             if let onEvent {
                 await onEvent(.trackFound(track))
@@ -221,8 +204,6 @@ actor LibraryIndexingActor {
     }
 
     func copyFilesFromSharedContainer(onEvent: IndexingEventHandler?) async {
-        print("📁 Checking shared container for new music files...")
-
         guard let sharedContainer = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player") else {
             print("❌ Failed to get shared container URL")
             return
@@ -257,15 +238,11 @@ actor LibraryIndexingActor {
             }
 
             if track.path != resolvedURL.path {
-                print("📍 Playback: File moved detected! Old: \(track.path)")
-                print("📍 Playback: File moved detected! New: \(resolvedURL.path)")
-
                 try databaseManager.write { db in
                     var updatedTrack = track
                     updatedTrack.path = resolvedURL.path
                     try updatedTrack.update(db)
                 }
-                print("✅ Updated database path for playback: \(resolvedURL.lastPathComponent)")
             }
 
             return resolvedURL
@@ -286,14 +263,11 @@ actor LibraryIndexingActor {
 
     private func processAudioFile(_ fileURL: URL) async -> Track? {
         do {
-            print("🎵 Starting to process file: \(fileURL.lastPathComponent)")
-
             let isLocalFile = !fileURL.path.contains("Mobile Documents")
 
             if !isLocalFile {
                 do {
                     try await CloudDownloadManager.shared.ensureLocal(fileURL)
-                    print("✅ iCloud file ensured local: \(fileURL.lastPathComponent)")
                 } catch {
                     print("⚠️ Failed to ensure iCloud file is local: \(fileURL.lastPathComponent) - \(error)")
 
@@ -311,12 +285,9 @@ actor LibraryIndexingActor {
                     }
                     // Continue processing even if download fails (for other errors)
                 }
-            } else {
-                print("📱 Processing local file (no iCloud download needed): \(fileURL.lastPathComponent)")
             }
 
             let stableId = try Self.generateStableId(for: fileURL)
-            print("🆔 Generated stable ID: \(stableId)")
 
             let resourceValues = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             let fileSize = Int64(resourceValues.fileSize ?? 0)
@@ -330,23 +301,18 @@ actor LibraryIndexingActor {
                     contentModificationTime: contentModificationTime
                 )
                 if WaveformProcessing.matches(existing.waveformData, meta: meta) {
-                    print("⏭️ Track already indexed with matching waveform: \(fileURL.lastPathComponent)")
                     return nil
                 }
             }
 
-            print("🎶 Parsing audio file: \(fileURL.lastPathComponent)")
             let track = try await parseAudioFile(
                 at: fileURL,
                 stableId: stableId,
                 fileSize: fileSize,
                 contentModificationTime: contentModificationTime
             )
-            print("✅ Audio file parsed successfully: \(track.title)")
 
-            print("💾 Inserting track into database: \(track.title)")
             try databaseManager.upsertTrack(track)
-            print("✅ Track inserted into database: \(track.title)")
 
             await ArtworkManager.shared.cacheArtwork(for: track)
 
@@ -374,14 +340,13 @@ actor LibraryIndexingActor {
                 if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
                     switch downloadStatus {
                     case .notDownloaded:
-                        print("File not downloaded: \(fileURL.lastPathComponent)")
                         try FileManager.default.startDownloadingUbiquitousItem(at: fileURL)
                     case .downloaded:
-                        print("File is downloaded: \(fileURL.lastPathComponent)")
+                        break
                     case .current:
-                        print("File is current: \(fileURL.lastPathComponent)")
+                        break
                     default:
-                        print("Unknown download status for: \(fileURL.lastPathComponent)")
+                        break
                     }
                 }
             }
@@ -436,8 +401,6 @@ actor LibraryIndexingActor {
         fileSize: Int64,
         contentModificationTime: TimeInterval
     ) async throws -> Track {
-        print("🔍 Calling AudioMetadataParser for: \(url.lastPathComponent)")
-
         let metadata = try await withThrowingTaskGroup(of: AudioMetadata.self) { group in
             group.addTask {
                 return try await AudioMetadataParser.parseMetadata(from: url)
@@ -456,11 +419,8 @@ actor LibraryIndexingActor {
             return result
         }
 
-        print("✅ AudioMetadataParser completed for: \(url.lastPathComponent)")
-
         let cleanedArtistName = cleanArtistName(metadata.artist ?? Localized.unknownArtist)
         let cleanedGenre = cleanGenre(metadata.genre)
-        print("🎤 Creating artist with cleaned name: '\(cleanedArtistName)'")
 
         let artist = try databaseManager.upsertArtist(name: cleanedArtistName)
         let album = try databaseManager.upsertAlbum(name: metadata.album ?? Localized.unknownAlbum)
@@ -557,7 +517,6 @@ actor LibraryIndexingActor {
         let sharedDataURL = sharedContainer.appendingPathComponent("SharedAudioFiles.plist")
 
         guard FileManager.default.fileExists(atPath: sharedDataURL.path) else {
-            print("📁 No shared audio files found")
             return
         }
 
@@ -566,8 +525,6 @@ actor LibraryIndexingActor {
             guard let sharedFiles = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [[String: Data]] else {
                 return
             }
-
-            print("📁 Found \(sharedFiles.count) shared audio file references")
 
             for fileInfo in sharedFiles {
                 guard let bookmarkData = fileInfo["bookmark"],
@@ -600,8 +557,6 @@ actor LibraryIndexingActor {
                     }
 
                     await processExternalFile(url, onEvent: onEvent)
-                    print("✅ Processed shared file from original location: \(filename)")
-
                     await storeBookmarkPermanently(bookmarkData, for: url)
 
                 } catch {
@@ -610,7 +565,6 @@ actor LibraryIndexingActor {
             }
 
             try FileManager.default.removeItem(at: sharedDataURL)
-            print("🗑️ Cleared shared audio files list (bookmarks moved to permanent storage)")
 
         } catch {
             print("❌ Failed to process shared audio files: \(error)")
@@ -630,7 +584,6 @@ actor LibraryIndexingActor {
         }
 
         guard FileManager.default.fileExists(atPath: sharedMusicURL.path) else {
-            print("📁 No shared Music directory found")
             return
         }
 
@@ -641,22 +594,17 @@ actor LibraryIndexingActor {
                 return ext == "mp3" || ext == "wav"
             }
 
-            print("📁 Found \(audioFiles.count) legacy audio files in shared container")
-
             for audioFile in audioFiles {
                 let localDestination = localMusicURL.appendingPathComponent(audioFile.lastPathComponent)
 
                 if FileManager.default.fileExists(atPath: localDestination.path) {
-                    print("⏭️ File already exists locally: \(audioFile.lastPathComponent)")
                     continue
                 }
 
                 do {
                     try FileManager.default.copyItem(at: audioFile, to: localDestination)
-                    print("✅ Copied legacy file to Documents/Music: \(audioFile.lastPathComponent)")
 
                     try FileManager.default.removeItem(at: audioFile)
-                    print("🗑️ Removed legacy file from shared container: \(audioFile.lastPathComponent)")
 
                 } catch {
                     print("❌ Failed to copy legacy file \(audioFile.lastPathComponent): \(error)")
@@ -686,8 +634,6 @@ actor LibraryIndexingActor {
 
             let plistData = try PropertyListSerialization.data(fromPropertyList: bookmarks, format: .xml, options: 0)
             try plistData.write(to: bookmarksURL)
-
-            print("💾 Stored permanent bookmark for shared file: \(url.lastPathComponent) with stableId: \(stableId)")
         } catch {
             print("❌ Failed to store permanent bookmark for \(url.lastPathComponent): \(error)")
         }
@@ -698,7 +644,6 @@ actor LibraryIndexingActor {
         let bookmarksURL = documentsURL.appendingPathComponent("ExternalFileBookmarks.plist")
 
         guard FileManager.default.fileExists(atPath: bookmarksURL.path) else {
-            print("📁 No stored external bookmarks found")
             return
         }
 
@@ -708,8 +653,6 @@ actor LibraryIndexingActor {
                 print("❌ Invalid external bookmarks format")
                 return
             }
-
-            print("📁 Found \(bookmarks.count) stored external file bookmarks")
 
             for (stableId, bookmarkData) in bookmarks {
                 do {
@@ -728,17 +671,11 @@ actor LibraryIndexingActor {
 
                     if let existingTrack = try databaseManager.getTrack(byStableId: stableId) {
                         if existingTrack.path != resolvedURL.path {
-                            print("📍 File moved detected! Old: \(existingTrack.path)")
-                            print("📍 File moved detected! New: \(resolvedURL.path)")
-
                             try databaseManager.write { db in
                                 var updatedTrack = existingTrack
                                 updatedTrack.path = resolvedURL.path
                                 try updatedTrack.update(db)
                             }
-                            print("✅ Updated database path for: \(resolvedURL.lastPathComponent)")
-                        } else {
-                            print("⏭️ External file path unchanged: \(resolvedURL.lastPathComponent)")
                         }
                         continue
                     }
@@ -753,7 +690,6 @@ actor LibraryIndexingActor {
                     }
 
                     await processExternalFile(resolvedURL, onEvent: onEvent)
-                    print("✅ Processed stored external file: \(resolvedURL.lastPathComponent)")
 
                 } catch {
                     print("❌ Failed to resolve bookmark for stableId \(stableId): \(error)")

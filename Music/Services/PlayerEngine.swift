@@ -160,7 +160,6 @@ class PlayerEngine: NSObject, ObservableObject {
         } else if let format = format {
             // Check if sample rate has changed - if so, force reconfiguration
             if abs(format.sampleRate - lastSampleRate) > 0.1 {
-                print("📊 Sample rate changed from \(lastSampleRate)Hz to \(format.sampleRate)Hz - forcing reconfiguration")
                 reconfigureAudioEngineForNewFormat(format)
                 lastSampleRate = format.sampleRate
                 
@@ -172,7 +171,6 @@ class PlayerEngine: NSObject, ObservableObject {
                 if isPlaying {
                     startPlaybackTimer()
                 }
-                print("🔄 Reset timing state and timer for new sample rate")
             }
         }
     }
@@ -182,9 +180,7 @@ class PlayerEngine: NSObject, ObservableObject {
         let wasRunning = audioEngine.isRunning
         if wasRunning {
             audioEngine.stop()
-            print("🛑 Stopped audio engine for reconfiguration")
         }
-        print("🔧 Reconfiguring audio engine for new format: \(format.sampleRate)Hz")
         // Disconnect all nodes to rebuild the graph
         audioEngine.disconnectNodeInput(audioEngine.mainMixerNode)
         audioEngine.disconnectNodeInput(playerNode)
@@ -199,12 +195,10 @@ class PlayerEngine: NSObject, ObservableObject {
         // Reconnect with EQ: playerNode -> EQ -> mainMixerNode
         eqManager.insertEQIntoAudioGraph(between: crossfadeMixerNode, and: audioEngine.mainMixerNode, format: format)
         audioEngine.prepare()
-        print("✅ Audio engine reconfigured with EQ for sample rate: \(format.sampleRate)Hz")
         // Restart engine if it was running
         if wasRunning {
             do {
                 try audioEngine.start()
-                print("▶️ Restarted audio engine after reconfiguration")
             } catch {
                 print("❌ Failed to restart audio engine: \(error)")
             }
@@ -227,7 +221,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // CRITICAL: Prepare the engine to guarantee render loop activity
         audioEngine.prepare()
         // Don't start the engine here - wait until we actually need to play
-        print("✅ Audio engine configured and prepared with EQ integration, format: \(format?.description ?? "auto")")
     }
     
     
@@ -292,7 +285,6 @@ class PlayerEngine: NSObject, ObservableObject {
         
         switch type {
         case .began:
-            print("🚫 Audio session interruption began - pausing playback")
             // Save current playback position before interruption
             let savedPosition = playbackTime
             let wasPlaying = isPlaying
@@ -304,35 +296,25 @@ class PlayerEngine: NSObject, ObservableObject {
             // IMPORTANT: Don't stop the audio engine during interruption
             // Stopping it can invalidate the audioFile and cause position loss
             // The system will handle the interruption, we just need to pause
-            print("⏸️ Keeping audio engine in paused state during interruption")
             
             // Restore the saved position (pause() may have updated it)
             playbackTime = savedPosition
-            print("💾 Saved playback position: \(savedPosition)s (was playing: \(wasPlaying))")
             
         case .ended:
-            print("✅ Audio session interruption ended")
-            print("💾 Will restore to position: \(playbackTime)s when playback resumes")
-            
             // Check if we should resume playback
             let shouldResume: Bool
             if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
                 let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
                 shouldResume = options.contains(.shouldResume)
-                print("🔍 Interruption options: shouldResume = \(shouldResume)")
             } else {
                 shouldResume = false
-                print("🔍 No interruption options - will not auto-resume")
             }
             
             // Only auto-resume if the system tells us to after an interruption
             // Don't auto-resume for user-initiated interruptions (like audio messages)
             if shouldResume && playbackState == .paused {
-                print("▶️ Auto-resuming playback after interruption")
                 play()
             } else {
-                print("⏸️ Not auto-resuming - user must manually resume")
-                
                 // Ensure playback state is correct but keep position saved
                 isPlaying = false
                 playbackState = .paused
@@ -354,7 +336,6 @@ class PlayerEngine: NSObject, ObservableObject {
         switch reason {
         case .oldDeviceUnavailable:
             // Headphones were unplugged or similar
-            print("🎧 Audio device disconnected - pausing playback")
             if isPlaying {
                 pause()
             }
@@ -364,8 +345,6 @@ class PlayerEngine: NSObject, ObservableObject {
     }
     
     @objc private func handleMediaServicesReset(_ notification: Notification) {
-        print("🔄 Media services were reset - need to recreate audio engine and nodes")
-        
         Task { @MainActor in
             // Stop current playback
             let wasPlaying = isPlaying
@@ -403,20 +382,16 @@ class PlayerEngine: NSObject, ObservableObject {
             // If not currently playing, stop audio engine to free resources
             if !isPlaying {
                 audioEngine.stop()
-                print("🛑 Stopped audio engine due to memory pressure")
             }
             
             // Force garbage collection of any retained buffers
             playerNode.stop()
             secondaryPlayerNode.stop()
             
-            print("🧹 Cleaned up audio resources due to memory warning")
         }
     }
     
     private func setupBasicVolumeControl() {
-        print("🎛️ Setting up basic volume control...")
-        
         // Ensure audio session is ready before observing output volume
         ensureAudioSessionSetup()
 
@@ -434,25 +409,20 @@ class PlayerEngine: NSObject, ObservableObject {
                 self.updateAudioEngineVolume(to: newVolume)
             }
         }
-        
-        print("✅ Basic volume control enabled")
     }
     
     private func syncWithSystemVolume() {
         // Only sync if audio session has been set up
         guard hasSetupAudioSession else {
-            print("🔊 Deferring volume sync until audio session is set up")
             return
         }
         
         let systemVolume = AVAudioSession.sharedInstance().outputVolume
-        print("🔊 Syncing with system volume: \(Int(systemVolume * 100))%")
         updateAudioEngineVolume(to: systemVolume)
     }
     
     private func updateAudioEngineVolume(to volume: Float) {
         audioEngine.mainMixerNode.outputVolume = volume
-        print("🔊 Audio engine volume updated to: \(Int(volume * 100))%")
     }
 
     private func currentSystemVolume() -> Float {
@@ -570,7 +540,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // Play command handler - will be called from Control Center
         cc.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                print("🎛️ Play command from Control Center")
                 self?.play()
             }
             return .success
@@ -579,7 +548,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // Pause command handler - will be called from Control Center
         cc.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                print("🎛️ Pause command from Control Center")
                 self?.pause(fromControlCenter: true)
             }
             return .success
@@ -606,11 +574,9 @@ class PlayerEngine: NSObject, ObservableObject {
             
             // Perform seek synchronously for CarPlay
             let positionTime = e.positionTime
-            print("🎯 CarPlay seek request to: \(positionTime)s")
             
             Task { @MainActor in
                 await self.seek(to: positionTime)
-                print("✅ Seek completed to: \(positionTime)s")
             }
             
             return .success
@@ -638,7 +604,6 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Enable seeking in CarPlay
         cc.changePlaybackPositionCommand.isEnabled = true
-        print("✅ CarPlay seek command enabled")
     }
     
     // MARK: - Widget Integration
@@ -665,7 +630,7 @@ class PlayerEngine: NSObject, ObservableObject {
                 artistName = Localized.unknownArtist
             }
 
-            // Get theme color (white)
+            // Use a consistent widget background color
             let colorHex = "FFFFFF"
 
             let widgetData = WidgetTrackData(
@@ -688,7 +653,6 @@ class PlayerEngine: NSObject, ObservableObject {
             // Clear Now Playing info if no track
             DispatchQueue.main.async {
                 MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-                print("🎛️ Cleared Control Center - no track loaded")
             }
             return
         }
@@ -726,7 +690,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // Add cached artwork
         if let cachedArtwork = cachedArtwork, cachedArtworkTrackId == track.stableId {
             info[MPMediaItemPropertyArtwork] = cachedArtwork
-            print("🎨 Added cached artwork to Now Playing info for: \(track.title)")
         } else {
             print("⚠️ No cached artwork available for: \(track.title) (cached: \(cachedArtwork != nil), trackId match: \(cachedArtworkTrackId == track.stableId))")
         }
@@ -745,9 +708,6 @@ class PlayerEngine: NSObject, ObservableObject {
             
             // Notify CarPlay delegate of state change
             NotificationCenter.default.post(name: NSNotification.Name("PlayerStateChanged"), object: nil)
-            
-            print("🎛️ Enhanced Control Center update - playing: \(self.isPlaying)")
-            print("🎛️ Title: \(track.title), Time: \(currentTime)")
         }
         
         // Load artwork asynchronously if needed (try regardless of hasEmbeddedArt flag)
@@ -784,6 +744,12 @@ class PlayerEngine: NSObject, ObservableObject {
 
     // MARK: - Audio Session Management
     
+    private func audioRouteSummary(_ session: AVAudioSession) -> String {
+        let outputs = session.currentRoute.outputs
+        guard !outputs.isEmpty else { return "none" }
+        return outputs.map { "\($0.portType.rawValue) (\($0.portName))" }.joined(separator: ", ")
+    }
+    
     private func setupAudioSessionCategory() throws {
         let s = AVAudioSession.sharedInstance()
         
@@ -793,32 +759,30 @@ class PlayerEngine: NSObject, ObservableObject {
         try s.setCategory(.playback, mode: .default, options: options)
         
         // iOS 18 Fix: Set preferred I/O buffer duration
-        try s.setPreferredIOBufferDuration(0.023) // 23ms buffer - good balance for iOS 18
-        
-        print("🎧 Audio session category configured for primary playback (no mixWithOthers)")
+        do {
+            try s.setPreferredIOBufferDuration(0.050) // 50ms buffer - more stable under load
+        } catch {
+            let nsError = error as NSError
+            print("⚠️ Preferred I/O buffer duration rejected (domain: \(nsError.domain), code: \(nsError.code), requested: 0.05s, route: \(audioRouteSummary(s)))")
+        }
     }
     
     private func activateAudioSession() throws {
         let s = AVAudioSession.sharedInstance()
-        
-        print("🎧 Audio session state - Category: \(s.category), Other audio: \(s.isOtherAudioPlaying)")
-        
+
         // Set category first if needed
         try setupAudioSessionCategory()
         
         // Always try to activate (iOS manages the actual state)
         try s.setActive(true, options: [])
-        print("🎧 Audio session activation attempted successfully")
+        print("⏲️ Audio buffer: \(s.ioBufferDuration)s")
         
         UIApplication.shared.beginReceivingRemoteControlEvents()
-        print("🎧 Remote control events enabled")
     }
     
     // MARK: - iOS 18 Audio Engine Reset Management
     
     private func cleanupAudioEngineForReset() async {
-        print("🧹 Cleaning up audio engine for reset")
-        
         // Stop all audio activity
         playerNode.stop()
         secondaryPlayerNode.stop()
@@ -832,12 +796,9 @@ class PlayerEngine: NSObject, ObservableObject {
         // Clear any scheduled buffers
         playerNode.reset()
         secondaryPlayerNode.reset()
-        
-        print("✅ Audio engine cleanup complete")
     }
     
     private func recreateAudioEngine() {
-        print("🔄 Recreating audio engine and nodes")
         // Create fresh instances
         audioEngine = AVAudioEngine()
         playerNode = AVAudioPlayerNode()
@@ -858,7 +819,6 @@ class PlayerEngine: NSObject, ObservableObject {
         hasSetupAudioSessionNotifications = false
         isPrimaryActive = true
         isCrossfading = false
-        print("✅ Audio engine recreated successfully with EQ")
     }
     
     
@@ -882,7 +842,6 @@ class PlayerEngine: NSObject, ObservableObject {
         }
 
         if let resolvedURL = await LibraryIndexer.shared.resolveBookmarkForTrack(track) {
-            print("📍 Using resolved bookmark location: \(resolvedURL.path)")
             guard resolvedURL.startAccessingSecurityScopedResource() else {
                 print("❌ Failed to start accessing security-scoped resource")
                 throw PlayerError.fileNotFound
@@ -912,9 +871,7 @@ class PlayerEngine: NSObject, ObservableObject {
         let file = try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    print("🎵 Loading audio file: \(url.lastPathComponent)")
                     let audioFile = try AVAudioFile(forReading: url)
-                    print("✅ AVAudioFile loaded successfully: \(url.lastPathComponent)")
                     continuation.resume(returning: audioFile)
                 } catch {
                     print("❌ Failed to load AVAudioFile: \(error)")
@@ -930,7 +887,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // Determine actual format from file extension
         let url = URL(fileURLWithPath: track.path)
         let fileExtension = url.pathExtension.lowercased()
-        print("📀 loadTrack called for: \(track.title) (format: \(fileExtension))")
 
         // Cancel any ongoing load operation
         currentLoadTask?.cancel()
@@ -942,7 +898,6 @@ class PlayerEngine: NSObject, ObservableObject {
         }
 
         isLoadingTrack = true
-        print("🔄 Starting load process for: \(track.title)")
 
         // Stop current playback and clean up
         await cleanupCurrentPlayback(resetTime: !preservePlaybackTime)
@@ -1002,22 +957,18 @@ class PlayerEngine: NSObject, ObservableObject {
     }
     
     func play() {
-        print("▶️ play() called - state: \(playbackState), loading: \(isLoadingTrack)")
-
         // If no audio file is loaded but we have a current track, load it first
         if audioFile == nil && currentTrack != nil && !isLoadingTrack {
             Task {
                 // If state was already restored but audioFile is nil (e.g., after interruption),
                 // we need to reload the current track with preserved position
                 if hasRestoredState {
-                    print("🔄 Reloading track after interruption, preserving position: \(playbackTime)s")
                     let savedPosition = playbackTime
                     await loadTrack(currentTrack!, preservePlaybackTime: true)
                     
                     // Restore position after reload
                     if savedPosition > 0 {
                         await seek(to: savedPosition)
-                        print("✅ Restored position after reload: \(savedPosition)s")
                     }
                 } else {
                     // First-time state restoration
@@ -1055,8 +1006,6 @@ class PlayerEngine: NSObject, ObservableObject {
         }
         
         if playbackState == .paused {
-            print("▶️ Resuming from pause at position: \(playbackTime)s")
-            
             // When resuming from pause, we need to re-schedule audio from the correct position
             // instead of just continuing the engine, because the timing may have drifted
             cancelPendingCompletions()
@@ -1080,7 +1029,6 @@ class PlayerEngine: NSObject, ObservableObject {
             do {
                 if !audioEngine.isRunning {
                     try audioEngine.start()
-                    print("✅ Started audio engine before scheduling (resume)")
                 }
             } catch {
                 print("❌ Failed to start audio engine when resuming: \(error)")
@@ -1100,9 +1048,7 @@ class PlayerEngine: NSObject, ObservableObject {
             
             // End paused state monitoring
             stopSilentPlaybackForPause()
-            
-            print("✅ Resumed playback from position: \(playbackTime)s")
-            
+
             // Update Now Playing info with enhanced approach
             updateNowPlayingInfoEnhanced()
             updateWidgetData()
@@ -1117,9 +1063,6 @@ class PlayerEngine: NSObject, ObservableObject {
         crossfadeGeneration &+= 1
         isCrossfading = false
         
-        print("🔊 Audio format - Sample Rate: \(audioFile.processingFormat.sampleRate), Channels: \(audioFile.processingFormat.channelCount)")
-        print("🔊 Audio file length: \(audioFile.length) frames")
-        
         // Check if the file length is reasonable
         guard audioFile.length > 0 && audioFile.length < 1_000_000_000 else {
             print("❌ Invalid audio file length: \(audioFile.length)")
@@ -1130,7 +1073,6 @@ class PlayerEngine: NSObject, ObservableObject {
         if !audioEngine.isRunning {
             do {
                 try audioEngine.start()
-                print("✅ Audio engine started before scheduling")
             } catch {
                 print("❌ Failed to start audio engine: \(error)")
                 return
@@ -1146,7 +1088,6 @@ class PlayerEngine: NSObject, ObservableObject {
             // Continue from current position
             seekTimeOffset = currentPosition
             scheduleSegment(on: activePlayerNode, from: startFrame, file: audioFile)
-            print("✅ Resuming playback from \(currentPosition)s (frame: \(startFrame))")
         } else {
             // Start from beginning - but only reset if we're actually at the beginning
             if playbackTime > 1.0 {
@@ -1154,17 +1095,13 @@ class PlayerEngine: NSObject, ObservableObject {
                 let startFrame2 = AVAudioFramePosition(playbackTime * audioFile.processingFormat.sampleRate)
                 seekTimeOffset = playbackTime
                 scheduleSegment(on: activePlayerNode, from: startFrame2, file: audioFile)
-                print("✅ Resuming playback from current position: \(playbackTime)s")
             } else {
                 // Actually starting from beginning
                 seekTimeOffset = 0
                 playbackTime = 0
                 scheduleSegment(on: activePlayerNode, from: 0, file: audioFile)
-                print("✅ Starting playback from beginning")
             }
         }
-        
-        print("✅ Audio segment scheduled successfully")
         
         // Set up audio session notifications only when needed
         ensureAudioSessionNotificationsSetup()
@@ -1189,22 +1126,16 @@ class PlayerEngine: NSObject, ObservableObject {
         // Update Now Playing info with enhanced approach
         updateNowPlayingInfoEnhanced()
         updateWidgetData()
-        
-        print("✅ Playback started and control center claimed")
     }
     
     func pause(fromControlCenter: Bool = false) {
-        print("⏸️ pause() called")
-
         // Capture current playback position before pausing
         if let audioFile = audioFile,
            let nodeTime = activePlayerNode.lastRenderTime,
            let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
             let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
             let currentPosition = seekTimeOffset + nodePlaybackTime
-            
-            print("🔄 Pausing at position: \(currentPosition)s (from Control Center: \(fromControlCenter))")
-            
+
             // Store the exact pause position
             playbackTime = currentPosition
             seekTimeOffset = currentPosition
@@ -1226,9 +1157,7 @@ class PlayerEngine: NSObject, ObservableObject {
         isPlaying = false
         playbackState = .paused
         stopPlaybackTimer()
-        
-        print("🔄 Paused audio engine - stored position: \(playbackTime)s")
-        
+
         // Update Now Playing info with enhanced approach
         updateNowPlayingInfoEnhanced()
         updateWidgetData()
@@ -1265,7 +1194,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // Stop accessing any security-scoped resources.
         stopAccessingSecurityScopedResources()
         currentTrackURL = nil
-        print("🔓 Stopped accessing security-scoped resources on stop")
         stopPlaybackTimer()
         
         // Stop silent playback
@@ -1276,25 +1204,20 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Don't clear remote commands during track transitions - keep Control Center connected
         // Remote commands should only be cleared when the app is truly shutting down
-        print("🎛️ Keeping remote commands connected for Control Center")
         
         // Don't deactivate audio session during track transitions - keep Control Center connected
         // Audio session should stay active to maintain Control Center connection
         // Only deactivate when the app is truly backgrounded or user explicitly stops playback
-        print("🎧 Keeping audio session active to maintain Control Center connection")
         
         // Save state when stopping
         savePlayerState()
     }
     
     private func cleanupCurrentPlayback(resetTime: Bool = false) async {
-        print("🧹 Cleaning up current playback")
-
         // Stop accessing security-scoped resources unless we are mid-crossfade.
         if !isCrossfading {
             stopAccessingSecurityScopedResources()
             currentTrackURL = nil
-            print("🔓 Stopped accessing security-scoped resources during cleanup")
         }
 
         // Stop timer first
@@ -1326,8 +1249,6 @@ class PlayerEngine: NSObject, ObservableObject {
     }
 
     func seek(to time: TimeInterval) async {
-        print("⏪ seek(to: \(time)) called")
-
         // If no audio file is loaded but we have a current track, load it first
         if audioFile == nil && currentTrack != nil && !isLoadingTrack {
             await ensurePlayerStateRestored()
@@ -1348,8 +1269,6 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
         
-        print("🔍 Seeking to: \(time)s (frame: \(framePosition))")
-        
         // Ensure audio engine is set up before seeking with file's format
         ensureAudioEngineSetup(with: audioFile.processingFormat)
         
@@ -1357,7 +1276,6 @@ class PlayerEngine: NSObject, ObservableObject {
         if !audioEngine.isRunning {
             do {
                 try audioEngine.start()
-                print("✅ Started audio engine before scheduling (seek)")
             } catch {
                 print("❌ Failed to start audio engine during seek: \(error)")
                 return
@@ -1398,7 +1316,6 @@ class PlayerEngine: NSObject, ObservableObject {
             updateNowPlayingInfoEnhanced()
         }
         
-        print("✅ Seek completed")
     }
     
     private func startSilentPlaybackForPause() {
@@ -1429,9 +1346,6 @@ class PlayerEngine: NSObject, ObservableObject {
             pausedSilentPlayer?.numberOfLoops = -1  // Loop indefinitely
             pausedSilentPlayer?.prepareToPlay()
             pausedSilentPlayer?.play()
-            
-            print("🔇 Started silent playback to maintain background execution during pause")
-            
         } catch {
             print("❌ Failed to create silent player for pause: \(error)")
             // Fallback to the original method
@@ -1485,13 +1399,11 @@ class PlayerEngine: NSObject, ObservableObject {
             }
         }
 
-        print("✅ Successfully scheduled segment: startFrame=\(startFrame), frameCount=\(remaining)")
     }
     
     private func stopSilentPlaybackForPause() {
         pausedSilentPlayer?.stop()
         pausedSilentPlayer = nil
-        print("🔇 Stopped silent playback for pause")
     }
     
     private func maintainAudioSessionForBackground() {
@@ -1502,7 +1414,6 @@ class PlayerEngine: NSObject, ObservableObject {
 
                 // Only maintain session if we're not already active
                 guard !session.isOtherAudioPlaying else {
-                    print("🎧 Other audio playing, not maintaining session")
                     return
                 }
 
@@ -1514,9 +1425,6 @@ class PlayerEngine: NSObject, ObservableObject {
                 // Only activate if not already active
                 if !session.secondaryAudioShouldBeSilencedHint {
                     try session.setActive(true, options: [])
-                    print("🎧 Audio session maintained during pause to prevent termination")
-                } else {
-                    print("🎧 Audio session already active during pause")
                 }
 
             } catch {
@@ -1580,7 +1488,6 @@ class PlayerEngine: NSObject, ObservableObject {
     }
 
     func playTrack(_ track: Track, queue: [Track] = []) async {
-        print("🎵 Playing track: \(track.title)")
         // An explicit play request should not trigger state restoration, which can
         // race and overwrite the intended track/queue.
         hasRestoredState = true
@@ -1633,7 +1540,6 @@ class PlayerEngine: NSObject, ObservableObject {
         Task {
             do {
                 let newPlayCount = try DatabaseManager.shared.incrementPlayCount(trackStableId: track.stableId)
-                print("📊 Play count incremented for: \(track.title) (now \(newPlayCount))")
 
                 // Update currentTrack if it's the same track
                 await MainActor.run {
@@ -1759,23 +1665,19 @@ class PlayerEngine: NSObject, ObservableObject {
             // Off → Queue Loop
             isRepeating = true
             isLoopingSong = false
-            print("🔁 Queue loop mode: ON")
         } else if isRepeating && !isLoopingSong {
             // Queue Loop → Track Loop
             isRepeating = false
             isLoopingSong = true
-            print("🔂 Track loop mode: ON")
         } else {
             // Track Loop → Off
             isRepeating = false
             isLoopingSong = false
-            print("🚫 Loop mode: OFF")
         }
     }
     
     func toggleShuffle() {
         isShuffled.toggle()
-        print("🔀 Shuffle mode: \(isShuffled ? "ON" : "OFF")")
         
         if isShuffled {
             // Save original order and shuffle the queue
@@ -1798,8 +1700,6 @@ class PlayerEngine: NSObject, ObservableObject {
         rest.shuffle()
         playbackQueue = [anchor] + rest
         currentIndex = 0
-        
-        print("🔀 Queue shuffled, current track remains at index 0")
     }
     
     private func restoreOriginalQueue() {
@@ -1810,7 +1710,6 @@ class PlayerEngine: NSObject, ObservableObject {
            let originalIndex = originalQueue.firstIndex(where: { $0.stableId == currentTrack.stableId }) {
             playbackQueue = originalQueue
             currentIndex = originalIndex
-            print("🔀 Original queue restored, current track at index \(originalIndex)")
         }
         
         normalizeIndexAndTrack()
@@ -1825,7 +1724,6 @@ class PlayerEngine: NSObject, ObservableObject {
 
         // Skip reconfiguration if sample rate hasn't changed
         if abs(lastConfiguredNativeSampleRate - targetSampleRate) < 1.0 {
-            print("🔄 Skipping audio session config - sample rate unchanged (\(targetSampleRate)Hz)")
             return
         }
 
@@ -1833,27 +1731,46 @@ class PlayerEngine: NSObject, ObservableObject {
             let session = AVAudioSession.sharedInstance()
             
             // Ensure the session is in a sane, active state before applying preferences.
-            try setupAudioSessionCategory()
-            try session.setActive(true, options: [])
+            do {
+                try setupAudioSessionCategory()
+            } catch {
+                let nsError = error as NSError
+                print("❌ Audio session category setup failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
+                return
+            }
+            
+            do {
+                try session.setActive(true, options: [])
+            } catch {
+                let nsError = error as NSError
+                print("❌ Audio session activation failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
+                return
+            }
             
             // If we're already effectively at this rate, avoid poking SessionCore again.
             if abs(session.sampleRate - targetSampleRate) < 1.0 {
                 lastConfiguredNativeSampleRate = session.sampleRate
-                print("✅ Audio session already at desired sample rate: \(session.sampleRate)Hz")
                 return
             }
             
             do {
                 try session.setPreferredSampleRate(targetSampleRate)
-                // Re-activate to encourage the system to apply the new preference promptly.
-                try session.setActive(true, options: [])
-                lastConfiguredNativeSampleRate = targetSampleRate
-                print("✅ Audio session configured - Preferred: \(targetSampleRate)Hz, Actual: \(session.sampleRate)Hz")
             } catch {
                 let nsError = error as NSError
                 // Common CoreAudio paramErr (-50) can surface here on unsupported routes/rates.
-                print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code)) - keeping \(session.sampleRate)Hz")
+                print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code), requested: \(targetSampleRate)Hz, route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
                 // Avoid retry spam on the same unsupported rate.
+                lastConfiguredNativeSampleRate = session.sampleRate
+                return
+            }
+            
+            do {
+                // Re-activate to encourage the system to apply the new preference promptly.
+                try session.setActive(true, options: [])
+                lastConfiguredNativeSampleRate = targetSampleRate
+            } catch {
+                let nsError = error as NSError
+                print("⚠️ Audio session re-activate failed after sample rate preference (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
                 lastConfiguredNativeSampleRate = session.sampleRate
             }
         } catch {
@@ -1962,7 +1879,6 @@ class PlayerEngine: NSObject, ObservableObject {
             toNode.play()
 
             let steps = crossfadeSteps(for: effectiveDuration)
-            print("🔀 Crossfading (\(reason)) over \(String(format: "%.2f", effectiveDuration))s to: \(nextTrack.title)")
 
             fadePlayerNode(fromNode, to: 0.0, duration: effectiveDuration, steps: steps, generation: generation)
             fadePlayerNode(toNode, to: 1.0, duration: effectiveDuration, steps: steps, generation: generation) { [weak self] in
@@ -2103,9 +2019,7 @@ class PlayerEngine: NSObject, ObservableObject {
             // Load artwork asynchronously after coordination
             var artwork: MPMediaItemArtwork?
             if let resolvedURL = resolvedURL {
-                print("🎵 Loading artwork from: \(resolvedURL.lastPathComponent)")
                 if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
-                    print("✅ Loaded artwork via AVAsset for: \(resolvedURL.lastPathComponent)")
                     artwork = art
                 } else {
                     print("⚠️ No artwork found in file: \(resolvedURL.lastPathComponent)")
@@ -2121,9 +2035,6 @@ class PlayerEngine: NSObject, ObservableObject {
                     
                     // Update now playing info with cached artwork
                     self.updateNowPlayingInfoWithCachedArtwork()
-                    print("🎨 Cached and updated artwork for: \(track.title)")
-                } else {
-                    print("🎨 No artwork to cache for: \(track.title)")
                 }
             }
             
@@ -2140,8 +2051,6 @@ class PlayerEngine: NSObject, ObservableObject {
             if metadataItem.commonKey == .commonKeyArtwork,
                let data = try? await metadataItem.load(.dataValue),
                let originalImage = UIImage(data: data) {
-
-                print("🎨 Found artwork in AVAsset metadata (size: \(Int(originalImage.size.width))x\(Int(originalImage.size.height)))")
 
                 // Crop to square if width is significantly larger than height
                 let processedImage = self.cropToSquareIfNeeded(image: originalImage)
@@ -2184,8 +2093,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // If width is more than 20% larger than height, crop to square
         let aspectRatio = width / height
         if aspectRatio > 1.2 {
-            print("🖼️ Cropping wide artwork (aspect ratio: \(String(format: "%.2f", aspectRatio))) to square")
-            
             // Calculate the square size (use height as the dimension)
             let squareSize = height
             
@@ -2217,7 +2124,6 @@ class PlayerEngine: NSObject, ObservableObject {
     
     func savePlayerState() {
         guard let currentTrack = currentTrack else {
-            print("🚫 No current track to save state for")
             return
         }
         
@@ -2234,9 +2140,8 @@ class PlayerEngine: NSObject, ObservableObject {
             "lastSavedAt": Date()
         ]
         
-        UserDefaults.standard.set(playerState, forKey: "CosmosPlayerState")
+        UserDefaults.standard.set(playerState, forKey: "MusicPlayerState")
         UserDefaults.standard.synchronize()
-        print("✅ Player state saved to UserDefaults (offline, per-device)")
     }
     
     private func ensurePlayerStateRestored() async {
@@ -2245,22 +2150,18 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Only load the audio file if we have a current track from UI restoration
         if let currentTrack = currentTrack {
-            print("🔄 Loading audio for restored track: \(currentTrack.title)")
             let savedPosition = playbackTime // Save the position before loadTrack
             await loadTrack(currentTrack, preservePlaybackTime: true)
             
             // Restore the playback position after loading (if position was saved)
             if savedPosition > 0 {
-                print("🔄 Seeking to restored position: \(savedPosition)s")
                 await seek(to: savedPosition)
-                print("✅ Restored position: \(savedPosition)s")
             }
         }
     }
     
     func restoreUIStateOnly() async {
-        guard let playerStateDict = UserDefaults.standard.dictionary(forKey: "CosmosPlayerState") else {
-            print("📭 No saved player state found in UserDefaults")
+        guard let playerStateDict = UserDefaults.standard.dictionary(forKey: "MusicPlayerState") else {
             return
         }
         
@@ -2268,8 +2169,6 @@ class PlayerEngine: NSObject, ObservableObject {
             print("🚫 Invalid saved state format")
             return
         }
-        
-        print("🔄 Restoring UI state only from \(lastSavedAt)")
         
         // Don't restore if the saved state is too old (more than 7 days)
         let daysSinceLastSave = Date().timeIntervalSince(lastSavedAt) / (24 * 60 * 60)
@@ -2325,9 +2224,7 @@ class PlayerEngine: NSObject, ObservableObject {
                 
                 // Validate restored state consistency
                 if self.isLoopingSong && self.playbackQueue.count == 1 {
-                    print("✅ Loop track mode validated with single track queue")
                 } else if self.isLoopingSong {
-                    print("⚠️ Loop track mode with multi-track queue - this is fine")
                 }
                 
                 // Additional validation for shuffle state
@@ -2361,9 +2258,7 @@ class PlayerEngine: NSObject, ObservableObject {
                 // Set playback state to stopped so it doesn't show as playing
                 self.playbackState = .stopped
                 self.isPlaying = false
-                
-                print("✅ UI state restored - track: \(restoredTrack.title), position: \(savedTime)s, duration: \(self.duration)s (no audio loaded)")
-                
+
                 // Normalize index and track after restoration
                 self.normalizeIndexAndTrack()
             }

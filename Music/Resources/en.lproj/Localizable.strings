@@ -93,7 +93,7 @@
 "force_dark_mode" = "Force Dark Mode";
 "version" = "Version";
 "app_name" = "App Name";
-"cosmos_music_player" = "Music";
+"music_player" = "Music";
 "github_repository" = "GitHub Repository";
 "use_simple_icons" = "Use simple icons without colored backgrounds in the library sections.";
 "override_system_appearance" = "Override system appearance and force the app to use dark mode.";
@@ -111,7 +111,7 @@
 "icloud_connection_required" = "iCloud Connection Required";
 
 /* Tutorial/Onboarding */
-"welcome_to_cosmos" = "Welcome to Music";
+"welcome" = "Welcome to Music";
 "sign_in_to_apple_id" = "Sign in to Apple ID";
 "sign_in_message" = "To sync your music across devices, please make sure you're signed in to your Apple ID.";
 "if_signed_in_continue" = "If you're signed in, you can continue";
@@ -122,7 +122,7 @@
 "how_to_add_music" = "You can add music to either iCloud Drive (syncs across devices) or locally (this device only)";
 "open_files_app" = "Open Files App";
 "navigate_to_icloud_drive" = "Navigate to iCloud Drive";
-"find_cosmos_player_folder" = "Find Music Folder";
+"find_music_player_folder" = "Find Music Folder";
 "add_your_music_instruction" = "Add Your Music";
 
 /* Tutorial Status Messages */
@@ -136,7 +136,7 @@
 /* Tutorial Instructions */
 "find_open_files_app" = "Open the Files app";
 "tap_icloud_drive_sidebar" = "Choose 'iCloud Drive' or 'On My iPhone'";
-"look_for_cosmos_folder" = "Find the Music folder";
+"look_for_music_folder" = "Find the Music folder";
 "copy_music_files" = "Copy your audio files into it";
 
 /* Library Processing */

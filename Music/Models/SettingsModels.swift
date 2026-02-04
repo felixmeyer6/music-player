@@ -2,13 +2,8 @@ import Foundation
 import SwiftUI
 import UIKit
 
-enum BackgroundColor: String, CaseIterable, Codable {
-    case white = "FFFFFF"
-}
-
 struct DeleteSettings: Codable {
     var minimalistIcons: Bool = false
-    var backgroundColorChoice: BackgroundColor = .white
     var forceDarkMode: Bool = false
     var lastLibraryScanDate: Date? = nil
     var crossfadeEnabled: Bool = false

@@ -33,7 +33,6 @@ class ArtworkManager: ObservableObject {
         // Load mapping
         loadMapping()
 
-        print("📁 ArtworkManager initialized - Disk cache: \(diskCacheURL.path)")
     }
 
     private func loadMapping() {
@@ -45,7 +44,6 @@ class ArtworkManager: ObservableObject {
             let data = try Data(contentsOf: mappingFileURL)
             if let mapping = try PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: String] {
                 artworkMapping = mapping
-                print("📊 Loaded artwork mapping: \(artworkMapping.count) entries")
             }
         } catch {
             print("⚠️ Failed to load artwork mapping: \(error)")
@@ -63,7 +61,6 @@ class ArtworkManager: ObservableObject {
 
     func clearCache() {
         memoryCache.removeAll()
-        print("🗑️ ArtworkManager memory cache cleared")
     }
 
     func clearDiskCache() {
@@ -75,7 +72,6 @@ class ArtworkManager: ObservableObject {
             memoryCache.removeAll()
             artworkMapping.removeAll()
             saveMapping()
-            print("🗑️ Cleared \(files.count) artwork files from disk cache")
         } catch {
             print("❌ Failed to clear disk cache: \(error)")
         }
@@ -90,7 +86,6 @@ class ArtworkManager: ObservableObject {
         artworkMapping.removeValue(forKey: track.stableId)
         saveMapping()
 
-        print("🔄 Force refreshing artwork for: \(track.title)")
         return await getArtwork(for: track)
     }
 
@@ -100,8 +95,6 @@ class ArtworkManager: ObservableObject {
         if artworkMapping[track.stableId] != nil {
             return
         }
-
-        print("💾 Pre-caching artwork for: \(track.title)")
 
         // Extract artwork from audio file
         if let image = await extractArtwork(from: URL(fileURLWithPath: track.path)) {
@@ -181,7 +174,6 @@ class ArtworkManager: ObservableObject {
         if FileManager.default.fileExists(atPath: diskFile.path) {
             // Artwork already cached, just update mapping
             await updateMapping(stableId: stableId, artworkHash: hashString)
-            print("♻️ Reused existing artwork: \(hashString).jpg for track \(stableId)")
             return
         }
 
@@ -189,7 +181,6 @@ class ArtworkManager: ObservableObject {
         do {
             try imageData.write(to: diskFile, options: .atomic)
             await updateMapping(stableId: stableId, artworkHash: hashString)
-            print("💾 Saved artwork to disk cache: \(hashString).jpg (\(imageData.count / 1024) KB)")
         } catch {
             print("❌ Failed to save artwork to disk: \(error)")
         }
@@ -213,7 +204,6 @@ class ArtworkManager: ObservableObject {
 
         if removedMappings > 0 {
             saveMapping()
-            print("🗑️ Removed \(removedMappings) orphaned mapping entries")
         }
 
         // Build set of artwork hashes still in use
@@ -232,9 +222,6 @@ class ArtworkManager: ObservableObject {
                 }
             }
 
-            if removedCount > 0 {
-                print("🗑️ Cleaned up \(removedCount) unused artwork files")
-            }
         } catch {
             print("❌ Failed to cleanup orphaned artwork: \(error)")
         }
@@ -293,7 +280,6 @@ class ArtworkManager: ObservableObject {
             if item.commonKey == .commonKeyArtwork,
                let data = try? await item.load(.dataValue),
                let image = UIImage(data: data) {
-                print("🎨 Extracted M4A artwork: \(url.lastPathComponent)")
                 return image
             }
         }

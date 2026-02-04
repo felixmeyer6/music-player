@@ -55,8 +55,6 @@ class AppCoordinator: ObservableObject {
     }
     
     func initialize() async {
-        print("🚀 AppCoordinator.initialize() started")
-
         // Check iCloud status
         let status = await checkiCloudStatus()
         iCloudStatus = status
@@ -66,14 +64,7 @@ class AppCoordinator: ObservableObject {
 
         // Check if we should auto-scan based on last scan date
         var settings = DeleteSettings.load()
-        print("📅 Current lastLibraryScanDate: \(settings.lastLibraryScanDate?.description ?? "nil")")
         let shouldAutoScan = shouldPerformAutoScan(lastScanDate: settings.lastLibraryScanDate)
-
-        if shouldAutoScan {
-            print("🔄 App launched after long time - starting automatic library scan")
-        } else {
-            print("⏭️ Recent app launch - skipping automatic scan (use manual sync button)")
-        }
 
         switch status {
         case .available:
@@ -86,7 +77,6 @@ class AppCoordinator: ObservableObject {
                 settings.lastLibraryScanDate = Date()
                 settings.save()
             }
-            print("App initialized with iCloud sync")
 
         case .notSignedIn:
             isiCloudAvailable = false
@@ -97,7 +87,6 @@ class AppCoordinator: ObservableObject {
                 settings.lastLibraryScanDate = Date()
                 settings.save()
             }
-            print("App initialized in local mode - iCloud not signed in")
 
         case .containerUnavailable, .error(_):
             isiCloudAvailable = false
@@ -108,7 +97,6 @@ class AppCoordinator: ObservableObject {
                 settings.lastLibraryScanDate = Date()
                 settings.save()
             }
-            print("App initialized in local mode - iCloud container unavailable")
 
         case .authenticationRequired:
             isiCloudAvailable = false
@@ -118,7 +106,6 @@ class AppCoordinator: ObservableObject {
                 settings.lastLibraryScanDate = Date()
                 settings.save()
             }
-            print("App initialized in local mode - iCloud authentication required")
 
         case .offline:
             isiCloudAvailable = false
@@ -128,7 +115,6 @@ class AppCoordinator: ObservableObject {
                 settings.lastLibraryScanDate = Date()
                 settings.save()
             }
-            print("App initialized in offline mode")
         }
 
         // Restore UI state only to show user what was playing without interrupting other apps
@@ -142,7 +128,6 @@ class AppCoordinator: ObservableObject {
     private func shouldPerformAutoScan(lastScanDate: Date?) -> Bool {
         // If never scanned before, definitely scan
         guard let lastScanDate = lastScanDate else {
-            print("🆕 Never scanned before - will perform scan")
             return true
         }
 
@@ -150,13 +135,6 @@ class AppCoordinator: ObservableObject {
         // This prevents scanning when app was just backgrounded/resumed
         let hoursSinceLastScan = Date().timeIntervalSince(lastScanDate) / 3600
         let shouldScan = hoursSinceLastScan >= 1.0
-
-        if shouldScan {
-            print("⏰ Last scan was \(String(format: "%.1f", hoursSinceLastScan)) hours ago - will scan")
-        } else {
-            print("⏰ Last scan was \(String(format: "%.1f", hoursSinceLastScan)) hours ago - skipping")
-        }
-
         return shouldScan
     }
     
@@ -181,9 +159,6 @@ class AppCoordinator: ObservableObject {
             return .error(error)
         }
         
-        print("NSUbiquitousContainers:",
-              Bundle.main.object(forInfoDictionaryKey: "NSUbiquitousContainers") ?? "nil")
-        
         // Try to create the app folder
         do {
             let appFolderURL = containerURL.appendingPathComponent("Music", isDirectory: true)
@@ -194,7 +169,6 @@ class AppCoordinator: ObservableObject {
                                                      attributes: nil)
             }
             
-            print("iCloud container set up at: \(appFolderURL)")
             return .available
         } catch {
             return .error(error)
@@ -222,18 +196,6 @@ class AppCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Listen for background color changes to update widget theme
-        NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundColorChanged"))
-            .sink { [weak self] _ in
-                Task { @MainActor in
-                    print("🎨 Background color changed - updating widget theme")
-                    // Update playlist widget colors
-                    self?.syncPlaylistsToCloud()
-                    // Update now playing widget color
-                    self?.playerEngine.updateWidgetData()
-                }
-            }
-            .store(in: &cancellables)
     }
     
     func handleiCloudAuthenticationError() {
@@ -279,25 +241,20 @@ class AppCoordinator: ObservableObject {
 
         // Mark initial indexing as complete
         hasCompletedInitialIndexing = true
-        print("✅ Initial indexing completed - playlist sync enabled")
 
         // Update widget with playlists
         syncPlaylistsToCloud()
 
         // Check for orphaned files after sync completes
-        print("🔄 AppCoordinator: Starting orphaned files check...")
         await fileCleanupManager.checkForOrphanedFiles()
-        print("🔄 AppCoordinator: Orphaned files check completed")
     }
     
     private func forceiCloudFolderCreation() async {
         do {
             try stateManager.createAppFolderIfNeeded()
             if let folderURL = stateManager.getMusicFolderURL() {
-                print("🏗️ iCloud folder created/verified at: \(folderURL)")
-                
                 // Create test files to trigger iCloud Drive visibility (as per research)
-                let tempFile = folderURL.appendingPathComponent(".cosmos-placeholder")
+                let tempFile = folderURL.appendingPathComponent(".neofx_placeholder")
                 let testFile = folderURL.appendingPathComponent("Welcome.txt")
                 
                 let tempContent = "Music folder - you can delete this file"
@@ -305,7 +262,6 @@ class AppCoordinator: ObservableObject {
                 
                 try tempContent.write(to: tempFile, atomically: true, encoding: .utf8)
                 try welcomeContent.write(to: testFile, atomically: true, encoding: .utf8)
-                print("📄 Created placeholder and welcome files to ensure folder visibility")
             }
         } catch {
             print("⚠️ Failed to create iCloud folder: \(error)")
@@ -320,9 +276,7 @@ class AppCoordinator: ObservableObject {
         }
         
         do {
-            print("🔄 Starting playlist restoration from iCloud...")
             let playlistStates = try stateManager.getAllPlaylists()
-            print("📂 Found \(playlistStates.count) playlists in iCloud storage")
             
             for playlistState in playlistStates {
                 // Check if playlist already exists in database
@@ -330,8 +284,6 @@ class AppCoordinator: ObservableObject {
 
                 if let existingPlaylist = existingPlaylists.first(where: { $0.slug == playlistState.slug }) {
                     // Playlist exists - sync tracks from cloud to database
-                    print("🔄 Syncing existing playlist from cloud: \(playlistState.title)")
-
                     guard let playlistId = existingPlaylist.id else { continue }
 
                     // Get current tracks in database
@@ -344,22 +296,17 @@ class AppCoordinator: ObservableObject {
                     let tracksToAdd = cloudTrackIds.subtracting(currentTrackIds)
 
                     if !tracksToAdd.isEmpty {
-                        print("➕ Adding \(tracksToAdd.count) missing tracks from cloud to '\(playlistState.title)'")
                         for trackId in tracksToAdd {
                             // Check if track exists in database
                             if let _ = try databaseManager.getTrack(byStableId: trackId) {
                                 try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
-                                print("✅ Added track to playlist: \(trackId)")
                             } else {
                                 print("⚠️ Track not found in database: \(trackId)")
                             }
                         }
-                    } else {
-                        print("✅ Playlist '\(playlistState.title)' is already in sync")
                     }
                 } else {
                     // Playlist doesn't exist - create it
-                    print("➕ Restoring new playlist: \(playlistState.title)")
                     let playlist = try databaseManager.createPlaylist(title: playlistState.title)
 
                     // Add tracks to playlist if they exist in the database
@@ -369,14 +316,12 @@ class AppCoordinator: ObservableObject {
                         // Check if track exists in database
                         if let _ = try databaseManager.getTrack(byStableId: item.trackId) {
                             try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: item.trackId)
-                            print("✅ Added track to playlist: \(item.trackId)")
                         } else {
                             print("⚠️ Track not found in database: \(item.trackId)")
                         }
                     }
                 }
             }
-            print("✅ Playlist restoration completed")
         } catch {
             print("❌ Failed to restore playlists from iCloud: \(error)")
             
@@ -390,29 +335,18 @@ class AppCoordinator: ObservableObject {
     
     private func verifyDatabaseRelationships() async {
         do {
-            print("🔍 Verifying database relationships...")
             let tracks = try databaseManager.getAllTracks()
             let albums = try databaseManager.getAllAlbums()
             let artists = try databaseManager.getAllArtists()
-            
-            print("📊 Database stats - Tracks: \(tracks.count), Albums: \(albums.count), Artists: \(artists.count)")
-            
-            // Simple verification - just report what we have
-            var tracksWithoutArtist = 0
-            var tracksWithoutAlbum = 0
-            var invalidArtistRefs = 0
-            var invalidAlbumRefs = 0
             
             for track in tracks {
                 // Check artist relationship
                 if let artistId = track.artistId {
                     let artistExists = artists.contains { $0.id == artistId }
                     if !artistExists {
-                        invalidArtistRefs += 1
                         print("⚠️ Track '\(track.title)' references non-existent artist ID: \(artistId)")
                     }
                 } else {
-                    tracksWithoutArtist += 1
                     print("⚠️ Track '\(track.title)' has no artist ID")
                 }
                 
@@ -420,21 +354,12 @@ class AppCoordinator: ObservableObject {
                 if let albumId = track.albumId {
                     let albumExists = albums.contains { $0.id == albumId }
                     if !albumExists {
-                        invalidAlbumRefs += 1
                         print("⚠️ Track '\(track.title)' references non-existent album ID: \(albumId)")
                     }
                 } else {
-                    tracksWithoutAlbum += 1
                     print("⚠️ Track '\(track.title)' has no album ID")
                 }
             }
-            
-            print("🔍 Verification complete:")
-            print("   - Tracks without artist: \(tracksWithoutArtist)")
-            print("   - Tracks without album: \(tracksWithoutAlbum)")
-            print("   - Invalid artist refs: \(invalidArtistRefs)")
-            print("   - Invalid album refs: \(invalidAlbumRefs)")
-            
         } catch {
             print("❌ Failed to verify database relationships: \(error)")
         }
@@ -448,7 +373,6 @@ class AppCoordinator: ObservableObject {
         }
         
         do {
-            print("🔄 Retrying playlist restoration after database fixes...")
             let playlistStates = try stateManager.getAllPlaylists()
             let existingPlaylists = try databaseManager.getAllPlaylists()
             
@@ -459,22 +383,16 @@ class AppCoordinator: ObservableObject {
                     // Check if playlist is empty and try to restore tracks
                     let currentItems = try databaseManager.getPlaylistItems(playlistId: playlistId)
                     if currentItems.isEmpty {
-                        print("🔄 Playlist '\(playlistState.title)' is empty, attempting to restore tracks...")
-                        
                         for item in playlistState.items {
                             if let _ = try databaseManager.getTrack(byStableId: item.trackId) {
                                 try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: item.trackId)
-                                print("✅ Added track to playlist after fix: \(item.trackId)")
                             } else {
                                 print("⚠️ Track still not found after fixes: \(item.trackId)")
                             }
                         }
-                    } else {
-                        print("⚡ Playlist '\(playlistState.title)' already has \(currentItems.count) items")
                     }
                 }
             }
-            print("✅ Playlist restoration retry completed")
         } catch {
             print("❌ Failed to retry playlist restoration: \(error)")
             
@@ -494,8 +412,6 @@ class AppCoordinator: ObservableObject {
     }
     
     func manualSync() async {
-        print("🔄 Manual sync triggered - attempting library indexing")
-        
         // Check if we're already indexing
         if libraryIndexer.isIndexing {
             print("⚠️ Library indexing already in progress - skipping manual sync")
@@ -503,7 +419,6 @@ class AppCoordinator: ObservableObject {
         }
         
         // For manual sync, always attempt to re-index to catch new files
-        print("📋 Performing manual sync - user requested fresh library scan")
         await startLibraryIndexing()
     }
     
@@ -572,13 +487,10 @@ class AppCoordinator: ObservableObject {
         
         // Delete from iCloud and local storage
         try stateManager.deletePlaylist(slug: playlistSlug)
-        
-        print("✅ Playlist '\(playlist.title)' deleted from database and cloud storage")
     }
 
     func renamePlaylist(playlistId: Int64, newTitle: String) throws {
         try databaseManager.renamePlaylist(playlistId: playlistId, newTitle: newTitle)
-        print("✅ Playlist renamed to '\(newTitle)'")
     }
 
     func updatePlaylistAccessed(playlistId: Int64) throws {
@@ -602,13 +514,11 @@ class AppCoordinator: ObservableObject {
     private func syncPlaylistsToCloud() {
         // Prevent concurrent sync operations (check on MainActor before dispatching)
         guard !isSyncingPlaylists else {
-            print("⏭️ Skipping playlist sync - already in progress")
             return
         }
 
         // Safety: Don't sync until initial indexing is complete
         guard hasCompletedInitialIndexing else {
-            print("⏳ Skipping playlist sync - waiting for initial indexing to complete")
             return
         }
 
@@ -654,7 +564,6 @@ class AppCoordinator: ObservableObject {
                     )
                     try stateManager.savePlaylist(playlistState)
                 }
-                print("✅ Playlists synced to iCloud with \(playlists.count) playlists")
 
             } catch {
                 print("❌ Failed to sync playlists to iCloud: \(error)")
@@ -685,7 +594,6 @@ class AppCoordinator: ObservableObject {
 
         // Show only the top 3 most recently played playlists
         let playlistsToShow = Array(sortedPlaylists.prefix(3))
-        print("📊 Widget: Showing top 3 most recently played playlists out of \(playlists.count) total")
 
         var widgetPlaylists: [WidgetPlaylistData] = []
 
@@ -717,13 +625,11 @@ class AppCoordinator: ObservableObject {
 
                         try? artworkData.write(to: fileURL, options: .atomic)
                         artworkPaths.append(filename)
-                        print("✅ Widget: Saved artwork '\(track.title)' for playlist '\(playlist.title)' tile \(index)")
                     }
                 }
 
-                // Get theme color from settings
-                let settings = DeleteSettings.load()
-                let colorHex = settings.backgroundColorChoice.rawValue
+                // Use a consistent widget background color
+                let colorHex = "FFFFFF"
 
                 let widgetPlaylist = WidgetPlaylistData(
                     id: String(playlistId),
@@ -741,11 +647,9 @@ class AppCoordinator: ObservableObject {
         }
 
         PlaylistDataManager.shared.savePlaylists(widgetPlaylists)
-        print("✅ Widget playlist data updated with \(widgetPlaylists.count) playlists")
 
         // Force widget to reload immediately
         WidgetCenter.shared.reloadAllTimelines()
-        print("🔄 Widget timeline reload triggered")
     }
     
     func playTrack(_ track: Track, queue: [Track] = []) async {

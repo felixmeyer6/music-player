@@ -125,7 +125,7 @@ struct PlaylistCard: View {
     let themeColor: Color
 
     var body: some View {
-        Link(destination: URL(string: "cosmos-music://playlist/\(playlist.id)")!) {
+        Link(destination: URL(string: "neofx-music://playlist/\(playlist.id)")!) {
             VStack(spacing: 8) {
                 // Show custom cover if available, otherwise show album cover mashup (2x2 grid)
                 if let customPath = playlist.customCoverImagePath,
@@ -244,18 +244,4 @@ struct PlaylistWidget: Widget {
         .supportedFamilies([.systemMedium])
         .contentMarginsDisabled()
     }
-}
-
-// MARK: - Preview
-#Preview(as: .systemMedium) {
-    PlaylistWidget()
-} timeline: {
-    PlaylistWidgetEntry(
-        date: Date(),
-        playlists: [
-            WidgetPlaylistData(id: "1", name: "Favorites", trackCount: 25, colorHex: "FF6B9D", artworkPaths: []),
-            WidgetPlaylistData(id: "2", name: "Chill Vibes", trackCount: 30, colorHex: "FF6B9D", artworkPaths: []),
-            WidgetPlaylistData(id: "3", name: "Workout Mix", trackCount: 45, colorHex: "FF6B9D", artworkPaths: [])
-        ]
-    )
 }

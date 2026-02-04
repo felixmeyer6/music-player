@@ -77,21 +77,16 @@ class EQManager: ObservableObject {
         let maxSafeBands = 16
         let requestedBands = !eqFrequencies.isEmpty ? min(eqFrequencies.count, maxSafeBands) : maxSafeBands
 
-        print("🎛️ Original bands: \(eqFrequencies.count), requesting: \(requestedBands) (limited to \(maxSafeBands))")
-
         eqNode = AVAudioUnitEQ(numberOfBands: requestedBands)
         guard let eqNode = eqNode else { return }
 
         let actualBands = eqNode.bands.count
-        print("🎛️ Requested \(requestedBands) bands for GraphicEQ preset, iOS created \(actualBands) bands")
 
         // Configure bands if we have frequency data
         if !eqFrequencies.isEmpty {
             configureEQBands()
             if eqFrequencies.count > maxSafeBands {
                 print("⚠️ GraphicEQ preset has \(eqFrequencies.count) bands, reduced to \(actualBands) bands (iOS limit)")
-            } else {
-                print("✅ Using \(actualBands) bands from GraphicEQ preset")
             }
         } else {
             // Default configuration for empty presets
@@ -107,8 +102,6 @@ class EQManager: ObservableObject {
 
         // Attach the EQ node
         audioEngine.attach(eqNode)
-
-        print("✅ EQ node created with \(actualBands) bands")
 
         // Apply current settings if enabled
         if isEnabled {
@@ -126,7 +119,6 @@ class EQManager: ObservableObject {
         audioEngine.connect(inputNode, to: eqNode, format: format)
         audioEngine.connect(eqNode, to: outputNode, format: format)
 
-        print("✅ EQ node inserted between \(inputNode) and \(outputNode)")
     }
 
     // Expose this for PlayerEngine to use when reconfiguring
@@ -156,11 +148,8 @@ class EQManager: ObservableObject {
                 eqNode.bands[i].bypass = true
             }
 
-            print("✅ Direct mapping: Using all \(inputBandCount) bands")
         } else {
             // More input bands than available - group and average multiple bands
-            print("🔄 Reducing \(inputBandCount) bands to \(availableBands) bands using frequency grouping and averaging")
-
             let bandsPerGroup = Double(inputBandCount) / Double(availableBands)
 
             for i in 0..<availableBands {
@@ -192,11 +181,8 @@ class EQManager: ObservableObject {
                 band.bandwidth = 1.0
                 band.filterType = .parametric
                 band.bypass = false
-
-                print("  Band \(i): \(avgFrequency.rounded(toPlaces: 1))Hz, \(avgGain.rounded(toPlaces: 1))dB (avg of \(groupSize) bands: \(startIndex)-\(endIndex-1))")
             }
 
-            print("✅ Applied frequency grouping and averaging (\(bandsPerGroup.rounded(toPlaces: 1)) bands per group)")
         }
     }
 
@@ -206,7 +192,6 @@ class EQManager: ObservableObject {
         if !isEnabled || currentPreset == nil {
             eqNode?.bands.forEach { $0.bypass = true }
             eqNode?.globalGain = 0.0
-            print("🚫 EQ disabled - all bands bypassed")
             return
         }
 
@@ -228,14 +213,10 @@ class EQManager: ObservableObject {
                     
                     if self.eqNode != nil {
                         self.configureEQBands()
-                        print("✅ Reconfigured existing EQ node with \(newFrequencies.count) input bands")
-                    } else {
-                        print("ℹ️ Stored \(newFrequencies.count) EQ bands")
                     }
                 }
                 
                 applyGlobalGain()
-                print("✅ Applied EQ preset: \(preset.name)")
             } catch {
                 print("❌ Failed to apply EQ settings: \(error)")
             }

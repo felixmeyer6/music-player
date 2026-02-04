@@ -20,8 +20,11 @@ class DatabaseManager: @unchecked Sendable {
 
         for attempt in 1...maxRetries {
             do {
+                let databaseURL = try getDatabaseURL()
+                let exists = FileManager.default.fileExists(atPath: databaseURL.path)
+                print("📀 Database setup attempt \(attempt)/\(maxRetries) at \(databaseURL.path) (exists: \(exists))")
                 try setupDatabase()
-                print("✅ Database initialized successfully on attempt \(attempt)")
+                print("✅ Database setup succeeded on attempt \(attempt)")
                 return
             } catch {
                 lastError = error
@@ -58,22 +61,26 @@ class DatabaseManager: @unchecked Sendable {
     }
 
     private func attemptDatabaseRecovery(error: Error) {
-        print("🔧 Attempting database recovery...")
-
         do {
             let databaseURL = try getDatabaseURL()
             let backupURL = databaseURL.deletingLastPathComponent()
-                .appendingPathComponent("cosmos_music_backup_\(Int(Date().timeIntervalSince1970)).db")
+                .appendingPathComponent("neofx_music_backup_\(Int(Date().timeIntervalSince1970)).db")
 
             // Try to backup the corrupted database
             if FileManager.default.fileExists(atPath: databaseURL.path) {
-                try? FileManager.default.moveItem(at: databaseURL, to: backupURL)
-                print("📦 Backed up corrupted database to: \(backupURL.path)")
+                do {
+                    try FileManager.default.moveItem(at: databaseURL, to: backupURL)
+                    print("🧰 Database backup created at \(backupURL.path)")
+                } catch {
+                    print("⚠️ Failed to move database to backup at \(backupURL.path): \(error)")
+                }
+            } else {
+                print("⚠️ No database file found at \(databaseURL.path) to back up")
             }
 
             // Try to create a fresh database
             try setupDatabase()
-            print("✅ Database recovery successful - created fresh database")
+            print("✅ Database recovery succeeded (fresh database created)")
         } catch {
             // Last resort: create an in-memory database to prevent crashes
             print("❌ Database recovery failed: \(error)")
@@ -88,7 +95,6 @@ class DatabaseManager: @unchecked Sendable {
                 // Create in-memory database
                 dbWriter = try DatabaseQueue(configuration: configuration)
                 try createTables()
-                print("✅ In-memory database created successfully")
             } catch {
                 // Absolute last resort - this should never happen
                 fatalError("Critical error: Unable to initialize any database: \(error)")
@@ -99,7 +105,7 @@ class DatabaseManager: @unchecked Sendable {
     private func getDatabaseURL() throws -> URL {
         // Try to use app group container first for shared data (e.g., widgets)
         if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player") {
-            return containerURL.appendingPathComponent("cosmos_music.db")
+            return containerURL.appendingPathComponent("neofx_music.db")
         } else {
             // Fallback to documents directory
             let documentsPath = FileManager.default.urls(for: .documentDirectory,
@@ -181,12 +187,8 @@ class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_artist ON track(artist_id)")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre_id ON track(genre_id)")
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_stable_id ON track(stable_id)")
-            do {
-                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
-            } catch {
-                // Column may not exist yet on older databases; migration will handle it.
-                print("ℹ️ Database migration: idx_track_genre creation deferred: \(error)")
-            }
+            // Column may not exist yet on older databases; migration will handle it.
+            try? db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
 
             // EQ Tables
             try db.execute(sql: """
@@ -225,95 +227,43 @@ class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_eq_band_index ON eq_band(band_index)")
 
             // Migration: Add last_played_at column if it doesn't exist
-            do {
-                try db.execute(sql: """
-                    ALTER TABLE playlist ADD COLUMN last_played_at INTEGER DEFAULT 0
-                """)
-                print("✅ Database: Added last_played_at column to playlist table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: last_played_at column already exists or migration failed: \(error)")
-            }
+            // Column may already exist, which is fine.
+            try? db.execute(sql: """
+                ALTER TABLE playlist ADD COLUMN last_played_at INTEGER DEFAULT 0
+            """)
 
             // Migration: Add preset_type column to eq_preset if it doesn't exist
-            do {
-                try db.execute(sql: """
-                    ALTER TABLE eq_preset ADD COLUMN preset_type TEXT DEFAULT 'imported'
-                """)
-                print("✅ Database: Added preset_type column to eq_preset table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: preset_type column already exists or migration failed: \(error)")
-            }
+            // Column may already exist, which is fine.
+            try? db.execute(sql: """
+                ALTER TABLE eq_preset ADD COLUMN preset_type TEXT DEFAULT 'imported'
+            """)
         }
     }
 
     private func migrateDatabaseIfNeeded() throws {
         try write { db in
-            // Migration: Remove favorites table (feature removed)
-            do {
-                try db.execute(sql: "DROP TABLE IF EXISTS favorite")
-                print("✅ Database: Removed favorite table")
-            } catch {
-                print("ℹ️ Database migration: favorite table removal failed: \(error)")
-            }
+            // Upsert custom_cover_image_path column to playlist table
+            try? db.execute(sql: "ALTER TABLE playlist ADD COLUMN custom_cover_image_path TEXT")
 
-            // Migration: Add custom_cover_image_path column to playlist table
-            do {
-                try db.execute(sql: "ALTER TABLE playlist ADD COLUMN custom_cover_image_path TEXT")
-                print("✅ Database: Added custom_cover_image_path column to playlist table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: custom_cover_image_path column already exists or migration failed: \(error)")
-            }
+            // Upsert genre column to track table
+            try? db.execute(sql: "ALTER TABLE track ADD COLUMN genre TEXT COLLATE NOCASE")
 
-            // Migration: Add genre column to track table
-            do {
-                try db.execute(sql: "ALTER TABLE track ADD COLUMN genre TEXT COLLATE NOCASE")
-                print("✅ Database: Added genre column to track table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: genre column already exists or migration failed: \(error)")
-            }
+            // Upsert rating column to track table
+            try? db.execute(sql: "ALTER TABLE track ADD COLUMN rating INTEGER CHECK (rating BETWEEN 1 AND 5)")
 
-            // Migration: Add rating column to track table
-            do {
-                try db.execute(sql: "ALTER TABLE track ADD COLUMN rating INTEGER CHECK (rating BETWEEN 1 AND 5)")
-                print("✅ Database: Added rating column to track table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: rating column already exists or migration failed: \(error)")
-            }
+            // Upsert genre index after ensuring column exists
+            try? db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
 
-            // Migration: Add genre index after ensuring column exists
-            do {
-                try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre ON track(genre)")
-                print("✅ Database: Ensured idx_track_genre exists")
-            } catch {
-                print("ℹ️ Database migration: idx_track_genre creation failed: \(error)")
-            }
+            // Upsert waveform_data column to track table
+            try? db.execute(sql: "ALTER TABLE track ADD COLUMN waveform_data BLOB")
 
-            // Migration: Add waveform_data column to track table
-            do {
-                try db.execute(sql: "ALTER TABLE track ADD COLUMN waveform_data BLOB")
-                print("✅ Database: Added waveform_data column to track table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: waveform_data column already exists or migration failed: \(error)")
-            }
-
-
-            // Migration: Deduplicate by filename and migrate stable IDs (one-time, batched)
-            do {
-                try db.execute(sql: """
-                    CREATE TABLE IF NOT EXISTS migration_state (
-                        key TEXT PRIMARY KEY,
-                        value TEXT NOT NULL
-                    )
-                """)
-            } catch {
-                print("ℹ️ Database migration: migration_state table creation failed: \(error)")
-            }
+            // Deduplicate by filename and migrate stable IDs (one-time, batched)
+            try? db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS migration_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
 
             let stableIdMigrationKey = "stable_id_filename_v1"
             let migrationState = try? String.fetchOne(
@@ -323,9 +273,7 @@ class DatabaseManager: @unchecked Sendable {
             )
             let hasRunStableIdMigration = migrationState == "done"
 
-            if hasRunStableIdMigration {
-                print("ℹ️ Database: Stable ID migration already completed")
-            } else {
+            if !hasRunStableIdMigration {
                 struct TrackMigrationRow {
                     let id: Int64
                     let stableId: String
@@ -341,7 +289,6 @@ class DatabaseManager: @unchecked Sendable {
                             sql: "INSERT OR REPLACE INTO migration_state (key, value) VALUES (?, 'done')",
                             arguments: [stableIdMigrationKey]
                         )
-                        print("ℹ️ Database: No tracks found for stable ID migration")
                     } else {
                         var tracks: [TrackMigrationRow] = []
                         tracks.reserveCapacity(rows.count)
@@ -384,7 +331,6 @@ class DatabaseManager: @unchecked Sendable {
                             if duplicates.count > 1 {
                                 removedCount += duplicates.count - 1
                                 print("⚠️ Found \(duplicates.count) tracks with same filename: \(filename)")
-                                print("✅ Keeping track ID \(keep.id): \(keep.title)")
                             }
                         }
 
@@ -397,7 +343,6 @@ class DatabaseManager: @unchecked Sendable {
                         let needsStableIdUpdate = updatedCount > 0
 
                         if !needsDedup && !needsStableIdUpdate {
-                            print("ℹ️ Database: Stable IDs already filename-based")
                             try db.execute(
                                 sql: "INSERT OR REPLACE INTO migration_state (key, value) VALUES (?, 'done')",
                                 arguments: [stableIdMigrationKey]
@@ -477,10 +422,6 @@ class DatabaseManager: @unchecked Sendable {
                                         WHERE id != keep_id
                                     )
                                 """)
-
-                                print("✅ Removed \(removedCount) duplicate tracks by filename")
-                            } else {
-                                print("ℹ️ No duplicate tracks found by filename")
                             }
 
                             if needsStableIdUpdate {
@@ -511,10 +452,6 @@ class DatabaseManager: @unchecked Sendable {
                                         FROM temp_track_migration
                                     )
                                 """)
-
-                                print("✅ Database: Migrated \(updatedCount) stable IDs from path-based to filename-based")
-                            } else {
-                                print("ℹ️ Database: Stable IDs already filename-based")
                             }
 
                             try db.execute(
@@ -532,41 +469,25 @@ class DatabaseManager: @unchecked Sendable {
             // Add UNIQUE constraint to stable_id to prevent duplicates
             do {
                 try db.execute(sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_track_stable_id ON track(stable_id)")
-                print("✅ Database: Created UNIQUE index on track.stable_id")
             } catch {
                 print("⚠️ Database migration: Failed to create UNIQUE index on stable_id: \(error)")
             }
 
             // Migration: Add play_count column to track table
-            do {
-                try db.execute(sql: "ALTER TABLE track ADD COLUMN play_count INTEGER DEFAULT 0")
-                print("✅ Database: Added play_count column to track table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: play_count column already exists or migration failed: \(error)")
-            }
+            // Column may already exist, which is fine.
+            try? db.execute(sql: "ALTER TABLE track ADD COLUMN play_count INTEGER DEFAULT 0")
 
             // Migration: Create genre table and populate from existing track.genre values
-            do {
-                try db.execute(sql: """
-                    CREATE TABLE IF NOT EXISTS genre (
-                        id INTEGER PRIMARY KEY,
-                        name TEXT NOT NULL UNIQUE COLLATE NOCASE
-                    )
-                """)
-                print("✅ Database: Created genre table")
-            } catch {
-                print("ℹ️ Database migration: genre table already exists or migration failed: \(error)")
-            }
+            try? db.execute(sql: """
+                CREATE TABLE IF NOT EXISTS genre (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE COLLATE NOCASE
+                )
+            """)
 
             // Migration: Add genre_id column to track table
-            do {
-                try db.execute(sql: "ALTER TABLE track ADD COLUMN genre_id INTEGER REFERENCES genre(id) ON DELETE SET NULL")
-                print("✅ Database: Added genre_id column to track table")
-            } catch {
-                // Column may already exist, which is fine
-                print("ℹ️ Database migration: genre_id column already exists or migration failed: \(error)")
-            }
+            // Column may already exist, which is fine.
+            try? db.execute(sql: "ALTER TABLE track ADD COLUMN genre_id INTEGER REFERENCES genre(id) ON DELETE SET NULL")
 
             // Migration: Populate genre table from existing track.genre values
             do {
@@ -587,8 +508,6 @@ class DatabaseManager: @unchecked Sendable {
                     WHERE genre IS NOT NULL AND TRIM(genre) <> '' AND genre_id IS NULL
                 """)
 
-                let genreCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM genre") ?? 0
-                print("✅ Database: Populated genre table with \(genreCount) distinct genres")
             } catch {
                 print("⚠️ Database migration: Genre table population failed: \(error)")
             }
@@ -596,9 +515,8 @@ class DatabaseManager: @unchecked Sendable {
             // Create index on genre_id if not exists
             do {
                 try db.execute(sql: "CREATE INDEX IF NOT EXISTS idx_track_genre_id ON track(genre_id)")
-                print("✅ Database: Created idx_track_genre_id index")
             } catch {
-                print("ℹ️ Database migration: idx_track_genre_id creation failed: \(error)")
+                // Index creation failure is non-fatal; ignore.
             }
         }
     }
@@ -628,7 +546,6 @@ class DatabaseManager: @unchecked Sendable {
                     )
                     // Delete the duplicate
                     try Track.filter(Column("id") == duplicate.id).deleteAll(db)
-                    print("🗑️ Removed duplicate track with old stable_id: \(duplicate.stableId)")
                 }
             }
 
@@ -836,9 +753,7 @@ class DatabaseManager: @unchecked Sendable {
     }
 
     func deduplicatePlaylistItems() throws {
-        print("🔍 Checking for duplicate playlist items...")
-
-        let removedCount = try write { db in
+        _ = try write { db in
             let playlists = try Playlist.fetchAll(db)
             var totalRemoved = 0
 
@@ -875,8 +790,6 @@ class DatabaseManager: @unchecked Sendable {
                 }
 
                 if itemsToRemove.count > 0 {
-                    print("✅ Removed \(itemsToRemove.count) duplicate items from playlist '\(playlist.title)'")
-
                     // Reorder remaining items to fill gaps
                     let remainingItems = try PlaylistItem
                         .filter(Column("playlist_id") == playlistId)
@@ -894,34 +807,23 @@ class DatabaseManager: @unchecked Sendable {
 
             return totalRemoved
         }
-
-        if removedCount > 0 {
-            print("✅ Removed \(removedCount) duplicate playlist items across all playlists")
-        } else {
-            print("✅ No duplicate playlist items found")
-        }
     }
 
     func cleanupOrphanedPlaylistItems() throws {
-        print("🧹 Cleaning up orphaned playlist items...")
-
         // SAFETY CHECK: Verify database is healthy before cleanup
         let trackCount = try read { db in
             try Track.fetchCount(db)
         }
 
         if trackCount == 0 {
-            print("⚠️ SAFETY: Skipping playlist cleanup - no tracks in database (possible database error)")
-            print("⚠️ This prevents accidental deletion of all playlist items")
+            print("⚠️ Skipping playlist cleanup - no tracks in db, or db error (prevents accidental deletion of playlist items)")
             return
         }
 
-        let deletedCount = try write { db in
+        _ = try write { db in
             // Get all playlist items
             let allItems = try PlaylistItem.fetchAll(db)
             var orphanedCount = 0
-
-            print("🔍 Checking \(allItems.count) playlist items against \(trackCount) tracks")
 
             for item in allItems {
                 // Check if track still exists
@@ -933,37 +835,21 @@ class DatabaseManager: @unchecked Sendable {
                         .filter(Column("playlist_id") == item.playlistId && Column("track_stable_id") == item.trackStableId)
                         .deleteAll(db)
                     orphanedCount += 1
-                    print("🗑️ Removed orphaned playlist item: \(item.trackStableId)")
                 }
             }
 
             return orphanedCount
         }
-
-        if deletedCount > 0 {
-            print("✅ Cleaned up \(deletedCount) orphaned playlist items")
-        } else {
-            print("✅ No orphaned playlist items found")
-        }
     }
 
     func deleteTrack(byStableId stableId: String) throws {
-        print("🗃️ Database: Deleting track with stable ID - \(stableId)")
-        let deletedCount = try write { db in
+        _ = try write { db in
             // Remove from playlist items first
             let playlistItemsDeleted = try PlaylistItem.filter(Column("track_stable_id") == stableId).deleteAll(db)
-            if playlistItemsDeleted > 0 {
-                print("🗑️ Removed track from \(playlistItemsDeleted) playlist position(s)")
-            }
-
-            if playlistItemsDeleted > 0 {
-                print("🗃️ Database: Removed \(playlistItemsDeleted) playlist entries for track")
-            }
 
             // Delete the track
             return try Track.filter(Column("stable_id") == stableId).deleteAll(db)
         }
-        print("🗃️ Database: Deleted \(deletedCount) track(s)")
 
         // Clean up orphaned albums, artists, and genres after track deletion
         try cleanupOrphanedAlbums()
@@ -1060,7 +946,6 @@ class DatabaseManager: @unchecked Sendable {
     }
 
     func addToPlaylist(playlistId: Int64, trackStableId: String) throws {
-        print("🎵 Adding track \(trackStableId) to playlist \(playlistId)")
         try write { db in
             // Check if track is already in playlist
             let existingItem = try PlaylistItem
@@ -1080,13 +965,11 @@ class DatabaseManager: @unchecked Sendable {
                 .fetchOne(db) ?? 0
             
             let playlistItem = PlaylistItem(playlistId: playlistId, position: maxPosition + 1, trackStableId: trackStableId)
-            print("🎵 Creating playlist item with position \(maxPosition + 1)")
             try playlistItem.insert(db)
             let now = Int64(Date().timeIntervalSince1970)
             _ = try Playlist
                 .filter(Column("id") == playlistId)
                 .updateAll(db, Column("updated_at").set(to: now))
-            print("✅ Successfully added track to playlist")
         }
     }
     
@@ -1105,7 +988,6 @@ class DatabaseManager: @unchecked Sendable {
     }
 
     func reorderPlaylistItems(playlistId: Int64, from sourceIndex: Int, to destinationIndex: Int) throws {
-        print("🔄 Database: Reordering playlist items from \(sourceIndex) to \(destinationIndex)")
         try write { db in
             // Get all playlist items ordered by position
             let items = try PlaylistItem
@@ -1128,7 +1010,6 @@ class DatabaseManager: @unchecked Sendable {
 
             // Two-phase update to avoid UNIQUE constraint violations:
             // Phase 1: Shift all positions by +10000 (temporary offset)
-            print("🔄 Phase 1: Shifting positions to avoid conflicts")
             for (index, item) in mutableItems.enumerated() {
                 _ = try PlaylistItem
                     .filter(Column("playlist_id") == playlistId &&
@@ -1137,15 +1018,12 @@ class DatabaseManager: @unchecked Sendable {
             }
 
             // Phase 2: Set final positions
-            print("🔄 Phase 2: Setting final positions")
             for (index, item) in mutableItems.enumerated() {
                 _ = try PlaylistItem
                     .filter(Column("playlist_id") == playlistId &&
                            Column("track_stable_id") == item.trackStableId)
                     .updateAll(db, Column("position").set(to: index))
             }
-
-            print("✅ Successfully reordered playlist items")
         }
     }
 
@@ -1181,61 +1059,51 @@ class DatabaseManager: @unchecked Sendable {
     }
     
     func deletePlaylist(playlistId: Int64) throws {
-        print("🗑️ Database: Deleting playlist with ID - \(playlistId)")
-        let deletedCount = try write { db in
-            return try Playlist.filter(Column("id") == playlistId).deleteAll(db)
+        _ = try write { db in
+            try Playlist.filter(Column("id") == playlistId).deleteAll(db)
         }
-        print("🗑️ Database: Deleted \(deletedCount) playlist(s)")
     }
 
     func renamePlaylist(playlistId: Int64, newTitle: String) throws {
-        print("✏️ Database: Renaming playlist \(playlistId) to '\(newTitle)'")
         let now = Int64(Date().timeIntervalSince1970)
-        let updatedCount = try write { db in
-            return try Playlist
+        _ = try write { db in
+            try Playlist
                 .filter(Column("id") == playlistId)
                 .updateAll(db,
                     Column("title").set(to: newTitle),
                     Column("updated_at").set(to: now)
                 )
         }
-        print("✏️ Database: Updated \(updatedCount) playlist(s)")
     }
 
     func updatePlaylistAccessed(playlistId: Int64) throws {
-        print("⏰ Database: Updating playlist \(playlistId) last accessed time")
         let now = Int64(Date().timeIntervalSince1970)
-        let updatedCount = try write { db in
-            return try Playlist
+        _ = try write { db in
+            try Playlist
                 .filter(Column("id") == playlistId)
                 .updateAll(db, Column("updated_at").set(to: now))
         }
-        print("⏰ Database: Updated \(updatedCount) playlist(s)")
     }
     
     func updatePlaylistLastPlayed(playlistId: Int64) throws {
-        print("🎵 Database: Updating playlist \(playlistId) last played time")
         let now = Int64(Date().timeIntervalSince1970)
-        let updatedCount = try write { db in
-            return try Playlist
+        _ = try write { db in
+            try Playlist
                 .filter(Column("id") == playlistId)
                 .updateAll(db, Column("last_played_at").set(to: now))
         }
-        print("🎵 Database: Updated \(updatedCount) playlist(s) last played time")
     }
 
     func updatePlaylistCustomCover(playlistId: Int64, imagePath: String?) throws {
-        print("🎨 Database: Updating playlist \(playlistId) custom cover to '\(imagePath ?? "nil")'")
         let now = Int64(Date().timeIntervalSince1970)
-        let updatedCount = try write { db in
-            return try Playlist
+        _ = try write { db in
+            try Playlist
                 .filter(Column("id") == playlistId)
                 .updateAll(db,
                     Column("custom_cover_image_path").set(to: imagePath),
                     Column("updated_at").set(to: now)
                 )
         }
-        print("🎨 Database: Updated \(updatedCount) playlist(s) custom cover")
     }
 
     // MARK: - Play Count Operations

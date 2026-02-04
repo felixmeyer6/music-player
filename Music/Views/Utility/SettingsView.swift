@@ -160,10 +160,6 @@ struct SettingsView: View {
         Task {
             let processedCount = await ExternalImportManager.shared.importFiles(urls: urls)
 
-            if processedCount > 0, let onManualSync = onManualSync {
-                _ = await onManualSync()
-            }
-
             await MainActor.run {
                 isImporting = false
                 importAlertMessage = processedCount == 1 ? "1 track processed" : "\(processedCount) tracks processed"
@@ -177,10 +173,6 @@ struct SettingsView: View {
 
         Task {
             let processedCount = await ExternalImportManager.shared.importFolder(folderURL)
-
-            if processedCount > 0, let onManualSync = onManualSync {
-                _ = await onManualSync()
-            }
 
             await MainActor.run {
                 isImporting = false

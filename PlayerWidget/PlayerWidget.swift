@@ -1,4 +1,4 @@
-//  Now Playing Widget for Cosmos Music Player
+//  Now Playing Widget
 
 import WidgetKit
 import SwiftUI

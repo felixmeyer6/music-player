@@ -4,6 +4,7 @@ import Foundation
 import UIKit
 import CloudKit
 
+@MainActor
 class TutorialViewModel: ObservableObject {
     @Published var currentStep: Int = 0
     @Published var isSignedIntoAppleID: Bool = false
@@ -27,7 +28,6 @@ class TutorialViewModel: ObservableObject {
             queue: .main
         ) { _ in
             Task { @MainActor [weak self] in
-                print("📱 iCloud Drive status changed - rechecking...")
                 self?.checkiCloudDriveStatus()
             }
         }
@@ -39,7 +39,6 @@ class TutorialViewModel: ObservableObject {
             queue: .main
         ) { _ in
             Task { @MainActor [weak self] in
-                print("📱 CloudKit account status changed - rechecking...")
                 self?.checkAppleIDStatus()
             }
         }
@@ -75,7 +74,6 @@ class TutorialViewModel: ObservableObject {
                 case .available:
                     self.isSignedIntoAppleID = true
                     self.appleIDDetectionFailed = false
-                    print("📱 Apple ID check: ✅ Confirmed signed into iCloud (CloudKit)")
 
                 case .noAccount:
                     self.isSignedIntoAppleID = false
@@ -117,7 +115,6 @@ class TutorialViewModel: ObservableObject {
         if hasIdentityToken || hasContainerAccess {
             isSignedIntoAppleID = true
             appleIDDetectionFailed = false
-            print("📱 Apple ID check: ✅ Fallback detection successful")
         } else {
             isSignedIntoAppleID = false
             appleIDDetectionFailed = true
@@ -132,13 +129,10 @@ class TutorialViewModel: ObservableObject {
         let hasIdentityToken = FileManager.default.ubiquityIdentityToken != nil
         let hasContainerAccess = FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
         
-        print("📱 iCloud Drive check: Identity token: \(hasIdentityToken), Container access: \(hasContainerAccess)")
-        
         if hasIdentityToken {
             // Identity token exists - iCloud Drive document storage is definitely enabled
             isiCloudDriveEnabled = true
             iCloudDetectionFailed = false
-            print("📱 iCloud Drive check: ✅ Confirmed enabled (identity token present)")
             
         } else if hasContainerAccess {
             // Has container URL but no identity token
@@ -176,7 +170,6 @@ class TutorialViewModel: ObservableObject {
             // If we can access and create directories, iCloud Drive is working
             isiCloudDriveEnabled = true
             iCloudDetectionFailed = false
-            print("📱 iCloud Drive check: ✅ Enabled (verified write access)")
             
         } catch {
             // Cannot write to container - iCloud Drive is likely disabled for this app

@@ -265,7 +265,7 @@ class ShareViewController: SLComposeServiceViewController {
     }
     
     private func openMainApp() {
-        guard let url = URL(string: "cosmos-music://refresh") else {
+        guard let url = URL(string: "neofx-music://refresh") else {
             print("❌ Failed to create URL for main app")
             return
         }

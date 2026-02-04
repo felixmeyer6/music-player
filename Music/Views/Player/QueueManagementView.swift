@@ -89,9 +89,6 @@ struct QueueManagementView: View {
                 }
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundColorChanged"))) { _ in
-            settings = DeleteSettings.load()
-        }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             settings = DeleteSettings.load()
         }
@@ -236,9 +233,6 @@ struct QueueTrackRow: View {
             if artworkImage == nil {
                 loadArtwork()
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("BackgroundColorChanged"))) { _ in
-            settings = DeleteSettings.load()
         }
     }
     

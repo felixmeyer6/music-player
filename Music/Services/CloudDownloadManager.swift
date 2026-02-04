@@ -62,7 +62,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
             if !isQueryRunning {
                 query.start()
                 isQueryRunning = true
-                print("▶️ Restarted NSMetadataQuery after authentication restored")
             }
         }
     }
@@ -72,7 +71,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
         // Reset failure count if enough time has passed since last failure
         if let lastFailure = lastFailureTime, Date().timeIntervalSince(lastFailure) > failureResetTime {
             consecutiveFailures = 0
-            print("🔄 Resetting failure count after \(Int(failureResetTime/60)) minutes")
         }
         
         consecutiveFailures += 1
@@ -95,13 +93,11 @@ class CloudDownloadManager: NSObject, ObservableObject {
         if consecutiveFailures > 0 {
             consecutiveFailures = 0
             lastFailureTime = nil
-            print("✅ Reset iCloud failure count - successful operation detected")
         }
     }
     
     @MainActor
     func attemptRecovery() {
-        print("🔄 Attempting recovery from offline mode...")
         hasDetectedSystematicFailure = false
         consecutiveFailures = 0
         lastFailureTime = nil
@@ -184,9 +180,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
             return 
         }
         
-        print("🔍 NSMetadataQuery update - resultCount: \(query.resultCount)")
-        print("📋 Currently tracking downloads for: \(downloadingFiles.map { $0.lastPathComponent })")
-        
         query.disableUpdates()
         defer { query.enableUpdates() }
         
@@ -203,41 +196,31 @@ class CloudDownloadManager: NSObject, ObservableObject {
                 continue 
             }
             
-            print("📁 NSMetadataQuery found file: \(url.lastPathComponent)")
-            
             // Only process files we're tracking for download
             guard downloadingFiles.contains(url) else { 
-                print("⏭️ Not tracking download for: \(url.lastPathComponent)")
                 continue 
             }
             
-            print("🎯 Processing tracked file: \(url.lastPathComponent)")
-            
             // Check download status
             if let status = item.value(forAttribute: NSMetadataUbiquitousItemDownloadingStatusKey) as? URLUbiquitousItemDownloadingStatus {
-                print("📊 NSMetadataQuery status for \(url.lastPathComponent): \(status)")
-                
                 switch status {
                     case .current:
                         // Download complete
                         downloadProgress[url] = 1.0
                         downloadingFiles.remove(url)
                         downloadTasks.removeValue(forKey: url)
-                        print("✅ Download complete via NSMetadataQuery: \(url.lastPathComponent)")
                         
                     case .downloaded:
                         // Downloaded but may not be current
                         downloadProgress[url] = 1.0
                         downloadingFiles.remove(url)
                         downloadTasks.removeValue(forKey: url)
-                        print("✅ Download finished via NSMetadataQuery: \(url.lastPathComponent)")
                         
                     case .notDownloaded:
                         // Get actual download progress
                         if let progress = item.value(forAttribute: NSMetadataUbiquitousItemPercentDownloadedKey) as? NSNumber {
                             let progressValue = progress.doubleValue / 100.0
                             downloadProgress[url] = progressValue
-                            print("📈 Real download progress: \(url.lastPathComponent) - \(Int(progressValue * 100))%")
                         } else {
                             print("⚠️ No progress percentage available for: \(url.lastPathComponent)")
                             // Set a small progress value to show download is happening
@@ -260,14 +243,10 @@ class CloudDownloadManager: NSObject, ObservableObject {
     
         
     func ensureLocal(_ url: URL) async throws {
-        print("🔍 ensureLocal called for: \(url.lastPathComponent)")
-        
         guard FileManager.default.fileExists(atPath: url.path) else {
             print("❌ File does not exist: \(url.lastPathComponent)")
             throw CloudDownloadError.fileNotFound
         }
-        
-        print("✅ File exists: \(url.lastPathComponent)")
         
         // Early check for iCloud authentication issues or systematic failures - prevent ANY iCloud operations
         if AppCoordinator.shared.iCloudStatus == .authenticationRequired || !AppCoordinator.shared.isiCloudAvailable || hasDetectedSystematicFailure {
@@ -277,23 +256,19 @@ class CloudDownloadManager: NSObject, ObservableObject {
                 print("❌ File is not readable and iCloud unavailable: \(url.lastPathComponent)")
                 throw CloudDownloadError.fileNotFound
             }
-            print("✅ File ensured local (offline mode): \(url.lastPathComponent)")
             return
         }
         
         // Check if this is an iCloud file that needs downloading
         if isUbiquitous(url) {
-            print("☁️ File is ubiquitous: \(url.lastPathComponent)")
             do {
                 let resourceValues = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
                 
                 if let downloadStatus = resourceValues.ubiquitousItemDownloadingStatus {
-                    print("📊 Download status for \(url.lastPathComponent): \(downloadStatus)")
                     switch downloadStatus {
                     case .notDownloaded:
                         // Check if file is already readable locally (cached/downloaded but not current)
                         if FileManager.default.isReadableFile(atPath: url.path) {
-                            print("✅ File is readable locally despite notDownloaded status: \(url.lastPathComponent)")
                             resetFailureCount() // Success case
                             return
                         }
@@ -304,7 +279,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                         
                         // If we haven't reached systematic failure threshold yet, try to start download
                         if !hasDetectedSystematicFailure {
-                            print("🔽 Attempting to download file: \(url.lastPathComponent)")
                             await startDownload(url)
                             return
                         } else {
@@ -313,18 +287,15 @@ class CloudDownloadManager: NSObject, ObservableObject {
                         }
                         
                     case .downloaded:
-                        print("✅ File already downloaded: \(url.lastPathComponent)")
                         resetFailureCount() // Success case
                         return
                     case .current:
-                        print("✅ File is current: \(url.lastPathComponent)")
                         resetFailureCount() // Success case
                         return
                     default:
                         print("⚠️ Unknown download status for \(url.lastPathComponent): \(downloadStatus)")
                         // Check if file is readable despite unknown status
                         if FileManager.default.isReadableFile(atPath: url.path) {
-                            print("✅ File is readable despite unknown status: \(url.lastPathComponent)")
                             resetFailureCount()
                             return
                         }
@@ -338,7 +309,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                     print("⚠️ No download status available - checking if file is readable")
                     // Check if file is readable despite missing status
                     if FileManager.default.isReadableFile(atPath: url.path) {
-                        print("✅ File is readable despite missing download status: \(url.lastPathComponent)")
                         resetFailureCount()
                         return
                     }
@@ -356,17 +326,14 @@ class CloudDownloadManager: NSObject, ObservableObject {
                 // Check if this is an authentication error
                 if let nsError = error as NSError? {
                     if nsError.domain == NSPOSIXErrorDomain && nsError.code == 81 {
-                        print("🔐 iCloud authentication required - throwing specific error")
                         throw CloudDownloadError.authenticationRequired
                     } else if nsError.domain == NSCocoaErrorDomain && (nsError.code == 256 || nsError.code == 257) {
-                        print("🚫 iCloud access denied - throwing specific error")
                         throw CloudDownloadError.accessDenied
                     }
                 }
                 
                 // Check if file is locally readable before detecting failure
                 if FileManager.default.isReadableFile(atPath: url.path) {
-                    print("✅ File is readable despite iCloud error: \(url.lastPathComponent)")
                     resetFailureCount()
                     return
                 }
@@ -382,8 +349,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                 
                 return
             }
-        } else {
-            print("📁 File is local (not iCloud): \(url.lastPathComponent)")
         }
         
         // For non-iCloud files, just check if readable
@@ -391,14 +356,11 @@ class CloudDownloadManager: NSObject, ObservableObject {
             print("❌ File is not readable: \(url.lastPathComponent)")
             throw CloudDownloadError.fileNotFound
         }
-        
-        print("✅ File is readable: \(url.lastPathComponent)")
     }
     
     @MainActor
     private func startDownload(_ url: URL) async {
         guard !downloadingFiles.contains(url) else { 
-            print("⏭️ Already downloading: \(url.lastPathComponent)")
             return 
         }
         
@@ -417,36 +379,29 @@ class CloudDownloadManager: NSObject, ObservableObject {
                     if let status = resourceValues.ubiquitousItemDownloadingStatus {
                         switch status {
                         case .current, .downloaded:
-                            print("✅ File already downloaded and readable - skipping: \(url.lastPathComponent)")
                             resetFailureCount()
                             return
                         case .notDownloaded:
-                            print("🔽 File needs downloading despite being readable: \(url.lastPathComponent)")
                             break // Continue with download
                         default:
-                            print("🔽 Unknown status - will attempt download: \(url.lastPathComponent)")
                             break // Continue with download
                         }
                     } else {
-                        print("✅ File is readable, assuming already available: \(url.lastPathComponent)")
                         resetFailureCount()
                         return
                     }
                 } catch {
-                    print("✅ File is readable despite status check error - skipping download: \(url.lastPathComponent)")
                     resetFailureCount()
                     return
                 }
             } else {
-                print("✅ Local file already readable - skipping download: \(url.lastPathComponent)")
                 return
             }
         } else {
             print("🚫 File not found or not readable: \(url.lastPathComponent)")
             return
         }
-        
-        print("🔽 Starting download for: \(url.lastPathComponent)")
+
         downloadingFiles.insert(url)
         downloadProgress[url] = 0.0
         
@@ -454,8 +409,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
             // Start downloading the iCloud file
             if isUbiquitous(url) {
                 try FileManager.default.startDownloadingUbiquitousItem(at: url)
-                print("📡 Initiated iCloud download for: \(url.lastPathComponent)")
-                print("🎯 NSMetadataQuery will now track real progress...")
                 
                 // Start a fallback progress monitor in case NSMetadataQuery doesn't work
                 startFallbackProgressMonitor(url)
@@ -495,8 +448,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                     let resourceValues = try url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey])
                     
                     if let status = resourceValues.ubiquitousItemDownloadingStatus {
-                        print("🔄 Fallback check - \(url.lastPathComponent): \(status)")
-                        
                         switch status {
                         case .current, .downloaded:
                             await MainActor.run {
@@ -504,7 +455,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                                 downloadingFiles.remove(url)
                                 downloadTasks.removeValue(forKey: url)
                             }
-                            print("✅ Download complete via fallback: \(url.lastPathComponent)")
                             return
                             
                         case .notDownloaded:
@@ -513,7 +463,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                             await MainActor.run {
                                 downloadProgress[url] = progress
                             }
-                            print("⏳ Fallback progress: \(url.lastPathComponent) - \(Int(progress * 100))%")
                             
                         default:
                             break
@@ -572,7 +521,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
         if isUbiquitous(url) {
             // Note: There's no direct API to cancel iCloud downloads
             // The system manages this automatically
-            print("🚫 Cancelled download for: \(url.lastPathComponent)")
         }
     }
     
@@ -589,7 +537,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
                 
                 if let status = resourceValues.ubiquitousItemDownloadingStatus {
                     let isDownloaded = status == .downloaded || status == .current
-                    print("📋 File \(url.lastPathComponent) download status: \(status), isDownloaded: \(isDownloaded)")
                     return isDownloaded
                 }
                 
@@ -603,7 +550,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
         
         // For local files, just check if readable
         let isReadable = FileManager.default.isReadableFile(atPath: url.path)
-        print("📄 Local file \(url.lastPathComponent) isReadable: \(isReadable)")
         return isReadable
     }
     
@@ -611,7 +557,6 @@ class CloudDownloadManager: NSObject, ObservableObject {
         do {
             let resourceValues = try url.resourceValues(forKeys: [.isUbiquitousItemKey])
             let isUbiquitous = resourceValues.isUbiquitousItem ?? false
-            print("🔍 File \(url.lastPathComponent) isUbiquitous: \(isUbiquitous)")
             return isUbiquitous
         } catch {
             print("❌ Error checking if file is ubiquitous: \(error)")

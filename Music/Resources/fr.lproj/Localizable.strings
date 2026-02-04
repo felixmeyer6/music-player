@@ -91,7 +91,7 @@
 "force_dark_mode" = "Mode sombre forcé";
 "version" = "Version";
 "app_name" = "Nom de l'app";
-"cosmos_music_player" = "Music";
+"music_player" = "Music";
 "github_repository" = "Dépôt GitHub";
 "use_simple_icons" = "Utilisez des icônes simples sans arrière-plans colorés dans les sections de la bibliothèque.";
 "override_system_appearance" = "Remplacer l'apparence du système et forcer l'application à utiliser le mode sombre.";
@@ -109,7 +109,7 @@
 "icloud_connection_required" = "Connexion iCloud requise";
 
 /* Tutorial/Onboarding */
-"welcome_to_cosmos" = "Bienvenue dans Musique";
+"welcome" = "Bienvenue dans Musique";
 "sign_in_to_apple_id" = "Se connecter à l'identifiant Apple";
 "sign_in_message" = "Pour synchroniser votre musique sur tous vos appareils, assurez-vous d'être connecté à votre identifiant Apple.";
 "if_signed_in_continue" = "Si vous êtes connecté, vous pouvez continuer";
@@ -120,7 +120,7 @@
 "how_to_add_music" = "Vous pouvez ajouter vos musiques soit dans iCloud (synchronisé sur vos appareils) ou localement :";
 "open_files_app" = "Ouvrir l'app Fichiers";
 "navigate_to_icloud_drive" = "Naviguer vers iCloud Drive";
-"find_cosmos_player_folder" = "Trouver le dossier Music";
+"find_music_player_folder" = "Trouver le dossier Music";
 "add_your_music_instruction" = "Ajoutez votre musique";
 
 /* Tutorial Status Messages */
@@ -134,7 +134,7 @@
 /* Tutorial Instructions */
 "find_open_files_app" = "Trouvez et ouvrez l'app Fichiers";
 "tap_icloud_drive_sidebar" = "Choisissez 'iCloud Drive' ou 'Sur mon iPhone' dans la barre latérale";
-"look_for_cosmos_folder" = "Trouvez le dossier 'Music' et ouvrez-le";
+"look_for_music_folder" = "Trouvez le dossier 'Music' et ouvrez-le";
 "copy_music_files" = "Copiez vos fichiers MP3 dans ce dossier";
 
 /* Library Processing */

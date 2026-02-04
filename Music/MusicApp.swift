@@ -60,31 +60,7 @@ struct MusicApp: App {
             if PlayerEngine.shared.isPlaying {
                 PlayerEngine.shared.startPlaybackTimer()
             }
-
-            // Check for new shared files and refresh library
-            await LibraryIndexer.shared.copyFilesFromSharedContainer()
-
-            // Only auto-scan if it's been a long time since last scan
-            if !LibraryIndexer.shared.isIndexing {
-                let settings = DeleteSettings.load()
-                if shouldPerformAutoScan(lastScanDate: settings.lastLibraryScanDate) {
-                    LibraryIndexer.shared.start()
-                }
-            }
         }
-    }
-
-    private func shouldPerformAutoScan(lastScanDate: Date?) -> Bool {
-        // If never scanned before, definitely scan
-        guard let lastScanDate = lastScanDate else {
-            return true
-        }
-
-        // Check if it's been more than 1 hour since last scan
-        let hoursSinceLastScan = Date().timeIntervalSince(lastScanDate) / 3600
-        let shouldScan = hoursSinceLastScan >= 1.0
-
-        return shouldScan
     }
     
     private func handleWillResignActive() {
@@ -99,7 +75,7 @@ struct MusicApp: App {
     }
     
     private func handleOpenURL(_ url: URL) {
-        guard url.scheme == "cosmos-music" else {
+        guard url.scheme == "neofx-music" else {
             print("❌ Unknown URL scheme: \(url.scheme ?? "nil")")
             return
         }
@@ -107,10 +83,7 @@ struct MusicApp: App {
         Task { @MainActor in
             switch url.host {
             case "refresh":
-                await LibraryIndexer.shared.copyFilesFromSharedContainer()
-                if !LibraryIndexer.shared.isIndexing {
-                    LibraryIndexer.shared.start()
-                }
+                break
 
             case "playlist":
                 // Extract playlist ID from path
@@ -146,7 +119,7 @@ struct MusicApp: App {
         }
         
         let documentsURL = iCloudURL.appendingPathComponent("Documents")
-        let placeholderURL = documentsURL.appendingPathComponent(".cosmos_placeholder")
+        let placeholderURL = documentsURL.appendingPathComponent(".neofx_placeholder")
         
         do {
             // Create Documents directory if it doesn't exist

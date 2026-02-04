@@ -294,6 +294,7 @@ struct CollectionDetailView: View {
     @ViewBuilder
     private func trackRow(for track: Track) -> some View {
         let isSelected = selectedTracks.contains(track.stableId)
+        let editModeTrailingCompensation: CGFloat = isEditMode ? -12 : 0
 
         HStack(spacing: 0) {
             // Bulk selection checkbox
@@ -319,6 +320,7 @@ struct CollectionDetailView: View {
                 },
                 playlist: playlist,
                 showDirectDeleteButton: isEditMode && onDelete != nil,
+                onDelete: onDelete,
                 onEnterBulkMode: { enterBulkMode(initialSelection: track.stableId) },
                 sortOption: selectedSort
             )
@@ -375,7 +377,7 @@ struct CollectionDetailView: View {
         }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets())
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: editModeTrailingCompensation))
     }
 
     // MARK: - Empty State
@@ -482,7 +484,7 @@ struct CollectionDetailView: View {
                 // Close filter button
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
-                        state.toggleFilter()
+                        state.resetFilters()
                     }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
