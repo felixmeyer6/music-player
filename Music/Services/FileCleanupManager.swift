@@ -2,7 +2,6 @@
 
 import Foundation
 import SwiftUI
-import CryptoKit
 
 @MainActor
 class FileCleanupManager: ObservableObject {
@@ -75,7 +74,7 @@ class FileCleanupManager: ObservableObject {
                 for fileURL in nonExistentFiles {
                     do {
                         let stableId = generateStableId(for: fileURL)
-                        if let track = try databaseManager.getTrack(byStableId: stableId) {
+                        if try databaseManager.getTrack(byStableId: stableId) != nil {
                             try databaseManager.deleteTrack(byStableId: stableId)
 
                             // Delete cached artwork for this track
@@ -213,7 +212,7 @@ class FileCleanupManager: ObservableObject {
 
         do {
             // Try to get file attributes - this tests basic access permissions
-            let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+            _ = try FileManager.default.attributesOfItem(atPath: fileURL.path)
 
             // For additional verification, try to actually read the file
             // This will catch cases where the file exists but is corrupted or inaccessible
@@ -243,10 +242,7 @@ class FileCleanupManager: ObservableObject {
     }
 
     private func generateStableId(for url: URL) -> String {
-        // Simple stable ID based only on filename - matches LibraryIndexer
-        let filename = url.lastPathComponent
-        let digest = SHA256.hash(data: filename.data(using: .utf8) ?? Data())
-        return digest.compactMap { String(format: "%02x", $0) }.joined()
+        StableIdGenerator.fromURL(url)
     }
 
     // MARK: - Artwork Cache Cleanup

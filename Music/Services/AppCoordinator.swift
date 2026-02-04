@@ -64,7 +64,7 @@ class AppCoordinator: ObservableObject {
 
         // Check if we should auto-scan based on last scan date
         var settings = DeleteSettings.load()
-        let shouldAutoScan = shouldPerformAutoScan(lastScanDate: settings.lastLibraryScanDate)
+        let shouldAutoScan = settings.lastLibraryScanDate == nil
 
         switch status {
         case .available:
@@ -125,27 +125,16 @@ class AppCoordinator: ObservableObject {
         isInitialized = true
     }
 
-    private func shouldPerformAutoScan(lastScanDate: Date?) -> Bool {
-        // If never scanned before, definitely scan
-        guard let lastScanDate = lastScanDate else {
-            return true
-        }
-
-        // Check if it's been more than 1 hour since last scan
-        // This prevents scanning when app was just backgrounded/resumed
-        let hoursSinceLastScan = Date().timeIntervalSince(lastScanDate) / 3600
-        let shouldScan = hoursSinceLastScan >= 1.0
-        return shouldScan
-    }
-    
     private func checkiCloudStatus() async -> iCloudStatus {
         // Check if user is signed into iCloud
         guard FileManager.default.ubiquityIdentityToken != nil else {
+            print("🔐 iCloud status: not signed in (ubiquityIdentityToken is nil)")
             return .notSignedIn
         }
         
         // Check if we can get the container URL
         guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) else {
+            print("🔐 iCloud status: container unavailable (url(forUbiquityContainerIdentifier:) returned nil)")
             return .containerUnavailable
         }
         
@@ -153,9 +142,11 @@ class AppCoordinator: ObservableObject {
         do {
             let resourceValues = try containerURL.resourceValues(forKeys: [.isUbiquitousItemKey])
             if resourceValues.isUbiquitousItem != true {
+                print("🔐 iCloud status: container is not a ubiquitous item")
                 return .containerUnavailable
             }
         } catch {
+            print("🔐 iCloud status: error checking container resource values: \(error)")
             return .error(error)
         }
         
@@ -169,8 +160,10 @@ class AppCoordinator: ObservableObject {
                                                      attributes: nil)
             }
             
+            print("✅ iCloud status: available")
             return .available
         } catch {
+            print("🔐 iCloud status: error creating/accessing app folder: \(error)")
             return .error(error)
         }
     }
@@ -187,11 +180,12 @@ class AppCoordinator: ObservableObject {
     
     private func setupBindings() {
         libraryIndexer.$isIndexing
+            .removeDuplicates()
+            .dropFirst() // ignore initial `false` emission before iCloud status is established
             .sink { [weak self] isIndexing in
-                if !isIndexing {
-                    Task { @MainActor in
-                        await self?.onIndexingCompleted()
-                    }
+                guard !isIndexing else { return }
+                Task { @MainActor in
+                    await self?.onIndexingCompleted()
                 }
             }
             .store(in: &cancellables)
@@ -271,7 +265,7 @@ class AppCoordinator: ObservableObject {
     private func restorePlaylistsFromiCloud() async {
         // Skip if iCloud is not available or authentication required
         guard isiCloudAvailable && iCloudStatus == .available else {
-            print("⚠️ Skipping playlist restoration - iCloud not available or authentication required")
+            print("⚠️ Skipping playlist restoration - iCloud not available or authentication required (status: \(iCloudStatus), available: \(isiCloudAvailable))")
             return
         }
         
@@ -368,7 +362,7 @@ class AppCoordinator: ObservableObject {
     private func retryPlaylistRestoration() async {
         // Skip if iCloud is not available or authentication required
         guard isiCloudAvailable && iCloudStatus == .available else {
-            print("⚠️ Skipping retry playlist restoration - iCloud not available or authentication required")
+            print("⚠️ Skipping retry playlist restoration - iCloud not available or authentication required (status: \(iCloudStatus), available: \(isiCloudAvailable))")
             return
         }
         

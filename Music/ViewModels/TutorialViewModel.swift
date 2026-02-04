@@ -2,7 +2,6 @@
 
 import Foundation
 import UIKit
-import CloudKit
 
 @MainActor
 class TutorialViewModel: ObservableObject {
@@ -28,18 +27,8 @@ class TutorialViewModel: ObservableObject {
             queue: .main
         ) { _ in
             Task { @MainActor [weak self] in
-                self?.checkiCloudDriveStatus()
-            }
-        }
-
-        // Monitor CloudKit account changes
-        NotificationCenter.default.addObserver(
-            forName: .CKAccountChanged,
-            object: nil,
-            queue: .main
-        ) { _ in
-            Task { @MainActor [weak self] in
                 self?.checkAppleIDStatus()
+                self?.checkiCloudDriveStatus()
             }
         }
     }
@@ -65,50 +54,7 @@ class TutorialViewModel: ObservableObject {
     }
     
     func checkAppleIDStatus() {
-        // Use Apple's recommended CloudKit approach for detecting iCloud sign-in status
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let accountStatus = try await CKContainer.default().accountStatus()
-                switch accountStatus {
-                case .available:
-                    self.isSignedIntoAppleID = true
-                    self.appleIDDetectionFailed = false
-
-                case .noAccount:
-                    self.isSignedIntoAppleID = false
-                    self.appleIDDetectionFailed = false
-                    print("📱 Apple ID check: ❌ Not signed into iCloud (CloudKit)")
-
-                case .restricted:
-                    self.isSignedIntoAppleID = false
-                    self.appleIDDetectionFailed = true
-                    print("📱 Apple ID check: ⚠️ iCloud access restricted (CloudKit)")
-
-                case .couldNotDetermine:
-                    self.isSignedIntoAppleID = false
-                    self.appleIDDetectionFailed = true
-                    print("📱 Apple ID check: ❓ Could not determine status (CloudKit)")
-
-                case .temporarilyUnavailable:
-                    self.isSignedIntoAppleID = false
-                    self.appleIDDetectionFailed = true
-                    print("📱 Apple ID check: ⏳ iCloud status temporarily unavailable (CloudKit)")
-
-                @unknown default:
-                    self.isSignedIntoAppleID = false
-                    self.appleIDDetectionFailed = true
-                    print("📱 Apple ID check: ❓ Unknown CloudKit status")
-                }
-            } catch {
-                print("📱 Apple ID check: ❓ CloudKit error: \(error.localizedDescription)")
-                self.fallbackAppleIDCheck()
-            }
-        }
-    }
-    
-    private func fallbackAppleIDCheck() {
-        // Fallback to FileManager approach if CloudKit fails
+        // FileManager-based check (no CloudKit dependency)
         let hasIdentityToken = FileManager.default.ubiquityIdentityToken != nil
         let hasContainerAccess = FileManager.default.url(forUbiquityContainerIdentifier: nil) != nil
         
@@ -118,7 +64,7 @@ class TutorialViewModel: ObservableObject {
         } else {
             isSignedIntoAppleID = false
             appleIDDetectionFailed = true
-            print("📱 Apple ID check: ❓ Fallback detection failed")
+            print("📱 Apple ID check: ❓ FileManager detection failed")
         }
     }
     

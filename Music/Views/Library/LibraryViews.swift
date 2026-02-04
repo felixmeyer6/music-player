@@ -304,34 +304,22 @@ struct LibraryView: View {
                     }
                 }
                 
-                // Hidden NavigationLink for programmatic navigation from player
-                NavigationLink(
-                    destination: artistToNavigate.map { artist in
-                        ArtistDetailScreenWrapper(artistName: artist.name, allTracks: artistAllTracks)
-                    },
-                    isActive: Binding(
-                        get: { artistToNavigate != nil },
-                        set: { if !$0 { artistToNavigate = nil } }
-                    )
-                ) {
-                    EmptyView()
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { artistToNavigate != nil },
+                set: { if !$0 { artistToNavigate = nil } }
+            )) {
+                if let artist = artistToNavigate {
+                    ArtistDetailScreenWrapper(artistName: artist.name, allTracks: artistAllTracks)
                 }
-                .hidden()
-                
-                // Hidden NavigationLink for album navigation from player
-                NavigationLink(
-                    destination: albumToNavigate.map { album in
-                        AlbumDetailScreen(album: album, allTracks: albumAllTracks)
-                    },
-                    isActive: Binding(
-                        get: { albumToNavigate != nil },
-                        set: { if !$0 { albumToNavigate = nil } }
-                    )
-                ) {
-                    EmptyView()
+            }
+            .navigationDestination(isPresented: Binding(
+                get: { albumToNavigate != nil },
+                set: { if !$0 { albumToNavigate = nil } }
+            )) {
+                if let album = albumToNavigate {
+                    AlbumDetailScreen(album: album, allTracks: albumAllTracks)
                 }
-                .hidden()
-                
             }
             .navigationDestination(isPresented: Binding(
                 get: { searchArtistToNavigate != nil },
@@ -1375,7 +1363,10 @@ struct MusicFilePicker: UIViewControllerRepresentable {
         
         deinit {
             // Ensure delegate is cleared on deallocation
-            picker?.delegate = nil
+            let picker = picker
+            Task { @MainActor in
+                picker?.delegate = nil
+            }
         }
         
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
@@ -1424,7 +1415,10 @@ struct MusicFolderPicker: UIViewControllerRepresentable {
         }
 
         deinit {
-            picker?.delegate = nil
+            let picker = picker
+            Task { @MainActor in
+                picker?.delegate = nil
+            }
         }
 
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {

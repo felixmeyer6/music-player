@@ -1,7 +1,6 @@
 //  Runs heavy library indexing work off the main actor
 
 import Foundation
-import CryptoKit
 import AVFoundation
 
 enum LibraryIndexerError: Error {
@@ -254,9 +253,7 @@ actor LibraryIndexingActor {
     }
 
     nonisolated static func generateStableId(for url: URL) throws -> String {
-        let filename = url.lastPathComponent
-        let digest = SHA256.hash(data: filename.data(using: .utf8) ?? Data())
-        return digest.compactMap { String(format: "%02x", $0) }.joined()
+        StableIdGenerator.fromURL(url)
     }
 
     // MARK: - Internal helpers

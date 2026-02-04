@@ -2,6 +2,41 @@
 
 import Foundation
 import UIKit
+import CoreFoundation
+
+// MARK: - App Group Preferences (Current User)
+private final class AppGroupUserDefaults {
+    private let appID: CFString
+    private let user: CFString = kCFPreferencesCurrentUser
+    private let host: CFString = kCFPreferencesCurrentHost
+
+    init?(suiteName: String) {
+        guard FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: suiteName) != nil else {
+            return nil
+        }
+        self.appID = suiteName as CFString
+    }
+
+    func data(forKey key: String) -> Data? {
+        guard let value = CFPreferencesCopyValue(key as CFString, appID, user, host) else {
+            return nil
+        }
+        return value as? Data
+    }
+
+    func set(_ value: Data, forKey key: String) {
+        CFPreferencesSetValue(key as CFString, value as CFData, appID, user, host)
+    }
+
+    func removeObject(forKey key: String) {
+        CFPreferencesSetValue(key as CFString, nil, appID, user, host)
+    }
+
+    @discardableResult
+    func synchronize() -> Bool {
+        return CFPreferencesAppSynchronize(appID)
+    }
+}
 
 // MARK: - Widget Track Data
 struct WidgetTrackData: Codable {
@@ -26,13 +61,13 @@ struct WidgetTrackData: Codable {
 final class WidgetDataManager: @unchecked Sendable {
     static let shared = WidgetDataManager()
     
-    private let userDefaults: UserDefaults?
+    private let userDefaults: AppGroupUserDefaults?
     private let currentTrackKey = "widget.currentTrack"
     private let artworkFileName = "widget_artwork.jpg"
     
     private init() {
         // Use App Group to share data between app and widget
-        userDefaults = UserDefaults(suiteName: "group.dev.neofx.music-player")
+        userDefaults = AppGroupUserDefaults(suiteName: "group.dev.neofx.music-player")
     }
     
     // MARK: - Track Data (without artwork to avoid 4MB limit)
@@ -162,11 +197,11 @@ public struct WidgetPlaylistData: Codable {
 public final class PlaylistDataManager: @unchecked Sendable {
     public static let shared = PlaylistDataManager()
 
-    private let userDefaults: UserDefaults?
+    private let userDefaults: AppGroupUserDefaults?
     private let playlistsKey = "widget.playlists"
 
     private init() {
-        userDefaults = UserDefaults(suiteName: "group.dev.neofx.music-player")
+        userDefaults = AppGroupUserDefaults(suiteName: "group.dev.neofx.music-player")
     }
 
     public func savePlaylists(_ playlists: [WidgetPlaylistData]) {

@@ -67,11 +67,100 @@ struct MusicApp: App {
         // Re-assert the session as we background - no mixWithOthers in background
         do {
             let s = AVAudioSession.sharedInstance()
-            try s.setCategory(.playback, mode: .default, options: []) // no mixWithOthers in bg
-            try s.setActive(true, options: [])
+            let appState = appStateSummary()
+            let thread = Thread.isMainThread ? "main" : "bg"
+            let queue = currentQueueLabel()
+            let desiredOptions = describeCategoryOptions([])
+            print("🔎 AudioSession setCategory attempt reason=handleWillResignActive desired=\(AVAudioSession.Category.playback.rawValue)/\(AVAudioSession.Mode.default.rawValue) options=\(desiredOptions) appState=\(appState) thread=\(thread) queue=\(queue)")
+            do {
+                try s.setCategory(.playback, mode: .default, options: []) // no mixWithOthers in bg
+            } catch {
+                let nsError = error as NSError
+                print("❌ Audio session setCategory failed reason=handleWillResignActive (domain: \(nsError.domain), code: \(nsError.code))")
+                logAudioSessionState("handleWillResignActive setCategory failed", s)
+                let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+                print("🔎 AudioSession setCategory call stack (handleWillResignActive): \(stack)")
+                throw error
+            }
+
+            print("🔎 AudioSession setActive attempt reason=handleWillResignActive appState=\(appState) thread=\(thread) queue=\(queue)")
+            do {
+                try s.setActive(true, options: [])
+            } catch {
+                let nsError = error as NSError
+                print("❌ Audio session setActive failed reason=handleWillResignActive (domain: \(nsError.domain), code: \(nsError.code))")
+                logAudioSessionState("handleWillResignActive setActive failed", s)
+                let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+                print("🔎 AudioSession setActive call stack (handleWillResignActive): \(stack)")
+                throw error
+            }
         } catch { 
             print("❌ Session keepalive fail:", error) 
         }
+    }
+
+    private func describeCategoryOptions(_ options: AVAudioSession.CategoryOptions) -> String {
+        if options.isEmpty { return "[]" }
+        var parts: [String] = []
+        if options.contains(.mixWithOthers) { parts.append("mixWithOthers") }
+        if options.contains(.duckOthers) { parts.append("duckOthers") }
+        if options.contains(.interruptSpokenAudioAndMixWithOthers) { parts.append("interruptSpokenAudioAndMix") }
+        if options.contains(.allowBluetoothHFP) { parts.append("allowBluetoothHFP") }
+        if options.contains(.allowBluetoothA2DP) { parts.append("allowBluetoothA2DP") }
+        if options.contains(.allowAirPlay) { parts.append("allowAirPlay") }
+        if options.contains(.defaultToSpeaker) { parts.append("defaultToSpeaker") }
+        if #available(iOS 14.5, *) {
+            if options.contains(.overrideMutedMicrophoneInterruption) { parts.append("overrideMutedMicInterruption") }
+        }
+        return "[\(parts.joined(separator: ","))]"
+    }
+
+    private func appStateSummary() -> String {
+        switch UIApplication.shared.applicationState {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func currentQueueLabel() -> String {
+        let label = String(cString: __dispatch_queue_get_label(nil), encoding: .utf8)
+        return label ?? "unknown"
+    }
+
+    private func logAudioSessionState(_ label: String, _ session: AVAudioSession = .sharedInstance()) {
+        let outputs = session.currentRoute.outputs
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
+            .joined(separator: ", ")
+        let inputs = session.currentRoute.inputs
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
+            .joined(separator: ", ")
+        let availableInputs = session.availableInputs?
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
+            .joined(separator: ", ") ?? "none"
+        let preferredInput = session.preferredInput
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" } ?? "none"
+
+        let category = session.category.rawValue
+        let mode = session.mode.rawValue
+        let options = describeCategoryOptions(session.categoryOptions)
+        let sampleRate = String(format: "%.0f", session.sampleRate)
+        let ioBuffer = String(format: "%.3f", session.ioBufferDuration)
+        let preferredSampleRate = String(format: "%.0f", session.preferredSampleRate)
+        let preferredIOBuffer = String(format: "%.3f", session.preferredIOBufferDuration)
+        let outputVolume = String(format: "%.2f", session.outputVolume)
+        let otherAudio = session.isOtherAudioPlaying
+        let shouldSilence = session.secondaryAudioShouldBeSilencedHint
+        let appState = appStateSummary()
+        let thread = Thread.isMainThread ? "main" : "bg"
+        let queue = currentQueueLabel()
+
+        print("🔎 AudioSession \(label): category=\(category) mode=\(mode) options=\(options) sr=\(sampleRate)Hz prefSR=\(preferredSampleRate)Hz ioBuffer=\(ioBuffer)s prefIO=\(preferredIOBuffer)s volume=\(outputVolume) otherAudio=\(otherAudio) secondaryShouldSilence=\(shouldSilence) appState=\(appState) thread=\(thread) queue=\(queue) outputs=\(outputs.isEmpty ? "none" : outputs) inputs=\(inputs.isEmpty ? "none" : inputs) availInputs=\(availableInputs) preferredInput=\(preferredInput)")
     }
     
     private func handleOpenURL(_ url: URL) {
@@ -93,7 +182,7 @@ struct MusicApp: App {
                 if let playlistIdInt = Int64(playlistId) {
                     do {
                         let playlists = try DatabaseManager.shared.getAllPlaylists()
-                        if let playlist = playlists.first(where: { $0.id == playlistIdInt }) {
+                        if playlists.contains(where: { $0.id == playlistIdInt }) {
                             // Post notification to navigate to playlist
                             NotificationCenter.default.post(
                                 name: NSNotification.Name("NavigateToPlaylist"),

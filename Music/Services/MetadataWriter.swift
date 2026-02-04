@@ -44,44 +44,32 @@ final class MetadataWriter: @unchecked Sendable {
 
         do {
             // Read existing tags first to preserve other metadata
-            var id3Tag: ID3Tag
-            if let existingTag = try id3TagEditor.read(from: track.path) {
-                id3Tag = existingTag
-            } else {
-                // Create new tag if none exists
-                id3Tag = ID32v3TagBuilder().build()
-            }
-
-            // Build new tag with updated metadata
-            var builder = ID32v3TagBuilder()
+            let id3Tag = try id3TagEditor.read(from: track.path) ?? ID32v3TagBuilder().build()
 
             // Title
-            builder = builder.title(frame: ID3FrameWithStringContent(content: track.title))
+            id3Tag.frames[.title] = ID3FrameWithStringContent(content: track.title)
 
             // Artist
             if let artistName = artistName, !artistName.isEmpty {
-                builder = builder.artist(frame: ID3FrameWithStringContent(content: artistName))
+                id3Tag.frames[.artist] = ID3FrameWithStringContent(content: artistName)
             }
 
             // Album
             if let albumName = albumName, !albumName.isEmpty {
-                builder = builder.album(frame: ID3FrameWithStringContent(content: albumName))
+                id3Tag.frames[.album] = ID3FrameWithStringContent(content: albumName)
             }
 
             // Genre
             if let genreName = genreName, !genreName.isEmpty {
-                builder = builder.genre(frame: ID3FrameGenre(genre: nil, description: genreName))
+                id3Tag.frames[.genre] = ID3FrameGenre(genre: nil, description: genreName)
             }
 
             // Rating (convert 1-5 scale to POPM format: 1=1, 2=64, 3=128, 4=196, 5=255)
             // Note: ID3TagEditor may not support POPM directly, so we skip rating for now
 
-            let newTag = builder.build()
-
             // Write the tag to file
-            try id3TagEditor.write(tag: newTag, to: track.path)
+            try id3TagEditor.write(tag: id3Tag, to: track.path)
             return true
-
         } catch {
             print("❌ MetadataWriter: Failed to write metadata: \(error)")
             return false

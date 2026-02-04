@@ -33,7 +33,7 @@ class ShareViewController: SLComposeServiceViewController {
                 continue
             }
 
-            for (attachmentIndex, attachment) in attachments.enumerated() {
+            for attachment in attachments {
                 if isAudioFile(attachment) {
                     group.enter()
                     copyAudioFile(attachment) {

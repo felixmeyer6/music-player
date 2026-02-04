@@ -845,7 +845,7 @@ class DatabaseManager: @unchecked Sendable {
     func deleteTrack(byStableId stableId: String) throws {
         _ = try write { db in
             // Remove from playlist items first
-            let playlistItemsDeleted = try PlaylistItem.filter(Column("track_stable_id") == stableId).deleteAll(db)
+            _ = try PlaylistItem.filter(Column("track_stable_id") == stableId).deleteAll(db)
 
             // Delete the track
             return try Track.filter(Column("stable_id") == stableId).deleteAll(db)

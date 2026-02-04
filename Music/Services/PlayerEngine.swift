@@ -1,6 +1,7 @@
 //  Audio playback engine using AVAudioEngine
 
 import Foundation
+@preconcurrency import AVFAudio
 import AVFoundation
 import Combine
 import MediaPlayer
@@ -229,9 +230,10 @@ class PlayerEngine: NSObject, ObservableObject {
         hasSetupAudioSession = true
         
         do {
-            try setupAudioSessionCategory()
+            try setupAudioSessionCategory(reason: "ensureAudioSessionSetup")
         } catch {
             print("Failed to setup audio session category: \(error)")
+            logAudioSessionState("ensureAudioSessionSetup failed")
             // Continue anyway - we'll try to handle this when actually playing
         }
     }
@@ -287,7 +289,6 @@ class PlayerEngine: NSObject, ObservableObject {
         case .began:
             // Save current playback position before interruption
             let savedPosition = playbackTime
-            let wasPlaying = isPlaying
             
             if isPlaying {
                 pause()
@@ -695,9 +696,7 @@ class PlayerEngine: NSObject, ObservableObject {
         }
         
         // Update with explicit synchronization
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            
+        DispatchQueue.main.async {
             // Update Now Playing Info
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
             
@@ -710,7 +709,7 @@ class PlayerEngine: NSObject, ObservableObject {
             NotificationCenter.default.post(name: NSNotification.Name("PlayerStateChanged"), object: nil)
         }
         
-        // Load artwork asynchronously if needed (try regardless of hasEmbeddedArt flag)
+        // Load artwork asynchronously if needed (ArtworkManager handles caching/extraction)
         if cachedArtworkTrackId != track.stableId {
             Task {
                 await loadAndCacheArtwork(track: track)
@@ -749,14 +748,95 @@ class PlayerEngine: NSObject, ObservableObject {
         guard !outputs.isEmpty else { return "none" }
         return outputs.map { "\($0.portType.rawValue) (\($0.portName))" }.joined(separator: ", ")
     }
+
+    private func describeCategoryOptions(_ options: AVAudioSession.CategoryOptions) -> String {
+        if options.isEmpty { return "[]" }
+        var parts: [String] = []
+        if options.contains(.mixWithOthers) { parts.append("mixWithOthers") }
+        if options.contains(.duckOthers) { parts.append("duckOthers") }
+        if options.contains(.interruptSpokenAudioAndMixWithOthers) { parts.append("interruptSpokenAudioAndMix") }
+        if options.contains(.allowBluetoothHFP) { parts.append("allowBluetoothHFP") }
+        if options.contains(.allowBluetoothA2DP) { parts.append("allowBluetoothA2DP") }
+        if options.contains(.allowAirPlay) { parts.append("allowAirPlay") }
+        if options.contains(.defaultToSpeaker) { parts.append("defaultToSpeaker") }
+        if #available(iOS 14.5, *) {
+            if options.contains(.overrideMutedMicrophoneInterruption) { parts.append("overrideMutedMicInterruption") }
+        }
+        return "[\(parts.joined(separator: ","))]"
+    }
+
+    private func appStateSummary() -> String {
+        switch UIApplication.shared.applicationState {
+        case .active:
+            return "active"
+        case .inactive:
+            return "inactive"
+        case .background:
+            return "background"
+        @unknown default:
+            return "unknown"
+        }
+    }
+
+    private func currentQueueLabel() -> String {
+        let label = String(cString: __dispatch_queue_get_label(nil), encoding: .utf8)
+        return label ?? "unknown"
+    }
+
+    private func logAudioSessionState(_ label: String, _ session: AVAudioSession = .sharedInstance()) {
+        let outputs = session.currentRoute.outputs
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
+            .joined(separator: ", ")
+        let inputs = session.currentRoute.inputs
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
+            .joined(separator: ", ")
+        let availableInputs = session.availableInputs?
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
+            .joined(separator: ", ") ?? "none"
+        let preferredInput = session.preferredInput
+            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" } ?? "none"
+
+        let category = session.category.rawValue
+        let mode = session.mode.rawValue
+        let options = describeCategoryOptions(session.categoryOptions)
+        let sampleRate = String(format: "%.0f", session.sampleRate)
+        let ioBuffer = String(format: "%.3f", session.ioBufferDuration)
+        let preferredSampleRate = String(format: "%.0f", session.preferredSampleRate)
+        let preferredIOBuffer = String(format: "%.3f", session.preferredIOBufferDuration)
+        let outputVolume = String(format: "%.2f", session.outputVolume)
+        let otherAudio = session.isOtherAudioPlaying
+        let shouldSilence = session.secondaryAudioShouldBeSilencedHint
+        let appState = appStateSummary()
+        let thread = Thread.isMainThread ? "main" : "bg"
+        let queue = currentQueueLabel()
+
+        print("🔎 AudioSession \(label): category=\(category) mode=\(mode) options=\(options) sr=\(sampleRate)Hz prefSR=\(preferredSampleRate)Hz ioBuffer=\(ioBuffer)s prefIO=\(preferredIOBuffer)s volume=\(outputVolume) otherAudio=\(otherAudio) secondaryShouldSilence=\(shouldSilence) appState=\(appState) thread=\(thread) queue=\(queue) outputs=\(outputs.isEmpty ? "none" : outputs) inputs=\(inputs.isEmpty ? "none" : inputs) availInputs=\(availableInputs) preferredInput=\(preferredInput)")
+    }
     
-    private func setupAudioSessionCategory() throws {
+    private func setupAudioSessionCategory(reason: String) throws {
         let s = AVAudioSession.sharedInstance()
         
         // For background audio, avoid mixWithOthers - be the primary audio app
         let options: AVAudioSession.CategoryOptions = [.allowAirPlay, .allowBluetoothA2DP]
-        
-        try s.setCategory(.playback, mode: .default, options: options)
+        let desiredCategory = AVAudioSession.Category.playback
+        let desiredMode = AVAudioSession.Mode.default
+        let desiredOptions = describeCategoryOptions(options)
+        let appState = appStateSummary()
+        let thread = Thread.isMainThread ? "main" : "bg"
+        let queue = currentQueueLabel()
+
+        print("🔎 AudioSession setCategory attempt reason=\(reason) desired=\(desiredCategory.rawValue)/\(desiredMode.rawValue) options=\(desiredOptions) appState=\(appState) thread=\(thread) queue=\(queue)")
+
+        do {
+            try s.setCategory(desiredCategory, mode: desiredMode, options: options)
+        } catch {
+            let nsError = error as NSError
+            print("❌ Audio session setCategory failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), desired: \(desiredCategory.rawValue)/\(desiredMode.rawValue) options=\(desiredOptions), route: \(audioRouteSummary(s)))")
+            logAudioSessionState("setCategory failed (\(reason))", s)
+            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+            print("🔎 AudioSession setCategory call stack (\(reason)): \(stack)")
+            throw error
+        }
         
         // iOS 18 Fix: Set preferred I/O buffer duration
         do {
@@ -764,6 +844,7 @@ class PlayerEngine: NSObject, ObservableObject {
         } catch {
             let nsError = error as NSError
             print("⚠️ Preferred I/O buffer duration rejected (domain: \(nsError.domain), code: \(nsError.code), requested: 0.05s, route: \(audioRouteSummary(s)))")
+            logAudioSessionState("preferred IO buffer rejected", s)
         }
     }
     
@@ -771,10 +852,23 @@ class PlayerEngine: NSObject, ObservableObject {
         let s = AVAudioSession.sharedInstance()
 
         // Set category first if needed
-        try setupAudioSessionCategory()
+        try setupAudioSessionCategory(reason: "activateAudioSession")
         
         // Always try to activate (iOS manages the actual state)
-        try s.setActive(true, options: [])
+        let appState = appStateSummary()
+        let thread = Thread.isMainThread ? "main" : "bg"
+        let queue = currentQueueLabel()
+        print("🔎 AudioSession setActive attempt reason=activateAudioSession appState=\(appState) thread=\(thread) queue=\(queue)")
+        do {
+            try s.setActive(true, options: [])
+        } catch {
+            let nsError = error as NSError
+            print("❌ Audio session setActive failed reason=activateAudioSession (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
+            logAudioSessionState("activateAudioSession setActive failed", s)
+            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+            print("🔎 AudioSession setActive call stack (activateAudioSession): \(stack)")
+            throw error
+        }
         print("⏲️ Audio buffer: \(s.ioBufferDuration)s")
         
         UIApplication.shared.beginReceivingRemoteControlEvents()
@@ -884,10 +978,6 @@ class PlayerEngine: NSObject, ObservableObject {
     }
 
     func loadTrack(_ track: Track, preservePlaybackTime: Bool = false) async {
-        // Determine actual format from file extension
-        let url = URL(fileURLWithPath: track.path)
-        let fileExtension = url.pathExtension.lowercased()
-
         // Cancel any ongoing load operation
         currentLoadTask?.cancel()
 
@@ -1002,6 +1092,7 @@ class PlayerEngine: NSObject, ObservableObject {
             try activateAudioSession()
         } catch {
             print("❌ Session activate failed: \(error)")
+            logAudioSessionState("activateAudioSession failed")
             // Try to continue anyway - might still work
         }
         
@@ -1382,6 +1473,7 @@ class PlayerEngine: NSObject, ObservableObject {
         
         scheduleGeneration &+= 1
         let generation = scheduleGeneration
+        let nodeID = ObjectIdentifier(node)
 
         node.scheduleSegment(
             file,
@@ -1393,7 +1485,7 @@ class PlayerEngine: NSObject, ObservableObject {
             guard let self else { return }
             Task { @MainActor in
                 guard self.scheduleGeneration == generation else { return }
-                guard node === self.activePlayerNode else { return }
+                guard ObjectIdentifier(self.activePlayerNode) == nodeID else { return }
                 guard self.isPlaying, !self.isCrossfading else { return }
                 await self.handleTrackEnd()
             }
@@ -1411,20 +1503,46 @@ class PlayerEngine: NSObject, ObservableObject {
         Task { @MainActor in
             do {
                 let session = AVAudioSession.sharedInstance()
+                let appState = appStateSummary()
+                let thread = "main"
+                let queue = currentQueueLabel()
 
                 // Only maintain session if we're not already active
                 guard !session.isOtherAudioPlaying else {
+                    print("🔎 AudioSession maintainAudioSessionForBackground skipped (other audio playing) appState=\(appState) thread=\(thread) queue=\(queue)")
                     return
                 }
 
                 // Don't change category if already correct - this prevents the error
                 if session.category != .playback {
-                    try session.setCategory(.playback, mode: .default, options: [.allowAirPlay, .allowBluetoothA2DP])
+                    let options: AVAudioSession.CategoryOptions = [.allowAirPlay, .allowBluetoothA2DP]
+                    let desiredOptions = describeCategoryOptions(options)
+                    print("🔎 AudioSession setCategory attempt reason=maintainAudioSessionForBackground desired=\(AVAudioSession.Category.playback.rawValue)/\(AVAudioSession.Mode.default.rawValue) options=\(desiredOptions) appState=\(appState) thread=\(thread) queue=\(queue)")
+                    do {
+                        try session.setCategory(.playback, mode: .default, options: options)
+                    } catch {
+                        let nsError = error as NSError
+                        print("❌ Audio session setCategory failed reason=maintainAudioSessionForBackground (domain: \(nsError.domain), code: \(nsError.code), desired: \(AVAudioSession.Category.playback.rawValue)/\(AVAudioSession.Mode.default.rawValue) options=\(desiredOptions), route: \(audioRouteSummary(session)))")
+                        logAudioSessionState("maintainAudioSessionForBackground setCategory failed", session)
+                        let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+                        print("🔎 AudioSession setCategory call stack (maintainAudioSessionForBackground): \(stack)")
+                        throw error
+                    }
                 }
 
                 // Only activate if not already active
                 if !session.secondaryAudioShouldBeSilencedHint {
-                    try session.setActive(true, options: [])
+                    print("🔎 AudioSession setActive attempt reason=maintainAudioSessionForBackground appState=\(appState) thread=\(thread) queue=\(queue)")
+                    do {
+                        try session.setActive(true, options: [])
+                    } catch {
+                        let nsError = error as NSError
+                        print("❌ Audio session setActive failed reason=maintainAudioSessionForBackground (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
+                        logAudioSessionState("maintainAudioSessionForBackground setActive failed", session)
+                        let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+                        print("🔎 AudioSession setActive call stack (maintainAudioSessionForBackground): \(stack)")
+                        throw error
+                    }
                 }
 
             } catch {
@@ -1727,55 +1845,68 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
 
+        let session = AVAudioSession.sharedInstance()
+        
+        // Ensure the session is in a sane, active state before applying preferences.
         do {
-            let session = AVAudioSession.sharedInstance()
-            
-            // Ensure the session is in a sane, active state before applying preferences.
-            do {
-                try setupAudioSessionCategory()
-            } catch {
-                let nsError = error as NSError
-                print("❌ Audio session category setup failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
-                return
-            }
-            
-            do {
-                try session.setActive(true, options: [])
-            } catch {
-                let nsError = error as NSError
-                print("❌ Audio session activation failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
-                return
-            }
-            
-            // If we're already effectively at this rate, avoid poking SessionCore again.
-            if abs(session.sampleRate - targetSampleRate) < 1.0 {
-                lastConfiguredNativeSampleRate = session.sampleRate
-                return
-            }
-            
-            do {
-                try session.setPreferredSampleRate(targetSampleRate)
-            } catch {
-                let nsError = error as NSError
-                // Common CoreAudio paramErr (-50) can surface here on unsupported routes/rates.
-                print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code), requested: \(targetSampleRate)Hz, route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
-                // Avoid retry spam on the same unsupported rate.
-                lastConfiguredNativeSampleRate = session.sampleRate
-                return
-            }
-            
-            do {
-                // Re-activate to encourage the system to apply the new preference promptly.
-                try session.setActive(true, options: [])
-                lastConfiguredNativeSampleRate = targetSampleRate
-            } catch {
-                let nsError = error as NSError
-                print("⚠️ Audio session re-activate failed after sample rate preference (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
-                lastConfiguredNativeSampleRate = session.sampleRate
-            }
+            try setupAudioSessionCategory(reason: "configureAudioSession targetSR=\(targetSampleRate)")
         } catch {
             let nsError = error as NSError
-            print("❌ Failed to configure audio session (domain: \(nsError.domain), code: \(nsError.code)): \(error)")
+            print("❌ Audio session category setup failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
+            logAudioSessionState("pre-sample-rate category setup failed", session)
+            return
+        }
+        
+        do {
+            let appState = appStateSummary()
+            let thread = "async"
+            let queue = currentQueueLabel()
+            print("🔎 AudioSession setActive attempt reason=configureAudioSession pre-sample-rate appState=\(appState) thread=\(thread) queue=\(queue)")
+            try session.setActive(true, options: [])
+        } catch {
+            let nsError = error as NSError
+            print("❌ Audio session activation failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
+            logAudioSessionState("pre-sample-rate activation failed", session)
+            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+            print("🔎 AudioSession setActive call stack (configureAudioSession pre-sample-rate): \(stack)")
+            return
+        }
+        
+        // If we're already effectively at this rate, avoid poking SessionCore again.
+        if abs(session.sampleRate - targetSampleRate) < 1.0 {
+            lastConfiguredNativeSampleRate = session.sampleRate
+            return
+        }
+        
+        do {
+            try session.setPreferredSampleRate(targetSampleRate)
+        } catch {
+            let nsError = error as NSError
+            // Common CoreAudio paramErr (-50) can surface here on unsupported routes/rates.
+            print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code), requested: \(targetSampleRate)Hz, route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
+            logAudioSessionState("preferred sample rate rejected", session)
+            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+            print("🔎 AudioSession setPreferredSampleRate call stack: \(stack)")
+            // Avoid retry spam on the same unsupported rate.
+            lastConfiguredNativeSampleRate = session.sampleRate
+            return
+        }
+        
+        do {
+            // Re-activate to encourage the system to apply the new preference promptly.
+            let appState = appStateSummary()
+            let thread = "async"
+            let queue = currentQueueLabel()
+            print("🔎 AudioSession setActive attempt reason=configureAudioSession post-sample-rate appState=\(appState) thread=\(thread) queue=\(queue)")
+            try session.setActive(true, options: [])
+            lastConfiguredNativeSampleRate = targetSampleRate
+        } catch {
+            let nsError = error as NSError
+            print("⚠️ Audio session re-activate failed after sample rate preference (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
+            logAudioSessionState("post-sample-rate activation failed", session)
+            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+            print("🔎 AudioSession setActive call stack (configureAudioSession post-sample-rate): \(stack)")
+            lastConfiguredNativeSampleRate = session.sampleRate
         }
     }
     
@@ -1984,90 +2115,27 @@ class PlayerEngine: NSObject, ObservableObject {
     // MARK: - Now Playing Info
     
     private func loadAndCacheArtwork(track: Track) async {
-        guard track.hasEmbeddedArt else { return }
-
-        do {
-            // Ensure file is local first
-            let url = URL(fileURLWithPath: track.path)
-            try await cloudDownloadManager.ensureLocal(url)
-
-            // Use NSFileCoordinator to validate file is local, then load artwork async
-            var resolvedURL: URL?
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                DispatchQueue.global(qos: .userInitiated).async {
-                    var coordinatorError: NSError?
-                    let coordinator = NSFileCoordinator()
-
-                    coordinator.coordinate(readingItemAt: url, options: .withoutChanges, error: &coordinatorError) { (readingURL) in
-                        let freshURL = URL(fileURLWithPath: readingURL.path)
-                        guard FileManager.default.fileExists(atPath: freshURL.path) else {
-                            print("❌ Artwork file not found at path: \(freshURL.path)")
-                            continuation.resume(returning: ())
-                            return
-                        }
-                        resolvedURL = freshURL
-                        continuation.resume(returning: ())
-                    }
-
-                    if let error = coordinatorError {
-                        print("❌ NSFileCoordinator error loading artwork: \(error)")
-                        continuation.resume(throwing: error)
-                    }
-                }
-            }
-
-            // Load artwork asynchronously after coordination
-            var artwork: MPMediaItemArtwork?
-            if let resolvedURL = resolvedURL {
-                if let art = await self.loadArtworkFromAVAsset(url: resolvedURL) {
-                    artwork = art
-                } else {
-                    print("⚠️ No artwork found in file: \(resolvedURL.lastPathComponent)")
-                }
-            }
-
-            // Cache the artwork and update now playing info
-            await MainActor.run {
-                if let artwork = artwork {
-                    // Cache the artwork
-                    self.cachedArtwork = artwork
-                    self.cachedArtworkTrackId = track.stableId
-                    
-                    // Update now playing info with cached artwork
-                    self.updateNowPlayingInfoWithCachedArtwork()
-                }
-            }
-            
-        } catch {
-            print("❌ Failed to load artwork for caching: \(error)")
+        guard let image = await ArtworkManager.shared.getArtwork(for: track) else {
+            return
         }
+
+        let artwork = createNowPlayingArtwork(from: image)
+        cachedArtwork = artwork
+        cachedArtworkTrackId = track.stableId
+
+        updateNowPlayingInfoWithCachedArtwork()
     }
-    
-    private nonisolated func loadArtworkFromAVAsset(url: URL) async -> MPMediaItemArtwork? {
-        let asset = AVURLAsset(url: url)
-        guard let commonMetadata = try? await asset.load(.commonMetadata) else { return nil }
 
-        for metadataItem in commonMetadata {
-            if metadataItem.commonKey == .commonKeyArtwork,
-               let data = try? await metadataItem.load(.dataValue),
-               let originalImage = UIImage(data: data) {
+    private nonisolated func createNowPlayingArtwork(from image: UIImage) -> MPMediaItemArtwork {
+        // Crop to square if width is significantly larger than height
+        let processedImage = cropToSquareIfNeeded(image: image)
 
-                // Crop to square if width is significantly larger than height
-                let processedImage = self.cropToSquareIfNeeded(image: originalImage)
-
-                // Use large size for CarPlay - 1024x1024 recommended
-                let targetSize = CGSize(width: 1024, height: 1024)
-                let artwork = MPMediaItemArtwork(boundsSize: targetSize) { size in
-                    // Resize image to requested size
-                    return self.resizeImage(processedImage, to: size)
-                }
-
-                return artwork
-            }
+        // Use 500x500 to avoid upscaling most artworks
+        let targetSize = CGSize(width: 500, height: 500)
+        return MPMediaItemArtwork(boundsSize: targetSize) { size in
+            // Resize image to requested size
+            return self.resizeImage(processedImage, to: size)
         }
-
-        print("⚠️ No artwork found in AVAsset metadata")
-        return nil
     }
     
     private func updateNowPlayingInfoWithCachedArtwork() {
