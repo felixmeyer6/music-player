@@ -603,6 +603,17 @@ class DatabaseManager: @unchecked Sendable {
         }
     }
 
+    func getArtistLookup(for artistIds: Set<Int64>) throws -> [Int64: String] {
+        guard !artistIds.isEmpty else { return [:] }
+        return try read { db in
+            let artists = try Artist.filter(artistIds.contains(Column("id"))).fetchAll(db)
+            return Dictionary(uniqueKeysWithValues: artists.compactMap { artist in
+                guard let id = artist.id else { return nil }
+                return (id, artist.name)
+            })
+        }
+    }
+
     func searchArtists(query: String, limit: Int = 20) throws -> [Artist] {
         return try read { db in
             let pattern = "%\(query)%"

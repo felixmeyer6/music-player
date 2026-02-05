@@ -38,6 +38,7 @@ struct CollectionDetailView: View {
 
     // MARK: - Filter Support (optional)
     var albumLookup: [Int64: String] = [:]
+    var artistLookup: [Int64: String] = [:]
     var filterState: TrackFilterState? = nil
     var filterConfig: TrackFilterConfiguration = .all
 
@@ -348,6 +349,8 @@ struct CollectionDetailView: View {
     private func trackRow(for track: Track) -> some View {
         let isSelected = selectedTracks.contains(track.stableId)
         let editModeTrailingCompensation: CGFloat = isEditMode ? -12 : 0
+        let artistName = artistLookup[track.artistId ?? -1]
+        let albumName = albumLookup[track.albumId ?? -1]
 
         HStack(spacing: 0) {
             // Bulk selection checkbox
@@ -364,6 +367,8 @@ struct CollectionDetailView: View {
                 track: track,
                 activeTrackId: activeTrackId,
                 isAudioPlaying: isAudioPlaying,
+                artistName: artistName,
+                albumName: albumName,
                 onTap: {
                     if isBulkMode {
                         toggleSelection(for: track)

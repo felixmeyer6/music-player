@@ -10,6 +10,7 @@ struct AlbumDetailScreen: View {
     @State private var artworkImage: UIImage?
     @State private var albumTracks: [Track] = []
     @State private var albumLookup: [Int64: String] = [:]
+    @State private var artistLookup: [Int64: String] = [:]
     @State private var filterState = TrackFilterState()
 
     // 1. Sort State (Removed showSortPopover as Menu handles this automatically)
@@ -61,6 +62,7 @@ struct AlbumDetailScreen: View {
                 activeTrackId: playerEngine.currentTrack?.stableId,
                 isAudioPlaying: playerEngine.isPlaying,
                 albumLookup: albumLookup,
+                artistLookup: artistLookup,
                 filterState: filterState,
                 filterConfig: TrackFilterConfiguration(showAlbum: false)
             )
@@ -91,6 +93,7 @@ struct AlbumDetailScreen: View {
         do {
             albumTracks = try DatabaseManager.shared.getTracksByAlbumId(albumId)
             loadAlbumLookup()
+            loadArtistLookup()
         } catch {
             print("Failed to load album tracks: \(error)")
         }
@@ -101,6 +104,20 @@ struct AlbumDetailScreen: View {
             albumLookup = try DatabaseManager.shared.getAlbumLookup()
         } catch {
             print("Failed to load album lookup: \(error)")
+        }
+    }
+
+    private func loadArtistLookup() {
+        let artistIds = Set(albumTracks.compactMap { $0.artistId })
+        guard !artistIds.isEmpty else {
+            artistLookup = [:]
+            return
+        }
+        Task.detached(priority: .userInitiated) {
+            let lookup = (try? DatabaseManager.shared.getArtistLookup(for: artistIds)) ?? [:]
+            await MainActor.run {
+                artistLookup = lookup
+            }
         }
     }
 

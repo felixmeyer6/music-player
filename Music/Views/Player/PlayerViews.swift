@@ -1268,6 +1268,8 @@ struct TrackRowView: View, @MainActor Equatable {
     let track: Track
     let activeTrackId: String?
     let isAudioPlaying: Bool
+    let artistName: String?
+    let albumName: String?
 
     let onTap: () -> Void
     let playlist: Playlist?
@@ -1299,6 +1301,8 @@ struct TrackRowView: View, @MainActor Equatable {
         return lhs.track.stableId == rhs.track.stableId &&
         lhs.activeTrackId == rhs.activeTrackId &&
         lhs.isAudioPlaying == rhs.isAudioPlaying &&
+        lhs.artistName == rhs.artistName &&
+        lhs.albumName == rhs.albumName &&
         lhs.playlist?.id == rhs.playlist?.id &&
         lhs.sortOption == rhs.sortOption &&
         lhs.showDirectDeleteButton == rhs.showDirectDeleteButton
@@ -1340,11 +1344,8 @@ struct TrackRowView: View, @MainActor Equatable {
                         .foregroundColor(.white)
                         .lineLimit(1)
 
-                    if let artistId = track.artistId,
-                       let artist = try? DatabaseManager.shared.read({ db in
-                           try Artist.fetchOne(db, key: artistId)
-                       }) {
-                        Text(artist.name)
+                    if let artistName {
+                        Text(artistName)
                             .font(.body)
                             .foregroundColor(isCurrentlyPlaying ? accentColor.opacity(0.8) : .secondary)
                             .lineLimit(1)
@@ -1461,15 +1462,12 @@ struct TrackRowView: View, @MainActor Equatable {
             }
         case .album:
             // Show album name with icon
-            if let albumId = track.albumId,
-               let album = try? DatabaseManager.shared.read({ db in
-                   try Album.fetchOne(db, key: albumId)
-               }) {
+            if let albumName {
                 HStack(spacing: 4) {
                     Image(systemName: "square.stack.fill")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text(album.name)
+                    Text(albumName)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -1480,15 +1478,12 @@ struct TrackRowView: View, @MainActor Equatable {
             }
         case .artist:
             // Show artist name with icon
-            if let artistId = track.artistId,
-               let artist = try? DatabaseManager.shared.read({ db in
-                   try Artist.fetchOne(db, key: artistId)
-               }) {
+            if let artistName {
                 HStack(spacing: 4) {
                     Image(systemName: "person.fill")
                         .font(.caption2)
                         .foregroundColor(.secondary)
-                    Text(artist.name)
+                    Text(artistName)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)

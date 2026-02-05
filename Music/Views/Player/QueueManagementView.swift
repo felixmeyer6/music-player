@@ -1,5 +1,4 @@
 import SwiftUI
-import GRDB
 
 struct QueueManagementView: View {
     @StateObject private var playerEngine = PlayerEngine.shared
@@ -7,6 +6,7 @@ struct QueueManagementView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draggedTrack: Track?
     @State private var settings = DeleteSettings.load()
+    @State private var artistLookup: [Int64: String] = [:]
     
     var body: some View {
         NavigationView {
@@ -60,6 +60,7 @@ struct QueueManagementView: View {
                                     isCurrentTrack: index == playerEngine.currentIndex,
                                     isAudioPlaying: playerEngine.isPlaying,
                                     isDragging: draggedTrack?.stableId == track.stableId,
+                                    artistName: artistLookup[track.artistId ?? -1],
                                     onTap: {
                                         jumpToTrack(at: index)
                                     }
@@ -91,6 +92,26 @@ struct QueueManagementView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
             settings = DeleteSettings.load()
+        }
+        .onAppear {
+            refreshArtistLookup(for: playerEngine.playbackQueue)
+        }
+        .onChange(of: playerEngine.playbackQueue) { _, newQueue in
+            refreshArtistLookup(for: newQueue)
+        }
+    }
+
+    private func refreshArtistLookup(for queue: [Track]) {
+        let artistIds = Set(queue.compactMap { $0.artistId })
+        guard !artistIds.isEmpty else {
+            artistLookup = [:]
+            return
+        }
+        Task.detached(priority: .userInitiated) {
+            let lookup = (try? DatabaseManager.shared.getArtistLookup(for: artistIds)) ?? [:]
+            await MainActor.run {
+                artistLookup = lookup
+            }
         }
     }
     
@@ -148,6 +169,7 @@ struct QueueTrackRow: View {
     let isCurrentTrack: Bool
     let isAudioPlaying: Bool
     let isDragging: Bool
+    let artistName: String?
     let onTap: () -> Void
 
     @State private var artworkImage: UIImage?
@@ -196,11 +218,8 @@ struct QueueTrackRow: View {
                     }
                 }
                 
-                if let artistId = track.artistId,
-                   let artist = try? DatabaseManager.shared.read({ db in
-                       try Artist.fetchOne(db, key: artistId)
-                   }) {
-                    Text(artist.name)
+                if let artistName {
+                    Text(artistName)
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .lineLimit(1)
