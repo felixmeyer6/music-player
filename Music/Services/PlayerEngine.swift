@@ -726,8 +726,6 @@ class PlayerEngine: NSObject, ObservableObject {
         // Add cached artwork
         if let cachedArtwork = cachedArtwork, cachedArtworkTrackId == track.stableId {
             info[MPMediaItemPropertyArtwork] = cachedArtwork
-        } else {
-            print("⚠️ No cached artwork available for: \(track.title) (cached: \(cachedArtwork != nil), trackId match: \(cachedArtworkTrackId == track.stableId))")
         }
         
         // Update with explicit synchronization
@@ -735,11 +733,6 @@ class PlayerEngine: NSObject, ObservableObject {
             // Update Now Playing Info
             MPNowPlayingInfoCenter.default().nowPlayingInfo = info
             
-            // Trigger CarPlay Now Playing button update
-            #if os(iOS) && !targetEnvironment(macCatalyst)
-            MPNowPlayingInfoCenter.default().playbackState = self.isPlaying ? .playing : .paused
-            #endif
-
             self.updateRemoteCommandAvailability()
             
             // Notify CarPlay delegate of state change
