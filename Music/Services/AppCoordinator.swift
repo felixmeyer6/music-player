@@ -64,7 +64,9 @@ class AppCoordinator: ObservableObject {
 
         // Check if we should auto-scan based on last scan date
         var settings = DeleteSettings.load()
-        let shouldAutoScan = settings.lastLibraryScanDate == nil
+        let currentDocumentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.path ?? ""
+        let hasStaleDocumentsPaths = (try? databaseManager.hasStaleDocumentsPaths(currentDocumentsPath: currentDocumentsPath)) ?? false
+        let shouldAutoScan = settings.lastLibraryScanDate == nil || hasStaleDocumentsPaths
 
         switch status {
         case .available:
@@ -75,7 +77,6 @@ class AppCoordinator: ObservableObject {
             if shouldAutoScan {
                 await startLibraryIndexing()
                 settings.lastLibraryScanDate = Date()
-                settings.save()
             }
 
         case .notSignedIn:
@@ -85,7 +86,6 @@ class AppCoordinator: ObservableObject {
             if shouldAutoScan {
                 await startOfflineLibraryIndexing()
                 settings.lastLibraryScanDate = Date()
-                settings.save()
             }
 
         case .containerUnavailable, .error(_):
@@ -95,7 +95,6 @@ class AppCoordinator: ObservableObject {
             if shouldAutoScan {
                 await startOfflineLibraryIndexing()
                 settings.lastLibraryScanDate = Date()
-                settings.save()
             }
 
         case .authenticationRequired:
@@ -104,7 +103,6 @@ class AppCoordinator: ObservableObject {
             if shouldAutoScan {
                 await startOfflineLibraryIndexing()
                 settings.lastLibraryScanDate = Date()
-                settings.save()
             }
 
         case .offline:
@@ -113,9 +111,10 @@ class AppCoordinator: ObservableObject {
             if shouldAutoScan {
                 await startOfflineLibraryIndexing()
                 settings.lastLibraryScanDate = Date()
-                settings.save()
             }
         }
+
+        settings.save()
 
         // Restore UI state only to show user what was playing without interrupting other apps
         Task {

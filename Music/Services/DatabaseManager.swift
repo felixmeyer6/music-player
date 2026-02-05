@@ -564,6 +564,25 @@ class DatabaseManager: @unchecked Sendable {
             return try Track.filter(Column("stable_id") == stableId).fetchOne(db)
         }
     }
+
+    func hasStaleDocumentsPaths(currentDocumentsPath: String) throws -> Bool {
+        guard !currentDocumentsPath.isEmpty else { return false }
+        return try read { db in
+            let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT 1
+                FROM track
+                WHERE instr(path, '/Documents/') > 0
+                  AND instr(path, 'Mobile Documents') = 0
+                  AND instr(path, ?) = 0
+                LIMIT 1
+                """,
+                arguments: [currentDocumentsPath]
+            )
+            return row != nil
+        }
+    }
     
     // MARK: - Artist operations
     

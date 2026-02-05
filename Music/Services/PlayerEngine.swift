@@ -12,6 +12,28 @@ import WidgetKit
 @MainActor
 class PlayerEngine: NSObject, ObservableObject {
     static let shared = PlayerEngine()
+
+    private final class RemoteCommandGate: @unchecked Sendable {
+        private let lock = NSLock()
+        private var lastAt: TimeInterval = 0
+        private var lastKind: String = ""
+        private let grouped: Set<String> = ["play", "pause", "toggle"]
+        private let window: TimeInterval = 0.6
+
+        func allow(kind: String) -> Bool {
+            let now = ProcessInfo.processInfo.systemUptime
+            lock.lock()
+            defer { lock.unlock() }
+            if now - lastAt < window,
+               grouped.contains(kind),
+               grouped.contains(lastKind) {
+                return false
+            }
+            lastAt = now
+            lastKind = kind
+            return true
+        }
+    }
     
     @Published var currentTrack: Track?
     @Published var currentArtistName: String?
@@ -57,8 +79,7 @@ class PlayerEngine: NSObject, ObservableObject {
     private var hasSetupAudioSession = false
     private var hasSetupRemoteCommands = false
     private nonisolated(unsafe) var hasSetupAudioSessionNotifications = false
-    private var lastRemoteCommandAt: TimeInterval = 0
-    private var lastRemoteCommandKind = ""
+    private nonisolated let remoteCommandGate = RemoteCommandGate()
     
     // Artwork caching
     private var cachedArtwork: MPMediaItemArtwork?
@@ -533,18 +554,16 @@ class PlayerEngine: NSObject, ObservableObject {
         setupRemoteCommands()
     }
 
-    private func shouldHandleRemoteCommand(_ kind: String) -> Bool {
-        let now = ProcessInfo.processInfo.systemUptime
-        let window: TimeInterval = 0.25
-        let grouped = Set(["play", "pause", "toggle"])
-        if now - lastRemoteCommandAt < window,
-           grouped.contains(kind),
-           grouped.contains(lastRemoteCommandKind) {
-            return false
-        }
-        lastRemoteCommandAt = now
-        lastRemoteCommandKind = kind
-        return true
+    private func updateRemoteCommandAvailability() {
+        guard hasSetupRemoteCommands else { return }
+        let cc = MPRemoteCommandCenter.shared()
+        cc.playCommand.isEnabled = !isPlaying
+        cc.pauseCommand.isEnabled = isPlaying
+        cc.togglePlayPauseCommand.isEnabled = true
+    }
+
+    private nonisolated func shouldHandleRemoteCommand(_ kind: String) -> Bool {
+        remoteCommandGate.allow(kind: kind)
     }
     
     private func setupRemoteCommands() {
@@ -552,8 +571,9 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Play command handler - will be called from Control Center
         cc.playCommand.addTarget { [weak self] _ in
+            guard let self, self.shouldHandleRemoteCommand("play") else { return .commandFailed }
             Task { @MainActor in
-                guard let self, self.shouldHandleRemoteCommand("play") else { return }
+                guard !self.isPlaying else { return }
                 self.play()
             }
             return .success
@@ -561,8 +581,9 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Pause command handler - will be called from Control Center
         cc.pauseCommand.addTarget { [weak self] _ in
+            guard let self, self.shouldHandleRemoteCommand("pause") else { return .commandFailed }
             Task { @MainActor in
-                guard let self, self.shouldHandleRemoteCommand("pause") else { return }
+                guard self.isPlaying else { return }
                 self.pause(fromControlCenter: true)
             }
             return .success
@@ -599,8 +620,8 @@ class PlayerEngine: NSObject, ObservableObject {
         
         // Toggle play/pause command (for headphone button and other accessories)
         cc.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard let self, self.shouldHandleRemoteCommand("toggle") else { return .commandFailed }
             Task { @MainActor in
-                guard let self, self.shouldHandleRemoteCommand("toggle") else { return }
                 if self.isPlaying {
                     self.pause(fromControlCenter: true)
                 } else {
@@ -610,16 +631,13 @@ class PlayerEngine: NSObject, ObservableObject {
             return .success
         }
         
-        // Enable all commands initially
-        cc.playCommand.isEnabled = true
-        cc.pauseCommand.isEnabled = true
+        // Enable commands based on current state
+        cc.playCommand.isEnabled = !isPlaying
+        cc.pauseCommand.isEnabled = isPlaying
         cc.nextTrackCommand.isEnabled = true
         cc.previousTrackCommand.isEnabled = true
         cc.changePlaybackPositionCommand.isEnabled = true
         cc.togglePlayPauseCommand.isEnabled = true
-        
-        // Enable seeking in CarPlay
-        cc.changePlaybackPositionCommand.isEnabled = true
     }
     
     // MARK: - Widget Integration
@@ -721,6 +739,8 @@ class PlayerEngine: NSObject, ObservableObject {
             #if os(iOS) && !targetEnvironment(macCatalyst)
             MPNowPlayingInfoCenter.default().playbackState = self.isPlaying ? .playing : .paused
             #endif
+
+            self.updateRemoteCommandAvailability()
             
             // Notify CarPlay delegate of state change
             NotificationCenter.default.post(name: NSNotification.Name("PlayerStateChanged"), object: nil)

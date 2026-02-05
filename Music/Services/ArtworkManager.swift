@@ -2,6 +2,7 @@
 
 import Foundation
 import UIKit
+import SwiftUI
 import AVFoundation
 import CryptoKit
 
@@ -11,6 +12,8 @@ class ArtworkManager: ObservableObject {
 
     // Memory cache for quick access
     private var memoryCache: [String: UIImage] = [:]
+    private var dominantColorCache: [String: Color] = [:]
+    private var dominantColorTasks: [String: Task<Color, Never>] = [:]
 
     // Persistent disk cache directory
     private let diskCacheURL: URL
@@ -61,6 +64,11 @@ class ArtworkManager: ObservableObject {
 
     func clearCache() {
         memoryCache.removeAll()
+        dominantColorCache.removeAll()
+        for task in dominantColorTasks.values {
+            task.cancel()
+        }
+        dominantColorTasks.removeAll()
     }
 
     func clearDiskCache() {
@@ -70,6 +78,11 @@ class ArtworkManager: ObservableObject {
                 try FileManager.default.removeItem(at: file)
             }
             memoryCache.removeAll()
+            dominantColorCache.removeAll()
+            for task in dominantColorTasks.values {
+                task.cancel()
+            }
+            dominantColorTasks.removeAll()
             artworkMapping.removeAll()
             saveMapping()
         } catch {
@@ -80,6 +93,9 @@ class ArtworkManager: ObservableObject {
     func forceRefreshArtwork(for track: Track) async -> UIImage? {
         // Remove from memory cache and mapping to force re-extraction
         memoryCache.removeValue(forKey: track.stableId)
+        dominantColorCache.removeValue(forKey: track.stableId)
+        dominantColorTasks[track.stableId]?.cancel()
+        dominantColorTasks.removeValue(forKey: track.stableId)
 
         // Note: We don't delete the actual artwork file as other tracks might use it
         // Just remove the mapping for this track
@@ -125,6 +141,32 @@ class ArtworkManager: ObservableObject {
         }
 
         return nil
+    }
+
+    func getDominantColor(for track: Track, artwork: UIImage? = nil) async -> Color {
+        if let cachedColor = dominantColorCache[track.stableId] {
+            return cachedColor
+        }
+
+        if let existingTask = dominantColorTasks[track.stableId] {
+            return await existingTask.value
+        }
+
+        let image: UIImage?
+        if let artwork {
+            image = artwork
+        } else {
+            image = await getArtwork(for: track)
+        }
+        guard let image else { return .white }
+
+        let task = Task { await image.dominantColorAsync() }
+        dominantColorTasks[track.stableId] = task
+
+        let color = await task.value
+        dominantColorTasks.removeValue(forKey: track.stableId)
+        dominantColorCache[track.stableId] = color
+        return color
     }
 
     // MARK: - Disk Cache Management

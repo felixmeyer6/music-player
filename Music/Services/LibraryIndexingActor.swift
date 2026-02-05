@@ -291,6 +291,14 @@ actor LibraryIndexingActor {
             let contentModificationTime = resourceValues.contentModificationDate?.timeIntervalSince1970 ?? 0
 
             if let existing = try databaseManager.getTrack(byStableId: stableId) {
+                if existing.path != fileURL.path {
+                    try databaseManager.write { db in
+                        var updatedTrack = existing
+                        updatedTrack.path = fileURL.path
+                        updatedTrack.fileSize = fileSize
+                        try updatedTrack.update(db)
+                    }
+                }
                 let expectedBars = WaveformProcessing.barsCount(forDurationMs: existing.durationMs)
                 let meta = WaveformProcessing.makeMeta(
                     totalBars: expectedBars,

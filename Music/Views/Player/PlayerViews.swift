@@ -787,7 +787,7 @@ struct PlayerView: View {
 
             let artwork = await artworkManager.getArtwork(for: track)
             if let artwork = artwork {
-                let color = await artwork.dominantColorAsync()
+                let color = await artworkManager.getDominantColor(for: track, artwork: artwork)
                 await MainActor.run {
                     withAnimation(.easeInOut(duration: 0.25)) {
                         currentArtwork = artwork
@@ -1214,7 +1214,7 @@ struct MiniPlayerView: View {
                             currentArtwork = artwork
                         }
                         if let artwork = artwork {
-                            let color = await artwork.dominantColorAsync()
+                            let color = await artworkManager.getDominantColor(for: track, artwork: artwork)
                             await MainActor.run {
                                 dominantColor = color
                             }
@@ -1285,6 +1285,7 @@ struct TrackRowView: View, @MainActor Equatable {
     @State private var currentPlayCount: Int?
 
     @State private var accentColor: Color = .white
+    @State private var accentColorTask: Task<Void, Never>?
     @State private var pendingDelete: Bool = false
     @State private var deleteResetTask: Task<Void, Never>?
 
@@ -1390,13 +1391,22 @@ struct TrackRowView: View, @MainActor Equatable {
                 .accentColor(accentColor)
         }
         .onAppear {
-            if artworkImage == nil { loadArtwork() }
+            if artworkImage == nil {
+                loadArtwork()
+            } else {
+                updateAccentColorIfNeeded()
+            }
+        }
+        .onChange(of: isCurrentlyPlaying) { _, _ in
+            updateAccentColorIfNeeded()
         }
         .onChange(of: showDirectDeleteButton) { _, newValue in
             if !newValue { resetPendingDelete() }
         }
         .onDisappear {
             resetPendingDelete()
+            accentColorTask?.cancel()
+            accentColorTask = nil
         }
         .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("TrackPlayCountUpdated"))) { notification in
             if let stableId = notification.userInfo?["stableId"] as? String,
@@ -1497,12 +1507,25 @@ struct TrackRowView: View, @MainActor Equatable {
             let image = await ArtworkManager.shared.getArtwork(for: track)
             await MainActor.run {
                 artworkImage = image
-                if let image {
-                    accentColor = image.dominantColor()
-                } else {
-                    accentColor = .white
-                }
+                updateAccentColorIfNeeded()
             }
+        }
+    }
+
+    @MainActor
+    private func updateAccentColorIfNeeded() {
+        accentColorTask?.cancel()
+        accentColorTask = nil
+
+        guard isCurrentlyPlaying, let image = artworkImage else {
+            accentColor = .white
+            return
+        }
+
+        accentColorTask = Task {
+            let color = await ArtworkManager.shared.getDominantColor(for: track, artwork: image)
+            guard !Task.isCancelled, isCurrentlyPlaying else { return }
+            accentColor = color
         }
     }
 
