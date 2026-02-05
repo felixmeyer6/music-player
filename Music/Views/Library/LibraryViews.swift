@@ -533,8 +533,8 @@ struct AllSongsScreen: View {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: false)
     }
 
-    private var hasFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
+    private var canShowFilterButton: Bool {
+        !sortedTracks.isEmpty
     }
 
     var body: some View {
@@ -579,7 +579,7 @@ struct AllSongsScreen: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 HStack(spacing: 16) {
                     // Filter button
-                    if hasFilterOptions {
+                    if canShowFilterButton {
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 filterState.toggleFilter()

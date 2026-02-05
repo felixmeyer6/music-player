@@ -15,12 +15,8 @@ struct GenreDetailScreen: View {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: false)
     }
 
-    private var hasFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(
-            tracks: sortedTracks,
-            albumLookup: albumLookup,
-            filterConfig: TrackFilterConfiguration(showGenre: false)
-        )
+    private var canShowFilterButton: Bool {
+        !tracks.isEmpty
     }
 
     var body: some View {
@@ -63,7 +59,7 @@ struct GenreDetailScreen: View {
         .navigationTitle(genreName)
         .navigationBarTitleDisplayMode(.inline)
         .modifier(CollectionDetailToolbar(
-            hasFilterOptions: hasFilterOptions,
+            hasFilterOptions: canShowFilterButton,
             filterState: filterState,
             sortOption: $sortOption,
             onSortChanged: saveSortPreference,

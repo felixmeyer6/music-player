@@ -52,6 +52,18 @@ struct TrackFilterConfiguration {
     static let all = TrackFilterConfiguration()
 }
 
+struct TrackFilterOptions {
+    var genres: [String]
+    var albums: [(id: Int64, title: String)]
+    var ratings: [Int]
+
+    var hasAnyOptions: Bool {
+        !genres.isEmpty || !albums.isEmpty || !ratings.isEmpty
+    }
+
+    static let empty = TrackFilterOptions(genres: [], albums: [], ratings: [])
+}
+
 // MARK: - Track Filtering
 
 struct TrackFiltering {
@@ -80,9 +92,80 @@ struct TrackFiltering {
         albumLookup: [Int64: String],
         filterConfig: TrackFilterConfiguration = .all
     ) -> Bool {
-        (filterConfig.showGenre && !availableGenres(from: tracks).isEmpty) ||
-        (filterConfig.showAlbum && !availableAlbums(from: tracks, albumLookup: albumLookup).isEmpty) ||
-        (filterConfig.showRating && !availableRatings(from: tracks).isEmpty)
+        guard !tracks.isEmpty else { return false }
+
+        if filterConfig.showGenre {
+            if tracks.contains(where: { track in
+                guard let genre = track.genre?.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+                return !genre.isEmpty
+            }) {
+                return true
+            }
+        }
+
+        if filterConfig.showAlbum {
+            if tracks.contains(where: { track in
+                guard let albumId = track.albumId else { return false }
+                return albumLookup[albumId] != nil
+            }) {
+                return true
+            }
+        }
+
+        if filterConfig.showRating {
+            if tracks.contains(where: { $0.rating != nil }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Computes all filter options in a single pass.
+    static func computeOptions(
+        tracks: [Track],
+        albumLookup: [Int64: String],
+        filterConfig: TrackFilterConfiguration = .all
+    ) -> TrackFilterOptions {
+        guard filterConfig.showGenre || filterConfig.showAlbum || filterConfig.showRating else {
+            return .empty
+        }
+
+        var genreSet = Set<String>()
+        var albumIdSet = Set<Int64>()
+        var ratingSet = Set<Int>()
+
+        for track in tracks {
+            if filterConfig.showGenre,
+               let genre = track.genre?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !genre.isEmpty {
+                genreSet.insert(genre)
+            }
+
+            if filterConfig.showAlbum, let albumId = track.albumId {
+                albumIdSet.insert(albumId)
+            }
+
+            if filterConfig.showRating, let rating = track.rating {
+                ratingSet.insert(rating)
+            }
+        }
+
+        let genres = filterConfig.showGenre ? genreSet.sorted() : []
+
+        let albums: [(id: Int64, title: String)]
+        if filterConfig.showAlbum {
+            albums = albumIdSet.compactMap { id in
+                guard let title = albumLookup[id] else { return nil }
+                return (id: id, title: title)
+            }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+        } else {
+            albums = []
+        }
+
+        let ratings = filterConfig.showRating ? ratingSet.sorted() : []
+
+        return TrackFilterOptions(genres: genres, albums: albums, ratings: ratings)
     }
 
     /// Filters tracks based on filter state

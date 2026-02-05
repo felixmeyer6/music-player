@@ -15,12 +15,8 @@ struct AlbumDetailScreen: View {
     // 1. Sort State (Removed showSortPopover as Menu handles this automatically)
     @State private var sortOption: TrackSortOption = .defaultOrder
 
-    private var hasFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(
-            tracks: albumTracks,
-            albumLookup: albumLookup,
-            filterConfig: TrackFilterConfiguration(showAlbum: false)
-        )
+    private var canShowFilterButton: Bool {
+        !albumTracks.isEmpty
     }
 
     // 2. Filter available options (Exclude .album since we are in an album)
@@ -73,7 +69,7 @@ struct AlbumDetailScreen: View {
         .navigationTitle(album.name)
         .navigationBarTitleDisplayMode(.inline)
         .modifier(CollectionDetailToolbar(
-            hasFilterOptions: hasFilterOptions,
+            hasFilterOptions: canShowFilterButton,
             filterState: filterState,
             sortOption: $sortOption,
             sortOptions: availableSortOptions,

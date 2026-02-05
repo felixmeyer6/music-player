@@ -47,6 +47,9 @@ struct CollectionDetailView: View {
     @State private var selectedTracks: Set<String> = []
     @State private var showAddToPlaylistSheet: Bool = false
     @State private var scrollPosition: String?
+    @State private var cachedFilterOptions: TrackFilterOptions? = nil
+    @State private var isComputingFilterOptions: Bool = false
+    @State private var filterOptionsTask: Task<Void, Never>?
 
     // MARK: - Layout Constants
     private let headerArtworkSize: CGFloat = 140
@@ -63,15 +66,15 @@ struct CollectionDetailView: View {
     }
 
     private var availableGenres: [String] {
-        filterConfig.showGenre ? TrackFiltering.availableGenres(from: displayTracks) : []
+        cachedFilterOptions?.genres ?? []
     }
 
     private var availableAlbums: [(id: Int64, title: String)] {
-        filterConfig.showAlbum ? TrackFiltering.availableAlbums(from: displayTracks, albumLookup: albumLookup) : []
+        cachedFilterOptions?.albums ?? []
     }
 
     private var availableRatings: [Int] {
-        filterConfig.showRating ? TrackFiltering.availableRatings(from: displayTracks) : []
+        cachedFilterOptions?.ratings ?? []
     }
 
     private var filteredTracks: [Track] {
@@ -85,11 +88,11 @@ struct CollectionDetailView: View {
     }
 
     private var hasAnyFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(
-            tracks: displayTracks,
-            albumLookup: albumLookup,
-            filterConfig: filterConfig
-        )
+        cachedFilterOptions?.hasAnyOptions ?? false
+    }
+
+    private var isFilterOptionsLoading: Bool {
+        isFilterVisible && cachedFilterOptions == nil && isComputingFilterOptions
     }
 
     // MARK: - Body
@@ -131,11 +134,25 @@ struct CollectionDetailView: View {
                 // Track List
                 if filteredTracks.isEmpty {
                     if isFilterVisible && !displayTracks.isEmpty {
-                        filterEmptyStateView
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets())
-                            .id("__filter_empty__")
+                        if isFilterOptionsLoading {
+                            filterLoadingStateView
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets())
+                                .id("__filter_loading__")
+                        } else if cachedFilterOptions?.hasAnyOptions == false {
+                            noFilterOptionsView
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets())
+                                .id("__filter_unavailable__")
+                        } else {
+                            filterEmptyStateView
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets())
+                                .id("__filter_empty__")
+                        }
                     } else {
                         emptyStateView
                             .listRowBackground(Color.clear)
@@ -157,9 +174,14 @@ struct CollectionDetailView: View {
             .environment(\.editMode, .constant(isEditMode ? .active : .inactive))
 
             // Sticky filter row
-            if isFilterVisible && hasAnyFilterOptions {
-                filterRow
-                    .transition(.move(edge: .top).combined(with: .opacity))
+            if isFilterVisible {
+                if isFilterOptionsLoading {
+                    filterLoadingRow
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if hasAnyFilterOptions {
+                    filterRow
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isFilterVisible)
@@ -169,6 +191,37 @@ struct CollectionDetailView: View {
                 onComplete: { exitBulkMode() },
                 showTrackCount: true
             )
+        }
+        .onAppear {
+            if isFilterVisible {
+                ensureFilterOptionsLoaded()
+            }
+        }
+        .onChange(of: isFilterVisible) { _, isVisible in
+            if isVisible {
+                ensureFilterOptionsLoaded()
+            }
+        }
+        .onChange(of: displayTracks.count) { _, _ in
+            invalidateFilterOptions()
+        }
+        .onChange(of: albumLookup.count) { _, _ in
+            invalidateFilterOptions()
+        }
+        .onChange(of: filterConfig.showGenre) { _, _ in
+            invalidateFilterOptions()
+        }
+        .onChange(of: filterConfig.showAlbum) { _, _ in
+            invalidateFilterOptions()
+        }
+        .onChange(of: filterConfig.showRating) { _, _ in
+            invalidateFilterOptions()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryNeedsRefresh)) { _ in
+            invalidateFilterOptions()
+        }
+        .onDisappear {
+            invalidateFilterOptions()
         }
     }
 
@@ -420,6 +473,43 @@ struct CollectionDetailView: View {
         .padding(.vertical, 40)
     }
 
+    @ViewBuilder
+    private var filterLoadingStateView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle())
+
+            Text("Loading Filters")
+                .font(.headline)
+
+            Text("Preparing filter options...")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
+    @ViewBuilder
+    private var noFilterOptionsView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "line.3.horizontal.decrease.circle.slash")
+                .font(.system(size: 36))
+                .foregroundColor(.secondary)
+
+            Text("No Filters Available")
+                .font(.headline)
+
+            Text("This list doesn't have genres, albums, or ratings to filter by.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+    }
+
     // MARK: - Filter Row
     @ViewBuilder
     private var filterRow: some View {
@@ -495,6 +585,58 @@ struct CollectionDetailView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .background(.ultraThinMaterial)
+        }
+    }
+
+    @ViewBuilder
+    private var filterLoadingRow: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .progressViewStyle(CircularProgressViewStyle())
+                .scaleEffect(0.8)
+
+            Text("Loading filters...")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(.ultraThinMaterial)
+    }
+
+    // MARK: - Filter Options Caching
+    private func invalidateFilterOptions() {
+        filterOptionsTask?.cancel()
+        filterOptionsTask = nil
+        cachedFilterOptions = nil
+        isComputingFilterOptions = false
+    }
+
+    private func ensureFilterOptionsLoaded() {
+        guard cachedFilterOptions == nil, !isComputingFilterOptions else { return }
+
+        let tracksSnapshot = displayTracks
+        let albumLookupSnapshot = albumLookup
+        let filterConfigSnapshot = filterConfig
+
+        isComputingFilterOptions = true
+        filterOptionsTask?.cancel()
+        filterOptionsTask = Task.detached(priority: .utility) {
+            let options = TrackFiltering.computeOptions(
+                tracks: tracksSnapshot,
+                albumLookup: albumLookupSnapshot,
+                filterConfig: filterConfigSnapshot
+            )
+
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                if Task.isCancelled { return }
+                cachedFilterOptions = options
+                isComputingFilterOptions = false
+            }
         }
     }
 

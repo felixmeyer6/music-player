@@ -814,24 +814,6 @@ class PlayerEngine: NSObject, ObservableObject {
         return "[\(parts.joined(separator: ","))]"
     }
 
-    private func appStateSummary() -> String {
-        switch UIApplication.shared.applicationState {
-        case .active:
-            return "active"
-        case .inactive:
-            return "inactive"
-        case .background:
-            return "background"
-        @unknown default:
-            return "unknown"
-        }
-    }
-
-    private func currentQueueLabel() -> String {
-        let label = String(cString: __dispatch_queue_get_label(nil), encoding: .utf8)
-        return label ?? "unknown"
-    }
-    
     private func setupAudioSessionCategory(reason: String) throws {
         let s = AVAudioSession.sharedInstance()
         
@@ -841,16 +823,12 @@ class PlayerEngine: NSObject, ObservableObject {
         let desiredCategory = AVAudioSession.Category.playback
         let desiredMode = AVAudioSession.Mode.default
         let desiredOptions = describeCategoryOptions(options)
-        let appState = appStateSummary()
-        let thread = Thread.isMainThread ? "main" : "bg"
-        let queue = currentQueueLabel()
 
         do {
             try s.setCategory(desiredCategory, mode: desiredMode, options: options)
         } catch {
             let nsError = error as NSError
             print("❌ Audio session setCategory failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), desired: \(desiredCategory.rawValue)/\(desiredMode.rawValue) options=\(desiredOptions), route: \(audioRouteSummary(s)))")
-            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
             throw error
         }
         
@@ -869,15 +847,11 @@ class PlayerEngine: NSObject, ObservableObject {
         try setupAudioSessionCategory(reason: "activateAudioSession")
         
         // Always try to activate (iOS manages the actual state)
-        let appState = appStateSummary()
-        let thread = Thread.isMainThread ? "main" : "bg"
-        let queue = currentQueueLabel()
         do {
             try s.setActive(true, options: [])
         } catch {
             let nsError = error as NSError
             print("❌ Audio session setActive failed reason=activateAudioSession (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
-            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
             throw error
         }
         // print("⏲️ Audio buffer: \(s.ioBufferDuration)s")
@@ -890,9 +864,6 @@ class PlayerEngine: NSObject, ObservableObject {
         guard UIApplication.shared.applicationState == .background else { return }
 
         let s = AVAudioSession.sharedInstance()
-        let appState = appStateSummary()
-        let thread = Thread.isMainThread ? "main" : "bg"
-        let queue = currentQueueLabel()
 
         do {
             try s.setActive(false, options: [.notifyOthersOnDeactivation])
@@ -900,7 +871,6 @@ class PlayerEngine: NSObject, ObservableObject {
         } catch {
             let nsError = error as NSError
             print("❌ Audio session setActive(false) failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
-            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
         }
     }
     
@@ -1802,7 +1772,6 @@ class PlayerEngine: NSObject, ObservableObject {
             let nsError = error as NSError
             // Common CoreAudio paramErr (-50) can surface here on unsupported routes/rates.
             print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code), requested: \(targetSampleRate)Hz, route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
-            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
             // Avoid retry spam on the same unsupported rate.
             lastConfiguredNativeSampleRate = session.sampleRate
             return

@@ -16,8 +16,8 @@ struct PlaylistDetailScreen: View {
         TrackSorting.sort(tracks, by: sortOption, isPlaylist: true)
     }
 
-    private var hasFilterOptions: Bool {
-        TrackFiltering.hasFilterOptions(tracks: sortedTracks, albumLookup: albumLookup)
+    private var canShowFilterButton: Bool {
+        !tracks.isEmpty
     }
 
     var body: some View {
@@ -85,7 +85,7 @@ struct PlaylistDetailScreen: View {
         .navigationTitle(playlist.title)
         .navigationBarTitleDisplayMode(.inline)
         .modifier(CollectionDetailToolbar(
-            hasFilterOptions: hasFilterOptions,
+            hasFilterOptions: canShowFilterButton,
             filterState: filterState,
             sortOption: $sortOption,
             onSortChanged: saveSortPreference,
