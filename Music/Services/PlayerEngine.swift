@@ -109,6 +109,8 @@ class PlayerEngine: NSObject, ObservableObject {
     // Crossfade state
     private var isPrimaryActive = true
     private var crossfadeGeneration: UInt64 = 0
+    private var crossfadeRequestId: UInt64 = 0
+    private var pendingCrossfadeId: UInt64? = nil
     
     enum PlaybackState {
         case stopped
@@ -255,8 +257,6 @@ class PlayerEngine: NSObject, ObservableObject {
             try setupAudioSessionCategory(reason: "ensureAudioSessionSetup")
         } catch {
             print("Failed to setup audio session category: \(error)")
-            logAudioSessionState("ensureAudioSessionSetup failed")
-            // Continue anyway - we'll try to handle this when actually playing
         }
     }
     
@@ -514,6 +514,22 @@ class PlayerEngine: NSObject, ObservableObject {
         let settings = DeleteSettings.load()
         let duration = min(max(settings.crossfadeDuration, 0.1), 12.0)
         return (settings.crossfadeEnabled, duration)
+    }
+
+    private func nextCrossfadeRequestId() -> UInt64 {
+        crossfadeRequestId &+= 1
+        return crossfadeRequestId
+    }
+
+    private func cancelPendingCrossfade() {
+        pendingCrossfadeId = nil
+    }
+
+    private func canCrossfadeForManualChange(configDuration: TimeInterval) -> Bool {
+        if isCrossfading { return false }
+        if pendingCrossfadeId != nil { return false }
+        if playbackTime < configDuration { return false }
+        return true
     }
 
     private func fadePlayerNode(
@@ -834,18 +850,15 @@ class PlayerEngine: NSObject, ObservableObject {
         } catch {
             let nsError = error as NSError
             print("❌ Audio session setCategory failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), desired: \(desiredCategory.rawValue)/\(desiredMode.rawValue) options=\(desiredOptions), route: \(audioRouteSummary(s)))")
-            logAudioSessionState("setCategory failed (\(reason))", s)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
             throw error
         }
         
-        // iOS 18 Fix: Set preferred I/O buffer duration
         do {
             try s.setPreferredIOBufferDuration(0.050) // 50ms buffer - more stable under load
         } catch {
             let nsError = error as NSError
             print("⚠️ Preferred I/O buffer duration rejected (domain: \(nsError.domain), code: \(nsError.code), requested: 0.05s, route: \(audioRouteSummary(s)))")
-            logAudioSessionState("preferred IO buffer rejected", s)
         }
     }
     
@@ -864,11 +877,10 @@ class PlayerEngine: NSObject, ObservableObject {
         } catch {
             let nsError = error as NSError
             print("❌ Audio session setActive failed reason=activateAudioSession (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
-            logAudioSessionState("activateAudioSession setActive failed", s)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
             throw error
         }
-        print("⏲️ Audio buffer: \(s.ioBufferDuration)s")
+        // print("⏲️ Audio buffer: \(s.ioBufferDuration)s")
         
         UIApplication.shared.beginReceivingRemoteControlEvents()
     }
@@ -888,7 +900,6 @@ class PlayerEngine: NSObject, ObservableObject {
         } catch {
             let nsError = error as NSError
             print("❌ Audio session setActive(false) failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
-            logAudioSessionState("deactivateAudioSessionIfIdle failed", s)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
         }
     }
@@ -1111,8 +1122,6 @@ class PlayerEngine: NSObject, ObservableObject {
             try activateAudioSession()
         } catch {
             print("❌ Session activate failed: \(error)")
-            logAudioSessionState("activateAudioSession failed")
-            // Try to continue anyway - might still work
         }
         
         if playbackState == .paused {
@@ -1317,6 +1326,7 @@ class PlayerEngine: NSObject, ObservableObject {
     }
     
     private func cleanupCurrentPlayback(resetTime: Bool = false) async {
+        cancelPendingCrossfade()
         // Stop accessing security-scoped resources unless we are mid-crossfade.
         if !isCrossfading {
             stopAccessingSecurityScopedResources()
@@ -1550,9 +1560,11 @@ class PlayerEngine: NSObject, ObservableObject {
         // If we're already playing something else, try to crossfade instead of hard switching.
         if isPlaying, audioFile != nil, previousTrack?.stableId != track.stableId {
             let config = crossfadeConfiguration()
-            if config.enabled {
+            if config.enabled, canCrossfadeForManualChange(configDuration: config.duration) {
                 let didCrossfade = await crossfadeToTrack(at: targetIndex, duration: config.duration, reason: "play track")
                 if didCrossfade { return }
+            } else if config.enabled {
+                cancelPendingCrossfade()
             }
         }
 
@@ -1608,9 +1620,11 @@ class PlayerEngine: NSObject, ObservableObject {
 
         if shouldAutoplay, audioFile != nil {
             let config = crossfadeConfiguration()
-            if config.enabled {
+            if config.enabled, canCrossfadeForManualChange(configDuration: config.duration) {
                 let didCrossfade = await crossfadeToTrack(at: nextIndex, duration: config.duration, reason: "skip next")
                 if didCrossfade { return }
+            } else if config.enabled {
+                cancelPendingCrossfade()
             }
         }
 
@@ -1655,9 +1669,11 @@ class PlayerEngine: NSObject, ObservableObject {
 
         if wasPlaying, audioFile != nil {
             let config = crossfadeConfiguration()
-            if config.enabled {
+            if config.enabled, canCrossfadeForManualChange(configDuration: config.duration) {
                 let didCrossfade = await crossfadeToTrack(at: prevIndex, duration: config.duration, reason: "skip previous")
                 if didCrossfade { return }
+            } else if config.enabled {
+                cancelPendingCrossfade()
             }
         }
 
@@ -1771,7 +1787,6 @@ class PlayerEngine: NSObject, ObservableObject {
         } catch {
             let nsError = error as NSError
             print("❌ Audio session category setup failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
-            logAudioSessionState("pre-sample-rate category setup failed", session)
             return
         }
         
@@ -1787,7 +1802,6 @@ class PlayerEngine: NSObject, ObservableObject {
             let nsError = error as NSError
             // Common CoreAudio paramErr (-50) can surface here on unsupported routes/rates.
             print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code), requested: \(targetSampleRate)Hz, route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
-            logAudioSessionState("preferred sample rate rejected", session)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
             // Avoid retry spam on the same unsupported rate.
             lastConfiguredNativeSampleRate = session.sampleRate
@@ -1843,6 +1857,14 @@ class PlayerEngine: NSObject, ObservableObject {
 
         guard effectiveDuration >= 0.05 else { return false }
 
+        let requestId = nextCrossfadeRequestId()
+        pendingCrossfadeId = requestId
+        defer {
+            if pendingCrossfadeId == requestId {
+                pendingCrossfadeId = nil
+            }
+        }
+
         let nextTrack = playbackQueue[index]
         let oldURL = currentTrackURL
         let oldTrack = currentTrack
@@ -1851,6 +1873,10 @@ class PlayerEngine: NSObject, ObservableObject {
 
         do {
             let loaded = try await loadAudioFile(for: nextTrack, stopPreviousScopes: false)
+            guard pendingCrossfadeId == requestId else {
+                stopAccessingSecurityScopedResources(except: oldURL)
+                return false
+            }
             let nextFile = loaded.file
             let nextURL = loaded.url
 
@@ -1868,6 +1894,12 @@ class PlayerEngine: NSObject, ObservableObject {
             if !audioEngine.isRunning {
                 try audioEngine.start()
             }
+
+            guard pendingCrossfadeId == requestId else {
+                stopAccessingSecurityScopedResources(except: oldURL)
+                return false
+            }
+            pendingCrossfadeId = nil
 
             crossfadeGeneration &+= 1
             let generation = crossfadeGeneration
