@@ -42,64 +42,55 @@ struct LibraryView: View {
     @State private var showSearch = false
     @State private var settings = DeleteSettings.load()
     @State private var isRefreshing = false
-    @State private var showSyncToast = false
-    @State private var syncToastMessage = ""
-    @State private var syncToastIcon = "checkmark.circle.fill"
-    @State private var syncToastColor = Color.green
     @State private var newTracksFoundCount = 0
     @State private var syncCompleted = false
     
     // Helper function to show sync feedback
+    @MainActor
     private func showSyncFeedback(trackCountBefore: Int, trackCountAfter: Int) {
         let trackDifference = trackCountAfter - trackCountBefore
+        var message = ""
+        var icon = "checkmark.circle.fill"
+        var color: Color = .green
         
         // Set appropriate message and icon based on changes
         if trackDifference > 0 {
             // New tracks added
-            syncToastIcon = "plus.circle.fill"
-            syncToastColor = .green
+            icon = "plus.circle.fill"
+            color = .green
             if trackDifference == 1 {
-                syncToastMessage = NSLocalizedString("sync_one_new_track", value: "1 new track found", comment: "")
+                message = NSLocalizedString("sync_one_new_track", value: "1 new track found", comment: "")
             } else {
-                syncToastMessage = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new tracks found", comment: ""), trackDifference)
+                message = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new tracks found", comment: ""), trackDifference)
             }
         } else if trackDifference < 0 {
             // Tracks removed
             let deletedCount = abs(trackDifference)
-            syncToastIcon = "minus.circle.fill"
-            syncToastColor = .orange
+            icon = "minus.circle.fill"
+            color = .orange
             if deletedCount == 1 {
-                syncToastMessage = NSLocalizedString("sync_one_track_deleted", value: "1 track removed", comment: "")
+                message = NSLocalizedString("sync_one_track_deleted", value: "1 track removed", comment: "")
             } else {
-                syncToastMessage = String(format: NSLocalizedString("sync_multiple_tracks_deleted", value: "%d tracks removed", comment: ""), deletedCount)
+                message = String(format: NSLocalizedString("sync_multiple_tracks_deleted", value: "%d tracks removed", comment: ""), deletedCount)
             }
         } else {
             // No changes - but check if we tracked any during sync
             if newTracksFoundCount > 0 {
-                syncToastIcon = "plus.circle.fill"
-                syncToastColor = .green
+                icon = "plus.circle.fill"
+                color = .green
                 if newTracksFoundCount == 1 {
-                    syncToastMessage = NSLocalizedString("sync_one_new_track", value: "1 new track found", comment: "")
+                    message = NSLocalizedString("sync_one_new_track", value: "1 new track found", comment: "")
                 } else {
-                    syncToastMessage = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new tracks found", comment: ""), newTracksFoundCount)
+                    message = String(format: NSLocalizedString("sync_multiple_new_tracks", value: "%d new tracks found", comment: ""), newTracksFoundCount)
                 }
             } else {
-                syncToastIcon = "checkmark.circle.fill"
-                syncToastColor = .blue
-                syncToastMessage = NSLocalizedString("sync_no_changes", value: "Library is up to date", comment: "")
+                icon = "checkmark.circle.fill"
+                color = .blue
+                message = NSLocalizedString("sync_no_changes", value: "Library is up to date", comment: "")
             }
         }
         
-        withAnimation(.easeInOut(duration: 0.2)) {
-            showSyncToast = true
-        }
-        
-        // Auto-hide toast after 3 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showSyncToast = false
-            }
-        }
+        ToastManager.shared.show(message: message, icon: icon, color: color, duration: 3.0)
         
         // Reset tracking variables
         newTracksFoundCount = 0
@@ -410,35 +401,6 @@ struct LibraryView: View {
                 }
             }
         }
-        .overlay(
-            // Sync result toast notification
-            Group {
-                if showSyncToast {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Image(systemName: syncToastIcon)
-                                .foregroundColor(syncToastColor)
-                                .font(.system(size: 16, weight: .medium))
-                            Text(syncToastMessage)
-                                .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(.primary)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(.regularMaterial)
-                                .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
-                        )
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 120) // Space above mini player
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-                }
-            }
-                .animation(.easeInOut(duration: 0.3), value: showSyncToast)
-        )
         .sheet(isPresented: $showSearch) {
             SearchView(
                 allTracks: tracks,
@@ -853,10 +815,13 @@ struct SearchView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationBarBackButtonHidden()
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button(Localized.done) {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
                             dismiss()
+                        } label: {
+                            Image(systemName: "checkmark")
                         }
+                        .accessibilityLabel(Localized.done)
                         .foregroundColor(Color.white)
                     }
                 }

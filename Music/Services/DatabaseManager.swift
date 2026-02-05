@@ -7,6 +7,12 @@ import CryptoKit
 class DatabaseManager: @unchecked Sendable {
     static let shared = DatabaseManager()
 
+    struct PlaylistItemPresence {
+        let trackStableId: String
+        let position: Int
+        let hasTrack: Bool
+    }
+
     private var dbWriter: DatabaseWriter!
     private let maxRetries = 3
     private let retryDelay: UInt64 = 500_000_000 // 0.5 seconds in nanoseconds
@@ -565,6 +571,34 @@ class DatabaseManager: @unchecked Sendable {
         }
     }
 
+    func getExistingTrackStableIds(_ stableIds: [String]) throws -> Set<String> {
+        let uniqueIds = Array(Set(stableIds))
+        guard !uniqueIds.isEmpty else { return [] }
+
+        let chunkSize = 900
+
+        return try read { db in
+            var existing = Set<String>()
+            var index = 0
+
+            while index < uniqueIds.count {
+                let end = min(index + chunkSize, uniqueIds.count)
+                let chunk = Array(uniqueIds[index..<end])
+
+                let ids = try Track
+                    .filter(chunk.contains(Column("stable_id")))
+                    .select(Column("stable_id"))
+                    .asRequest(of: String.self)
+                    .fetchAll(db)
+
+                existing.formUnion(ids)
+                index = end
+            }
+
+            return existing
+        }
+    }
+
     func hasStaleDocumentsPaths(currentDocumentsPath: String) throws -> Bool {
         guard !currentDocumentsPath.isEmpty else { return false }
         return try read { db in
@@ -1063,6 +1097,30 @@ class DatabaseManager: @unchecked Sendable {
                 .filter(Column("playlist_id") == playlistId)
                 .order(Column("position"))
                 .fetchAll(db)
+        }
+    }
+
+    func getPlaylistItemTrackPresence(playlistId: Int64) throws -> [PlaylistItemPresence] {
+        return try read { db in
+            let sql = """
+                SELECT playlist_item.track_stable_id AS track_stable_id,
+                       playlist_item.position AS position,
+                       track.stable_id AS existing_stable_id
+                FROM playlist_item
+                LEFT JOIN track ON track.stable_id = playlist_item.track_stable_id
+                WHERE playlist_item.playlist_id = ?
+                ORDER BY playlist_item.position
+            """
+            let rows = try Row.fetchAll(db, sql: sql, arguments: [playlistId])
+
+            return rows.compactMap { row in
+                guard let stableId: String = row["track_stable_id"],
+                      let position: Int = row["position"] else {
+                    return nil
+                }
+                let existingStableId: String? = row["existing_stable_id"]
+                return PlaylistItemPresence(trackStableId: stableId, position: position, hasTrack: existingStableId != nil)
+            }
         }
     }
 

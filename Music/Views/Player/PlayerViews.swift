@@ -306,7 +306,13 @@ struct PlayerView: View {
     }
 
     private var artworkDragGesture: some Gesture {
-        DragGesture(minimumDistance: 15)
+        let horizontalThreshold: CGFloat = 80
+        let horizontalVelocityThreshold: CGFloat = 500
+        let verticalDistanceThreshold: CGFloat = 45
+        let verticalPredictedThreshold: CGFloat = 110
+        let verticalVelocityThreshold: CGFloat = 350
+
+        return DragGesture(minimumDistance: 15)
             .onChanged { value in
                 if !isAnimating {
                     // Determine direction on first significant movement
@@ -325,22 +331,36 @@ struct PlayerView: View {
             }
             .onEnded { value in
                 defer { isDragHorizontal = nil }
-                guard isDragHorizontal == true else {
+
+                let horizontalVelocity = value.predictedEndTranslation.width - value.translation.width
+                let verticalVelocity = value.predictedEndTranslation.height - value.translation.height
+
+                if isDragHorizontal == true {
+                    if value.translation.width > horizontalThreshold || horizontalVelocity > horizontalVelocityThreshold {
+                        handleSwipeRight()
+                    } else if value.translation.width < -horizontalThreshold || horizontalVelocity < -horizontalVelocityThreshold {
+                        handleSwipeLeft()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            dragOffset = 0
+                        }
+                    }
+                    return
+                }
+
+                guard isDragHorizontal == false else {
                     dragOffset = 0
                     return
                 }
-                let threshold: CGFloat = 80
-                let velocity = value.predictedEndTranslation.width - value.translation.width
 
-                if value.translation.width > threshold || velocity > 500 {
-                    handleSwipeRight()
-                } else if value.translation.width < -threshold || velocity < -500 {
-                    handleSwipeLeft()
-                } else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        dragOffset = 0
-                    }
+                // Downward swipe to close the player from the artwork.
+                if value.translation.height > verticalDistanceThreshold
+                    || value.predictedEndTranslation.height > verticalPredictedThreshold
+                    || verticalVelocity > verticalVelocityThreshold {
+                    NotificationCenter.default.post(name: NSNotification.Name("MinimizePlayer"), object: nil)
                 }
+
+                dragOffset = 0
             }
     }
 
@@ -1270,6 +1290,7 @@ struct TrackRowView: View, @MainActor Equatable {
     let isAudioPlaying: Bool
     let artistName: String?
     let albumName: String?
+    let isCurrentOverride: Bool? = nil
 
     let onTap: () -> Void
     let playlist: Playlist?
@@ -1293,7 +1314,10 @@ struct TrackRowView: View, @MainActor Equatable {
 
     // 2. Computed property is now based on passed params
     private var isCurrentlyPlaying: Bool {
-        activeTrackId == track.stableId
+        if let isCurrentOverride {
+            return isCurrentOverride
+        }
+        return activeTrackId == track.stableId
     }
 
     // 3. Equatable Conformance: Prevents redraws when PlayerEngine updates time
@@ -1303,6 +1327,7 @@ struct TrackRowView: View, @MainActor Equatable {
         lhs.isAudioPlaying == rhs.isAudioPlaying &&
         lhs.artistName == rhs.artistName &&
         lhs.albumName == rhs.albumName &&
+        lhs.isCurrentOverride == rhs.isCurrentOverride &&
         lhs.playlist?.id == rhs.playlist?.id &&
         lhs.sortOption == rhs.sortOption &&
         lhs.showDirectDeleteButton == rhs.showDirectDeleteButton

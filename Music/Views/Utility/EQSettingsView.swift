@@ -266,15 +266,21 @@ struct CreateManualEQView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(Localized.eqCancel) {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
+                    .accessibilityLabel(Localized.eqCancel)
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(Localized.eqCreate) {
+                    Button {
                         createPreset()
+                    } label: {
+                        Image(systemName: "checkmark")
                     }
+                    .accessibilityLabel(Localized.eqCreate)
                     .disabled(presetName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
@@ -350,15 +356,21 @@ struct ManualEQEditorView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Button(Localized.eqCancel) {
+                        Button {
                             dismiss()
+                        } label: {
+                            Image(systemName: "xmark")
                         }
+                        .accessibilityLabel(Localized.eqCancel)
                     }
 
                     ToolbarItem(placement: .navigationBarTrailing) {
-                        Button(Localized.eqSave) {
+                        Button {
                             saveChanges()
+                        } label: {
+                            Image(systemName: "checkmark")
                         }
+                        .accessibilityLabel(Localized.eqSave)
                     }
                 }
             }
@@ -508,9 +520,12 @@ struct GraphicEQImportView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(Localized.eqCancel) {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
+                    .accessibilityLabel(Localized.eqCancel)
                 }
             }
         }
@@ -615,9 +630,12 @@ struct TextImportView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(Localized.eqCancel) {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
+                    .accessibilityLabel(Localized.eqCancel)
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {

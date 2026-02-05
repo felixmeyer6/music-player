@@ -270,12 +270,15 @@ class AppCoordinator: ObservableObject {
         
         do {
             let playlistStates = try stateManager.getAllPlaylists()
-            
-            for playlistState in playlistStates {
-                // Check if playlist already exists in database
-                let existingPlaylists = try databaseManager.getAllPlaylists()
 
-                if let existingPlaylist = existingPlaylists.first(where: { $0.slug == playlistState.slug }) {
+            let existingPlaylists = try databaseManager.getAllPlaylists()
+            let existingPlaylistsBySlug = Dictionary(uniqueKeysWithValues: existingPlaylists.map { ($0.slug, $0) })
+
+            let allTrackIds = Set(playlistStates.flatMap { $0.items.map { $0.trackId } })
+            let existingTrackIds = try databaseManager.getExistingTrackStableIds(Array(allTrackIds))
+
+            for playlistState in playlistStates {
+                if let existingPlaylist = existingPlaylistsBySlug[playlistState.slug] {
                     // Playlist exists - sync tracks from cloud to database
                     guard let playlistId = existingPlaylist.id else { continue }
 
@@ -290,8 +293,7 @@ class AppCoordinator: ObservableObject {
 
                     if !tracksToAdd.isEmpty {
                         for trackId in tracksToAdd {
-                            // Check if track exists in database
-                            if let _ = try databaseManager.getTrack(byStableId: trackId) {
+                            if existingTrackIds.contains(trackId) {
                                 try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: trackId)
                             } else {
                                 print("⚠️ Track not found in database: \(trackId)")
@@ -306,8 +308,7 @@ class AppCoordinator: ObservableObject {
                     guard let playlistId = playlist.id else { continue }
 
                     for item in playlistState.items {
-                        // Check if track exists in database
-                        if let _ = try databaseManager.getTrack(byStableId: item.trackId) {
+                        if existingTrackIds.contains(item.trackId) {
                             try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: item.trackId)
                         } else {
                             print("⚠️ Track not found in database: \(item.trackId)")
@@ -368,16 +369,20 @@ class AppCoordinator: ObservableObject {
         do {
             let playlistStates = try stateManager.getAllPlaylists()
             let existingPlaylists = try databaseManager.getAllPlaylists()
-            
+            let existingPlaylistsBySlug = Dictionary(uniqueKeysWithValues: existingPlaylists.map { ($0.slug, $0) })
+
+            let allTrackIds = Set(playlistStates.flatMap { $0.items.map { $0.trackId } })
+            let existingTrackIds = try databaseManager.getExistingTrackStableIds(Array(allTrackIds))
+
             for playlistState in playlistStates {
-                if let existingPlaylist = existingPlaylists.first(where: { $0.slug == playlistState.slug }),
+                if let existingPlaylist = existingPlaylistsBySlug[playlistState.slug],
                    let playlistId = existingPlaylist.id {
                     
                     // Check if playlist is empty and try to restore tracks
                     let currentItems = try databaseManager.getPlaylistItems(playlistId: playlistId)
                     if currentItems.isEmpty {
                         for item in playlistState.items {
-                            if let _ = try databaseManager.getTrack(byStableId: item.trackId) {
+                            if existingTrackIds.contains(item.trackId) {
                                 try databaseManager.addToPlaylist(playlistId: playlistId, trackStableId: item.trackId)
                             } else {
                                 print("⚠️ Track still not found after fixes: \(item.trackId)")
@@ -529,11 +534,11 @@ class AppCoordinator: ObservableObject {
                 for playlist in playlists {
                     guard let playlistId = playlist.id else { continue }
 
-                    let dbPlaylistItems = try databaseManager.getPlaylistItems(playlistId: playlistId)
+                    let dbPlaylistItems = try databaseManager.getPlaylistItemTrackPresence(playlistId: playlistId)
 
                     var validItems: [(String, Date)] = []
                     for item in dbPlaylistItems {
-                        if let _ = try? databaseManager.getTrack(byStableId: item.trackStableId) {
+                        if item.hasTrack {
                             validItems.append((item.trackStableId, Date()))
                         } else {
                             print("⚠️ Skipping orphaned track in playlist '\(playlist.title)': \(item.trackStableId)")
@@ -594,16 +599,8 @@ class AppCoordinator: ObservableObject {
             guard let playlistId = playlist.id else { continue }
 
             do {
-                // Get playlist items IN ORDER (same as app displays)
-                let playlistItems = try databaseManager.getPlaylistItems(playlistId: playlistId)
-
-                // Preserve playlist order by fetching tracks one by one
-                var orderedTracks: [Track] = []
-                for item in playlistItems {
-                    if let track = try databaseManager.getTrack(byStableId: item.trackStableId) {
-                        orderedTracks.append(track)
-                    }
-                }
+                // Get playlist tracks IN ORDER (same as app displays)
+                let orderedTracks = try databaseManager.getPlaylistTracks(playlistId: playlistId)
 
                 // Get first 4 tracks for artwork mashup (in correct playlist order)
                 let artworkTracks = Array(orderedTracks.prefix(4))

@@ -132,7 +132,7 @@ struct GlobalToastOverlay: View {
                                 .foregroundColor(.primary)
                         }
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(.regularMaterial)

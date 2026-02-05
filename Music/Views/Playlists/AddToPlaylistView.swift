@@ -136,9 +136,12 @@ struct AddToPlaylistView: View {
                         .foregroundColor(.white)
                 }
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(Localized.cancel) {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
                     }
+                    .accessibilityLabel(Localized.cancel)
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button {

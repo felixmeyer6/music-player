@@ -131,9 +131,12 @@ struct SettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(Localized.done) {
+                    Button {
                         dismiss()
+                    } label: {
+                        Image(systemName: "checkmark")
                     }
+                    .accessibilityLabel(Localized.done)
                 }
             }
         }

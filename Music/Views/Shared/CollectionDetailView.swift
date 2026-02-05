@@ -194,6 +194,7 @@ struct CollectionDetailView: View {
             )
         }
         .onAppear {
+            
             if isFilterVisible {
                 ensureFilterOptionsLoaded()
             }
@@ -348,7 +349,6 @@ struct CollectionDetailView: View {
     @ViewBuilder
     private func trackRow(for track: Track) -> some View {
         let isSelected = selectedTracks.contains(track.stableId)
-        let editModeTrailingCompensation: CGFloat = isEditMode ? -12 : 0
         let artistName = artistLookup[track.artistId ?? -1]
         let albumName = albumLookup[track.albumId ?? -1]
 
@@ -435,7 +435,7 @@ struct CollectionDetailView: View {
         }
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: editModeTrailingCompensation))
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
     }
 
     // MARK: - Empty State
@@ -807,4 +807,89 @@ private struct FilterOptionsView: View {
             selectedOptions.insert(option)
         }
     }
+}
+
+#Preview("Playlist Edit Mode") {
+    let tracks: [Track] = [
+        Track(
+            id: 1,
+            stableId: "preview-1",
+            albumId: 1,
+            artistId: 10,
+            genreId: nil,
+            genre: nil,
+            rating: 4,
+            title: "Asamori",
+            durationMs: 210_000,
+            sampleRate: nil,
+            bitDepth: nil,
+            channels: nil,
+            path: "/tmp/preview.wav",
+            fileSize: nil,
+            waveformData: nil
+        ),
+        Track(
+            id: 2,
+            stableId: "preview-2",
+            albumId: 2,
+            artistId: 20,
+            genreId: nil,
+            genre: nil,
+            rating: 5,
+            title: "Bailando",
+            durationMs: 198_000,
+            sampleRate: nil,
+            bitDepth: nil,
+            channels: nil,
+            path: "/tmp/preview.wav",
+            fileSize: nil,
+            waveformData: nil
+        )
+    ]
+    let albumLookup: [Int64: String] = [
+        1: "Blue Album",
+        2: "Pink Album"
+    ]
+    let artistLookup: [Int64: String] = [
+        10: "Aexhy",
+        20: "Junkie Kid"
+    ]
+    let playlist = Playlist(
+        id: 1,
+        slug: "preview",
+        title: "Playlist",
+        createdAt: 0,
+        updatedAt: 0,
+        lastPlayedAt: 0,
+        customCoverImagePath: nil
+    )
+
+    return ZStack {
+        ScreenSpecificBackgroundView(screen: .playlistDetail)
+
+        CollectionDetailView(
+            title: "Playlist",
+            subtitle: "2 tracks",
+            artwork: nil,
+            displayTracks: tracks,
+            sortOptions: [.defaultOrder],
+            selectedSort: .defaultOrder,
+            onSelectSort: { _ in },
+            onPlay: { _ in },
+            onShuffle: { _ in },
+            onTrackTap: { _, _ in },
+            onPlayNext: { _ in },
+            onAddToQueue: { _ in },
+            playlist: playlist,
+            activeTrackId: nil,
+            isAudioPlaying: false,
+            isEditMode: true,
+            onDelete: { _ in },
+            onMove: { _, _ in },
+            albumLookup: albumLookup,
+            artistLookup: artistLookup,
+            filterState: nil
+        )
+    }
+    .environmentObject(AppCoordinator.shared)
 }

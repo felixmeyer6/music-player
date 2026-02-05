@@ -9,13 +9,14 @@ import CryptoKit
 @MainActor
 class ArtworkManager: ObservableObject {
     static let shared = ArtworkManager()
+    private nonisolated static let ioQueue = DispatchQueue(label: "com.musicplayer.artwork-io", qos: .utility)
 
     // Memory cache for quick access
     private var memoryCache: [String: UIImage] = [:]
     private var dominantColorCache: [String: Color] = [:]
     private var dominantColorTasks: [String: Task<Color, Never>] = [:]
 
-    // Persistent disk cache directory
+    // Persistent disk cache directory (stores raw artwork bytes)
     private let diskCacheURL: URL
 
     // Mapping file URL (maps track.stableId -> artwork hash)
@@ -112,10 +113,10 @@ class ArtworkManager: ObservableObject {
             return
         }
 
-        // Extract artwork from audio file
-        if let image = await extractArtwork(from: URL(fileURLWithPath: track.path)) {
+        // Extract raw artwork bytes from the audio file
+        if let artworkData = await extractArtworkData(from: URL(fileURLWithPath: track.path)) {
             // Save to disk cache (will deduplicate automatically)
-            await saveToDiskCache(image: image, stableId: track.stableId)
+            await saveToDiskCache(data: artworkData, stableId: track.stableId)
         }
     }
 
@@ -133,10 +134,11 @@ class ArtworkManager: ObservableObject {
         }
 
         // 3. Extract from audio file and cache (slow - should be rare after indexing)
-        if let image = await extractArtwork(from: URL(fileURLWithPath: track.path)) {
+        if let artworkData = await extractArtworkData(from: URL(fileURLWithPath: track.path)),
+           let image = UIImage(data: artworkData) {
             // Store in both caches
             memoryCache[track.stableId] = image
-            await saveToDiskCache(image: image, stableId: track.stableId)
+            await saveToDiskCache(data: artworkData, stableId: track.stableId)
             return image
         }
 
@@ -177,55 +179,70 @@ class ArtworkManager: ObservableObject {
             return nil
         }
 
-        let diskFile = diskCacheURL.appendingPathComponent("\(artworkHash).jpg")
+        let rawFile = diskCacheURL.appendingPathComponent("\(artworkHash).artwork")
+        let pngFile = diskCacheURL.appendingPathComponent("\(artworkHash).png")
+        let jpgFile = diskCacheURL.appendingPathComponent("\(artworkHash).jpg")
+        return await withCheckedContinuation { continuation in
+            ArtworkManager.ioQueue.async {
+                let fileURL: URL?
+                if FileManager.default.fileExists(atPath: rawFile.path) {
+                    fileURL = rawFile
+                } else if FileManager.default.fileExists(atPath: pngFile.path) {
+                    fileURL = pngFile
+                } else if FileManager.default.fileExists(atPath: jpgFile.path) {
+                    fileURL = jpgFile
+                } else {
+                    fileURL = nil
+                }
 
-        guard FileManager.default.fileExists(atPath: diskFile.path) else {
-            return nil
-        }
-
-        do {
-            let data = try Data(contentsOf: diskFile)
-            if let image = UIImage(data: data) {
-                return image
+                guard let fileURL else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                do {
+                    let data = try Data(contentsOf: fileURL)
+                    continuation.resume(returning: UIImage(data: data))
+                } catch {
+                    print("❌ Failed to load artwork from disk: \(error)")
+                    continuation.resume(returning: nil)
+                }
             }
-        } catch {
-            print("❌ Failed to load artwork from disk: \(error)")
         }
-
-        return nil
     }
 
     private func getArtworkHash(for stableId: String) async -> String? {
         return artworkMapping[stableId]
     }
 
-    private nonisolated func saveToDiskCache(image: UIImage, stableId: String) async {
-        // Compress to JPEG at 85% quality for faster loading and smaller size
-        guard let imageData = image.jpegData(compressionQuality: 0.85) else {
-            print("❌ Failed to compress artwork to JPEG")
-            return
+    private nonisolated func saveToDiskCache(data: Data, stableId: String) async {
+        let cacheURL = diskCacheURL
+        let hashString: String? = await withCheckedContinuation { continuation in
+            ArtworkManager.ioQueue.async {
+                // Compute hash of artwork data to deduplicate
+                let artworkHash = SHA256.hash(data: data)
+                let hashString = artworkHash.compactMap { String(format: "%02x", $0) }.joined()
+
+                let diskFile = cacheURL.appendingPathComponent("\(hashString).artwork")
+
+                // Check if artwork already exists
+                if FileManager.default.fileExists(atPath: diskFile.path) {
+                    continuation.resume(returning: hashString)
+                    return
+                }
+
+                // Save new artwork file
+                do {
+                    try data.write(to: diskFile, options: .atomic)
+                    continuation.resume(returning: hashString)
+                } catch {
+                    print("❌ Failed to save artwork to disk: \(error)")
+                    continuation.resume(returning: nil)
+                }
+            }
         }
 
-        // Compute hash of artwork data to deduplicate
-        let artworkHash = SHA256.hash(data: imageData)
-        let hashString = artworkHash.compactMap { String(format: "%02x", $0) }.joined()
-
-        let diskFile = diskCacheURL.appendingPathComponent("\(hashString).jpg")
-
-        // Check if artwork already exists
-        if FileManager.default.fileExists(atPath: diskFile.path) {
-            // Artwork already cached, just update mapping
-            await updateMapping(stableId: stableId, artworkHash: hashString)
-            return
-        }
-
-        // Save new artwork file
-        do {
-            try imageData.write(to: diskFile, options: .atomic)
-            await updateMapping(stableId: stableId, artworkHash: hashString)
-        } catch {
-            print("❌ Failed to save artwork to disk: \(error)")
-        }
+        guard let hashString else { return }
+        await updateMapping(stableId: stableId, artworkHash: hashString)
     }
 
     private func updateMapping(stableId: String, artworkHash: String) async {
@@ -269,19 +286,19 @@ class ArtworkManager: ObservableObject {
         }
     }
     
-    private nonisolated func extractArtwork(from url: URL) async -> UIImage? {
+    private nonisolated func extractArtworkData(from url: URL) async -> Data? {
         let ext = url.pathExtension.lowercased()
 
         if ext == "mp3" {
-            return await extractMp3Artwork(from: url)
+            return await extractMp3ArtworkData(from: url)
         } else if ext == "m4a" || ext == "mp4" || ext == "aac" {
-            return await extractM4AArtwork(from: url)
+            return await extractM4AArtworkData(from: url)
         }
 
         return nil
     }
     
-    private nonisolated func extractMp3Artwork(from url: URL) async -> UIImage? {
+    private nonisolated func extractMp3ArtworkData(from url: URL) async -> Data? {
         return await withCheckedContinuation { continuation in
             Task {
                 let asset = AVURLAsset(url: url)
@@ -292,9 +309,8 @@ class ArtworkManager: ObservableObject {
                     for item in metadata {
                         if item.commonKey == .commonKeyArtwork {
                             do {
-                                if let data = try await item.load(.dataValue),
-                                   let image = UIImage(data: data) {
-                                    continuation.resume(returning: image)
+                                if let data = try await item.load(.dataValue) {
+                                    continuation.resume(returning: data)
                                     return
                                 }
                             } catch {
@@ -314,15 +330,14 @@ class ArtworkManager: ObservableObject {
     
     // MARK: - M4A/AAC Artwork Extraction
 
-    private nonisolated func extractM4AArtwork(from url: URL) async -> UIImage? {
+    private nonisolated func extractM4AArtworkData(from url: URL) async -> Data? {
         let asset = AVURLAsset(url: url)
         guard let commonMetadata = try? await asset.load(.commonMetadata) else { return nil }
 
         for item in commonMetadata {
             if item.commonKey == .commonKeyArtwork,
-               let data = try? await item.load(.dataValue),
-               let image = UIImage(data: data) {
-                return image
+               let data = try? await item.load(.dataValue) {
+                return data
             }
         }
 
