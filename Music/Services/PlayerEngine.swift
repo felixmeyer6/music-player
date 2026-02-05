@@ -57,6 +57,8 @@ class PlayerEngine: NSObject, ObservableObject {
     private var hasSetupAudioSession = false
     private var hasSetupRemoteCommands = false
     private nonisolated(unsafe) var hasSetupAudioSessionNotifications = false
+    private var lastRemoteCommandAt: TimeInterval = 0
+    private var lastRemoteCommandKind = ""
     
     // Artwork caching
     private var cachedArtwork: MPMediaItemArtwork?
@@ -76,7 +78,6 @@ class PlayerEngine: NSObject, ObservableObject {
     // Enhanced Control Center synchronization (replaces MPNowPlayingSession approach)
     
     // System volume integration
-    private var pausedSilentPlayer: AVAudioPlayer?
     private var volumeObservation: NSKeyValueObservation?
 
     // Tiny fades to avoid clicks/pops on start/stop/seek/skip.
@@ -358,9 +359,6 @@ class PlayerEngine: NSObject, ObservableObject {
             // Recreate audio engine and nodes
             recreateAudioEngine()
             
-            // Reactivate audio session after reset
-            try? activateAudioSession()
-            
             // Restore playback if needed
             if let track = currentTrackCopy {
                 await loadTrack(track, preservePlaybackTime: true)
@@ -534,6 +532,20 @@ class PlayerEngine: NSObject, ObservableObject {
         hasSetupRemoteCommands = true
         setupRemoteCommands()
     }
+
+    private func shouldHandleRemoteCommand(_ kind: String) -> Bool {
+        let now = ProcessInfo.processInfo.systemUptime
+        let window: TimeInterval = 0.25
+        let grouped = Set(["play", "pause", "toggle"])
+        if now - lastRemoteCommandAt < window,
+           grouped.contains(kind),
+           grouped.contains(lastRemoteCommandKind) {
+            return false
+        }
+        lastRemoteCommandAt = now
+        lastRemoteCommandKind = kind
+        return true
+    }
     
     private func setupRemoteCommands() {
         let cc = MPRemoteCommandCenter.shared()
@@ -541,7 +553,8 @@ class PlayerEngine: NSObject, ObservableObject {
         // Play command handler - will be called from Control Center
         cc.playCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                self?.play()
+                guard let self, self.shouldHandleRemoteCommand("play") else { return }
+                self.play()
             }
             return .success
         }
@@ -549,7 +562,8 @@ class PlayerEngine: NSObject, ObservableObject {
         // Pause command handler - will be called from Control Center
         cc.pauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                self?.pause(fromControlCenter: true)
+                guard let self, self.shouldHandleRemoteCommand("pause") else { return }
+                self.pause(fromControlCenter: true)
             }
             return .success
         }
@@ -586,10 +600,11 @@ class PlayerEngine: NSObject, ObservableObject {
         // Toggle play/pause command (for headphone button and other accessories)
         cc.togglePlayPauseCommand.addTarget { [weak self] _ in
             Task { @MainActor in
-                if self?.isPlaying == true {
-                    self?.pause(fromControlCenter: true)
+                guard let self, self.shouldHandleRemoteCommand("toggle") else { return }
+                if self.isPlaying {
+                    self.pause(fromControlCenter: true)
                 } else {
-                    self?.play()
+                    self.play()
                 }
             }
             return .success
@@ -658,10 +673,12 @@ class PlayerEngine: NSObject, ObservableObject {
             return
         }
         
-        // Get accurate current time from node for Control Center synchronization
+        // Use live node timing only while actively playing to prevent scrub bar drift when paused.
         var currentTime = playbackTime
-        if let audioFile = audioFile,
-           hasSetupAudioEngine && audioEngine.isRunning,
+        if isPlaying,
+           let audioFile = audioFile,
+           hasSetupAudioEngine,
+           audioEngine.isRunning,
            let nodeTime = activePlayerNode.lastRenderTime,
            let playerTime = activePlayerNode.playerTime(forNodeTime: nodeTime) {
             let nodePlaybackTime = Double(playerTime.sampleTime) / audioFile.processingFormat.sampleRate
@@ -755,8 +772,6 @@ class PlayerEngine: NSObject, ObservableObject {
         if options.contains(.mixWithOthers) { parts.append("mixWithOthers") }
         if options.contains(.duckOthers) { parts.append("duckOthers") }
         if options.contains(.interruptSpokenAudioAndMixWithOthers) { parts.append("interruptSpokenAudioAndMix") }
-        if options.contains(.allowBluetoothHFP) { parts.append("allowBluetoothHFP") }
-        if options.contains(.allowBluetoothA2DP) { parts.append("allowBluetoothA2DP") }
         if options.contains(.allowAirPlay) { parts.append("allowAirPlay") }
         if options.contains(.defaultToSpeaker) { parts.append("defaultToSpeaker") }
         if #available(iOS 14.5, *) {
@@ -809,23 +824,20 @@ class PlayerEngine: NSObject, ObservableObject {
         let appState = appStateSummary()
         let thread = Thread.isMainThread ? "main" : "bg"
         let queue = currentQueueLabel()
-
-        print("🔎 AudioSession \(label): category=\(category) mode=\(mode) options=\(options) sr=\(sampleRate)Hz prefSR=\(preferredSampleRate)Hz ioBuffer=\(ioBuffer)s prefIO=\(preferredIOBuffer)s volume=\(outputVolume) otherAudio=\(otherAudio) secondaryShouldSilence=\(shouldSilence) appState=\(appState) thread=\(thread) queue=\(queue) outputs=\(outputs.isEmpty ? "none" : outputs) inputs=\(inputs.isEmpty ? "none" : inputs) availInputs=\(availableInputs) preferredInput=\(preferredInput)")
     }
     
     private func setupAudioSessionCategory(reason: String) throws {
         let s = AVAudioSession.sharedInstance()
         
-        // For background audio, avoid mixWithOthers - be the primary audio app
-        let options: AVAudioSession.CategoryOptions = [.allowAirPlay, .allowBluetoothA2DP]
+        // Playback-only app: no mic usage, so no Bluetooth/AirPlay options needed.
+        // Avoid setting options to prevent paramErr (-50) on some Bluetooth routes.
+        let options: AVAudioSession.CategoryOptions = []
         let desiredCategory = AVAudioSession.Category.playback
         let desiredMode = AVAudioSession.Mode.default
         let desiredOptions = describeCategoryOptions(options)
         let appState = appStateSummary()
         let thread = Thread.isMainThread ? "main" : "bg"
         let queue = currentQueueLabel()
-
-        print("🔎 AudioSession setCategory attempt reason=\(reason) desired=\(desiredCategory.rawValue)/\(desiredMode.rawValue) options=\(desiredOptions) appState=\(appState) thread=\(thread) queue=\(queue)")
 
         do {
             try s.setCategory(desiredCategory, mode: desiredMode, options: options)
@@ -834,7 +846,6 @@ class PlayerEngine: NSObject, ObservableObject {
             print("❌ Audio session setCategory failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), desired: \(desiredCategory.rawValue)/\(desiredMode.rawValue) options=\(desiredOptions), route: \(audioRouteSummary(s)))")
             logAudioSessionState("setCategory failed (\(reason))", s)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-            print("🔎 AudioSession setCategory call stack (\(reason)): \(stack)")
             throw error
         }
         
@@ -858,7 +869,6 @@ class PlayerEngine: NSObject, ObservableObject {
         let appState = appStateSummary()
         let thread = Thread.isMainThread ? "main" : "bg"
         let queue = currentQueueLabel()
-        print("🔎 AudioSession setActive attempt reason=activateAudioSession appState=\(appState) thread=\(thread) queue=\(queue)")
         do {
             try s.setActive(true, options: [])
         } catch {
@@ -866,12 +876,31 @@ class PlayerEngine: NSObject, ObservableObject {
             print("❌ Audio session setActive failed reason=activateAudioSession (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
             logAudioSessionState("activateAudioSession setActive failed", s)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-            print("🔎 AudioSession setActive call stack (activateAudioSession): \(stack)")
             throw error
         }
         print("⏲️ Audio buffer: \(s.ioBufferDuration)s")
         
         UIApplication.shared.beginReceivingRemoteControlEvents()
+    }
+
+    func deactivateAudioSessionIfIdle(reason: String) {
+        guard !isPlaying else { return }
+        guard UIApplication.shared.applicationState == .background else { return }
+
+        let s = AVAudioSession.sharedInstance()
+        let appState = appStateSummary()
+        let thread = Thread.isMainThread ? "main" : "bg"
+        let queue = currentQueueLabel()
+
+        do {
+            try s.setActive(false, options: [.notifyOthersOnDeactivation])
+            UIApplication.shared.endReceivingRemoteControlEvents()
+        } catch {
+            let nsError = error as NSError
+            print("❌ Audio session setActive(false) failed reason=\(reason) (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(s)))")
+            logAudioSessionState("deactivateAudioSessionIfIdle failed", s)
+            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
+        }
     }
     
     // MARK: - iOS 18 Audio Engine Reset Management
@@ -1137,9 +1166,6 @@ class PlayerEngine: NSObject, ObservableObject {
             playbackState = .playing
             startPlaybackTimer()
             
-            // End paused state monitoring
-            stopSilentPlaybackForPause()
-
             // Update Now Playing info with enhanced approach
             updateNowPlayingInfoEnhanced()
             updateWidgetData()
@@ -1253,11 +1279,10 @@ class PlayerEngine: NSObject, ObservableObject {
         updateNowPlayingInfoEnhanced()
         updateWidgetData()
         
-        // Ensure no silent playback is running while paused to keep Control Center state accurate
-        stopSilentPlaybackForPause()
-        
         // Save state when pausing
         savePlayerState()
+        
+        deactivateAudioSessionIfIdle(reason: "pauseInBackground")
     }
     
     @inline(__always)
@@ -1287,21 +1312,18 @@ class PlayerEngine: NSObject, ObservableObject {
         currentTrackURL = nil
         stopPlaybackTimer()
         
-        // Stop silent playback
-        stopSilentPlaybackForPause()
-        
         // Update Now Playing info to show stopped state (but keep track info)
         updateNowPlayingInfoEnhanced()
         
         // Don't clear remote commands during track transitions - keep Control Center connected
         // Remote commands should only be cleared when the app is truly shutting down
         
-        // Don't deactivate audio session during track transitions - keep Control Center connected
-        // Audio session should stay active to maintain Control Center connection
-        // Only deactivate when the app is truly backgrounded or user explicitly stops playback
+        // Deactivate audio session only when idle in background per Apple guidance.
         
         // Save state when stopping
         savePlayerState()
+        
+        deactivateAudioSessionIfIdle(reason: "stopInBackground")
     }
     
     private func cleanupCurrentPlayback(resetTime: Bool = false) async {
@@ -1409,41 +1431,6 @@ class PlayerEngine: NSObject, ObservableObject {
         
     }
     
-    private func startSilentPlaybackForPause() {
-        // Create a very quiet, looping audio player to maintain background execution
-        guard pausedSilentPlayer == nil else {
-            if pausedSilentPlayer?.isPlaying == false {
-                pausedSilentPlayer?.play()
-            }
-            return
-        }
-        
-        do {
-            // Create a tiny silent buffer programmatically
-            let format = AVAudioFormat(standardFormatWithSampleRate: 44100, channels: 1)!
-            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4410)! // 0.1 seconds at 44.1kHz
-            buffer.frameLength = 4410
-            
-            // Buffer is already silent (zero-filled by default)
-            
-            // Write to temporary file
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("pause_silence.caf")
-            let audioFile = try AVAudioFile(forWriting: tempURL, settings: format.settings)
-            try audioFile.write(from: buffer)
-            
-            // Create player with very low volume
-            pausedSilentPlayer = try AVAudioPlayer(contentsOf: tempURL)
-            pausedSilentPlayer?.volume = 0.001  // Nearly silent
-            pausedSilentPlayer?.numberOfLoops = -1  // Loop indefinitely
-            pausedSilentPlayer?.prepareToPlay()
-            pausedSilentPlayer?.play()
-        } catch {
-            print("❌ Failed to create silent player for pause: \(error)")
-            // Fallback to the original method
-            maintainAudioSessionForBackground()
-        }
-    }
-    
     // MARK: - Audio Scheduling Helper
     
     private func scheduleSegment(on node: AVAudioPlayerNode, from startFrame: AVAudioFramePosition, file: AVAudioFile) {
@@ -1491,65 +1478,6 @@ class PlayerEngine: NSObject, ObservableObject {
             }
         }
 
-    }
-    
-    private func stopSilentPlaybackForPause() {
-        pausedSilentPlayer?.stop()
-        pausedSilentPlayer = nil
-    }
-    
-    private func maintainAudioSessionForBackground() {
-        // Keep the audio session active to prevent app termination
-        Task { @MainActor in
-            do {
-                let session = AVAudioSession.sharedInstance()
-                let appState = appStateSummary()
-                let thread = "main"
-                let queue = currentQueueLabel()
-
-                // Only maintain session if we're not already active
-                guard !session.isOtherAudioPlaying else {
-                    print("🔎 AudioSession maintainAudioSessionForBackground skipped (other audio playing) appState=\(appState) thread=\(thread) queue=\(queue)")
-                    return
-                }
-
-                // Don't change category if already correct - this prevents the error
-                if session.category != .playback {
-                    let options: AVAudioSession.CategoryOptions = [.allowAirPlay, .allowBluetoothA2DP]
-                    let desiredOptions = describeCategoryOptions(options)
-                    print("🔎 AudioSession setCategory attempt reason=maintainAudioSessionForBackground desired=\(AVAudioSession.Category.playback.rawValue)/\(AVAudioSession.Mode.default.rawValue) options=\(desiredOptions) appState=\(appState) thread=\(thread) queue=\(queue)")
-                    do {
-                        try session.setCategory(.playback, mode: .default, options: options)
-                    } catch {
-                        let nsError = error as NSError
-                        print("❌ Audio session setCategory failed reason=maintainAudioSessionForBackground (domain: \(nsError.domain), code: \(nsError.code), desired: \(AVAudioSession.Category.playback.rawValue)/\(AVAudioSession.Mode.default.rawValue) options=\(desiredOptions), route: \(audioRouteSummary(session)))")
-                        logAudioSessionState("maintainAudioSessionForBackground setCategory failed", session)
-                        let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-                        print("🔎 AudioSession setCategory call stack (maintainAudioSessionForBackground): \(stack)")
-                        throw error
-                    }
-                }
-
-                // Only activate if not already active
-                if !session.secondaryAudioShouldBeSilencedHint {
-                    print("🔎 AudioSession setActive attempt reason=maintainAudioSessionForBackground appState=\(appState) thread=\(thread) queue=\(queue)")
-                    do {
-                        try session.setActive(true, options: [])
-                    } catch {
-                        let nsError = error as NSError
-                        print("❌ Audio session setActive failed reason=maintainAudioSessionForBackground (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
-                        logAudioSessionState("maintainAudioSessionForBackground setActive failed", session)
-                        let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-                        print("🔎 AudioSession setActive call stack (maintainAudioSessionForBackground): \(stack)")
-                        throw error
-                    }
-                }
-
-            } catch {
-                print("❌ Failed to maintain audio session during pause: \(error)")
-                // Don't try to maintain session if it fails - let the app handle it naturally
-            }
-        }
     }
     
     // MARK: - Index Normalization Helper
@@ -1847,28 +1775,13 @@ class PlayerEngine: NSObject, ObservableObject {
 
         let session = AVAudioSession.sharedInstance()
         
-        // Ensure the session is in a sane, active state before applying preferences.
+        // Ensure the session category is set before applying preferences.
         do {
             try setupAudioSessionCategory(reason: "configureAudioSession targetSR=\(targetSampleRate)")
         } catch {
             let nsError = error as NSError
             print("❌ Audio session category setup failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
             logAudioSessionState("pre-sample-rate category setup failed", session)
-            return
-        }
-        
-        do {
-            let appState = appStateSummary()
-            let thread = "async"
-            let queue = currentQueueLabel()
-            print("🔎 AudioSession setActive attempt reason=configureAudioSession pre-sample-rate appState=\(appState) thread=\(thread) queue=\(queue)")
-            try session.setActive(true, options: [])
-        } catch {
-            let nsError = error as NSError
-            print("❌ Audio session activation failed before sample rate config (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session)))")
-            logAudioSessionState("pre-sample-rate activation failed", session)
-            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-            print("🔎 AudioSession setActive call stack (configureAudioSession pre-sample-rate): \(stack)")
             return
         }
         
@@ -1886,28 +1799,13 @@ class PlayerEngine: NSObject, ObservableObject {
             print("⚠️ Preferred sample rate rejected (domain: \(nsError.domain), code: \(nsError.code), requested: \(targetSampleRate)Hz, route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
             logAudioSessionState("preferred sample rate rejected", session)
             let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-            print("🔎 AudioSession setPreferredSampleRate call stack: \(stack)")
             // Avoid retry spam on the same unsupported rate.
             lastConfiguredNativeSampleRate = session.sampleRate
             return
         }
         
-        do {
-            // Re-activate to encourage the system to apply the new preference promptly.
-            let appState = appStateSummary()
-            let thread = "async"
-            let queue = currentQueueLabel()
-            print("🔎 AudioSession setActive attempt reason=configureAudioSession post-sample-rate appState=\(appState) thread=\(thread) queue=\(queue)")
-            try session.setActive(true, options: [])
-            lastConfiguredNativeSampleRate = targetSampleRate
-        } catch {
-            let nsError = error as NSError
-            print("⚠️ Audio session re-activate failed after sample rate preference (domain: \(nsError.domain), code: \(nsError.code), route: \(audioRouteSummary(session))) - keeping \(session.sampleRate)Hz")
-            logAudioSessionState("post-sample-rate activation failed", session)
-            let stack = Thread.callStackSymbols.prefix(12).joined(separator: " | ")
-            print("🔎 AudioSession setActive call stack (configureAudioSession post-sample-rate): \(stack)")
-            lastConfiguredNativeSampleRate = session.sampleRate
-        }
+        
+        lastConfiguredNativeSampleRate = targetSampleRate
     }
     
     // MARK: - Timer and Updates
@@ -1976,7 +1874,6 @@ class PlayerEngine: NSObject, ObservableObject {
 
             ensureAudioEngineSetup(with: nextFile.processingFormat)
             ensureAudioSessionSetup()
-            try? activateAudioSession()
 
             if !audioEngine.isRunning {
                 try audioEngine.start()
