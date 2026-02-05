@@ -644,7 +644,10 @@ class PlayerEngine: NSObject, ObservableObject {
 
     func updateWidgetData() {
         guard let track = currentTrack else {
-            WidgetDataManager.shared.clearCurrentTrack()
+            let didClear = WidgetDataManager.shared.clearCurrentTrack()
+            if didClear {
+                WidgetCenter.shared.reloadTimelines(ofKind: "PlayerWidget")
+            }
             return
         }
         
@@ -675,8 +678,10 @@ class PlayerEngine: NSObject, ObservableObject {
                 backgroundColorHex: colorHex
             )
 
-            WidgetDataManager.shared.saveCurrentTrack(widgetData, artworkData: artworkData)
-            WidgetCenter.shared.reloadAllTimelines()
+            let didSave = WidgetDataManager.shared.saveCurrentTrack(widgetData, artworkData: artworkData)
+            if didSave {
+                WidgetCenter.shared.reloadTimelines(ofKind: "PlayerWidget")
+            }
         }
     }
     
@@ -809,34 +814,6 @@ class PlayerEngine: NSObject, ObservableObject {
     private func currentQueueLabel() -> String {
         let label = String(cString: __dispatch_queue_get_label(nil), encoding: .utf8)
         return label ?? "unknown"
-    }
-
-    private func logAudioSessionState(_ label: String, _ session: AVAudioSession = .sharedInstance()) {
-        let outputs = session.currentRoute.outputs
-            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
-            .joined(separator: ", ")
-        let inputs = session.currentRoute.inputs
-            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
-            .joined(separator: ", ")
-        let availableInputs = session.availableInputs?
-            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" }
-            .joined(separator: ", ") ?? "none"
-        let preferredInput = session.preferredInput
-            .map { "\($0.portType.rawValue) (\($0.portName)) [\($0.uid)]" } ?? "none"
-
-        let category = session.category.rawValue
-        let mode = session.mode.rawValue
-        let options = describeCategoryOptions(session.categoryOptions)
-        let sampleRate = String(format: "%.0f", session.sampleRate)
-        let ioBuffer = String(format: "%.3f", session.ioBufferDuration)
-        let preferredSampleRate = String(format: "%.0f", session.preferredSampleRate)
-        let preferredIOBuffer = String(format: "%.3f", session.preferredIOBufferDuration)
-        let outputVolume = String(format: "%.2f", session.outputVolume)
-        let otherAudio = session.isOtherAudioPlaying
-        let shouldSilence = session.secondaryAudioShouldBeSilencedHint
-        let appState = appStateSummary()
-        let thread = Thread.isMainThread ? "main" : "bg"
-        let queue = currentQueueLabel()
     }
     
     private func setupAudioSessionCategory(reason: String) throws {

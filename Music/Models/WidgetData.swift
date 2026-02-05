@@ -57,6 +57,16 @@ struct WidgetTrackData: Codable {
     }
 }
 
+extension WidgetTrackData: Equatable {
+    static func == (lhs: WidgetTrackData, rhs: WidgetTrackData) -> Bool {
+        lhs.trackId == rhs.trackId &&
+            lhs.title == rhs.title &&
+            lhs.artist == rhs.artist &&
+            lhs.isPlaying == rhs.isPlaying &&
+            lhs.backgroundColorHex == rhs.backgroundColorHex
+    }
+}
+
 // MARK: - Widget Data Manager
 final class WidgetDataManager: @unchecked Sendable {
     static let shared = WidgetDataManager()
@@ -72,10 +82,19 @@ final class WidgetDataManager: @unchecked Sendable {
     
     // MARK: - Track Data (without artwork to avoid 4MB limit)
     
-    func saveCurrentTrack(_ data: WidgetTrackData, artworkData: Data? = nil) {
+    @discardableResult
+    func saveCurrentTrack(_ data: WidgetTrackData, artworkData: Data? = nil) -> Bool {
         guard let userDefaults = userDefaults else {
             print("⚠️ Widget: Failed to access shared UserDefaults")
-            return
+            return false
+        }
+
+        if let existing = getCurrentTrack(), existing == data {
+            if let artworkData = artworkData, !artworkFileExists() {
+                saveArtwork(artworkData)
+                return true
+            }
+            return false
         }
         
         do {
@@ -90,8 +109,10 @@ final class WidgetDataManager: @unchecked Sendable {
             } else {
                 clearArtwork()
             }
+            return true
         } catch {
             print("❌ Widget: Failed to encode track data - \(error)")
+            return false
         }
     }
     
@@ -115,16 +136,25 @@ final class WidgetDataManager: @unchecked Sendable {
         }
     }
     
-    func clearCurrentTrack() {
+    @discardableResult
+    func clearCurrentTrack() -> Bool {
+        let hadData = userDefaults?.data(forKey: currentTrackKey) != nil
         userDefaults?.removeObject(forKey: currentTrackKey)
         userDefaults?.synchronize()
-        clearArtwork()
+        let removedArtwork = clearArtwork()
+        return hadData || removedArtwork
     }
     
     // MARK: - Artwork File Storage (avoids 4MB UserDefaults limit)
     
     private func getSharedContainerURL() -> URL? {
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.dev.neofx.music-player")
+    }
+
+    private func artworkFileExists() -> Bool {
+        guard let containerURL = getSharedContainerURL() else { return false }
+        let fileURL = containerURL.appendingPathComponent(artworkFileName)
+        return FileManager.default.fileExists(atPath: fileURL.path)
     }
     
     private func saveArtwork(_ data: Data) {
@@ -163,14 +193,17 @@ final class WidgetDataManager: @unchecked Sendable {
         }
     }
     
-    private func clearArtwork() {
-        guard let containerURL = getSharedContainerURL() else { return }
+    @discardableResult
+    private func clearArtwork() -> Bool {
+        guard let containerURL = getSharedContainerURL() else { return false }
         
         let fileURL = containerURL.appendingPathComponent(artworkFileName)
         
         if FileManager.default.fileExists(atPath: fileURL.path) {
             try? FileManager.default.removeItem(at: fileURL)
+            return true
         }
+        return false
     }
 }
 

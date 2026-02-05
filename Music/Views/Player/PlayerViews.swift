@@ -1524,8 +1524,13 @@ struct TrackRowView: View, @MainActor Equatable {
 
         accentColorTask = Task {
             let color = await ArtworkManager.shared.getDominantColor(for: track, artwork: image)
-            guard !Task.isCancelled, isCurrentlyPlaying else { return }
-            accentColor = color
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard isCurrentlyPlaying else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    accentColor = color
+                }
+            }
         }
     }
 
