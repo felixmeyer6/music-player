@@ -7,6 +7,7 @@ Music is a high-quality music player supporting iCloud and local storage based o
 ### 🎧 Audio Playback
 - **Audio Format Support**: MP3, WAV, AAC, M4A
 - **Graphic Equalizer**: GraphicEQ support with ability to save and switch configs
+- **Crossfade**: Configurable crossfade between tracks
 
 ### 📚 Music Library Management
 - **Dual Storage Support**: Choose between iCloud Drive or local storage
